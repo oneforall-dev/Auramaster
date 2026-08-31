@@ -10,9 +10,15 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        allowedHosts: true,
         watch: {
           ignored: ['**/.data/**', '**/users.json', '**/users_registry.csv', '**/user_vault.enc.json', '**/*.csv']
         }
+      },
+      preview: {
+        port: 3000,
+        host: '0.0.0.0',
+        allowedHosts: true
       },
       plugins: [react(), tailwindcss(), secureBackendPlugin()],
       define: {
