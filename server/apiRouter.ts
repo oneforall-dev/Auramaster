@@ -89,6 +89,12 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       return true;
     }
 
+    // 0.1 Public Google OAuth Client ID endpoint
+    if (pathname === '/api/auth/google-client-id' && req.method === 'GET') {
+      const clientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
+      return sendJson(200, { clientId });
+    }
+
     // 1. Google OAuth Login Endpoint (JSON API)
     if (pathname === '/api/auth/google' && req.method === 'POST') {
       const body = await getBody();

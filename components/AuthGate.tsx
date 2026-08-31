@@ -16,7 +16,23 @@ export const AuthGate: React.FC<AuthGateProps> = ({ lang, onLanguageChange, onLo
 
   const t = getT(lang);
 
-  const googleClientId = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || (process.env as any).GOOGLE_CLIENT_ID || '';
+  const [googleClientId, setGoogleClientId] = useState<string>(() => {
+    return (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || (process.env as any).GOOGLE_CLIENT_ID || '';
+  });
+
+  // Fetch client ID from VPS backend if not present in build
+  useEffect(() => {
+    if (!googleClientId) {
+      fetch('/api/auth/google-client-id')
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.clientId) {
+            setGoogleClientId(data.clientId);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [googleClientId]);
 
   // Listen for storage changes from OAuth callback popup
   useEffect(() => {
@@ -34,7 +50,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ lang, onLanguageChange, onLo
 
   // Initialize Google Identity Services (GSI)
   useEffect(() => {
-    if (window.google?.accounts?.id && googleButtonContainerRef.current) {
+    if (googleClientId && window.google?.accounts?.id && googleButtonContainerRef.current) {
       try {
         window.google.accounts.id.initialize({
           client_id: googleClientId.trim(),
@@ -73,10 +89,20 @@ export const AuthGate: React.FC<AuthGateProps> = ({ lang, onLanguageChange, onLo
 
   // Launch Direct Google OAuth 2.0 Flow
   const handleLaunchGoogleOAuth = () => {
+    const effectiveClientId = googleClientId.trim();
+    if (!effectiveClientId) {
+      setError(
+        lang === 'es'
+          ? '⚠️ Falta configurar GOOGLE_CLIENT_ID en el archivo .env de tu servidor VPS.'
+          : '⚠️ GOOGLE_CLIENT_ID is missing in your VPS .env file.'
+      );
+      return;
+    }
+
     setLoading(true);
     setError('');
     const redirectUri = `${window.location.origin}/auth/google/callback`;
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(googleClientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20email%20profile&prompt=select_account`;
+    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(effectiveClientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20email%20profile&prompt=select_account`;
 
     const width = 520;
     const height = 640;
