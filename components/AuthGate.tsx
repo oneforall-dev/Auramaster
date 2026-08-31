@@ -34,7 +34,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ lang, onLanguageChange, onLo
     }
   }, [googleClientId]);
 
-  // Listen for storage changes from OAuth callback popup
+  // Listen for storage and postMessage events from OAuth callback popup
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'auramaster_user_profile' && e.newValue) {
@@ -44,8 +44,19 @@ export const AuthGate: React.FC<AuthGateProps> = ({ lang, onLanguageChange, onLo
         } catch (err) {}
       }
     };
+
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'AURAMASTER_AUTH_SUCCESS' && e.data?.user) {
+        if (onLoginSuccess) onLoginSuccess(e.data.user);
+      }
+    };
+
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    window.addEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('message', handleMessage);
+    };
   }, [onLoginSuccess]);
 
   // Initialize Google Identity Services (GSI)

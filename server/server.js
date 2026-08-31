@@ -7,6 +7,31 @@ import { handleApiRequest } from './apiRouter.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Automatically load .env file from project root
+function loadEnvFile() {
+  const envPath = path.resolve(__dirname, '../.env');
+  if (fs.existsSync(envPath)) {
+    try {
+      const content = fs.readFileSync(envPath, 'utf8');
+      content.split('\n').forEach(line => {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+          const idx = trimmed.indexOf('=');
+          const key = trimmed.slice(0, idx).trim();
+          const val = trimmed.slice(idx + 1).trim().replace(/^["'](.*)["']$/, '$1');
+          if (key && !process.env[key]) {
+            process.env[key] = val;
+          }
+        }
+      });
+      console.log('[Environment] Loaded .env configuration file in VPS server.');
+    } catch (e) {
+      console.warn('[Environment] Warning reading .env file:', e);
+    }
+  }
+}
+loadEnvFile();
+
 const PORT = process.env.PORT || 3000;
 const DIST_DIR = path.resolve(__dirname, '../dist');
 
