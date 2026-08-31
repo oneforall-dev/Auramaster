@@ -1,0 +1,8 @@
+{
+  "name": "AuraMaster AI - Mix 4.0",
+  "description": "An intelligent web-based mini-DAW and mastering studio using Web Audio API and Gemini AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
