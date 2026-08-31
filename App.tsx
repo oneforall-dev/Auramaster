@@ -456,13 +456,13 @@ export default function App() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        setTimeout(() => URL.revokeObjectURL(url), 15000);
         setExportedFileName(downloadName);
         setIsExportSuccessOpen(true);
       }
     } catch (err) {
       console.error("Download single track error:", err);
-      alert("Error downloading file.");
+      alert("Error al exportar la pista.");
     }
   };
 
@@ -492,13 +492,13 @@ export default function App() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        setTimeout(() => URL.revokeObjectURL(url), 20000);
         setExportedFileName(zipName);
         setIsExportSuccessOpen(true);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("ZIP creation error:", err);
-      alert("Error creating ZIP archive.");
+      alert(`Error al generar archivo ZIP: ${err?.message || 'Revisa la consola'}`);
     } finally {
       setIsExportingZip(false);
     }
