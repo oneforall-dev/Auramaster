@@ -11,31 +11,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Patrick+Hand&display=swap" rel="stylesheet">
     <!-- Official Google Identity Services SDK -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script>
-      window.onerror = function(msg, url, lineNo, columnNo, error) {
-        console.error('GLOBAL ERROR:', msg, url, lineNo, error);
-        var errDiv = document.getElementById('debug-error-box');
-        if (!errDiv) {
-          errDiv = document.createElement('div');
-          errDiv.id = 'debug-error-box';
-          errDiv.style = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#1a0505;color:#ff6b6b;padding:30px;font-family:monospace;font-size:14px;z-index:9999999;overflow:auto;white-space:pre-wrap;';
-          document.body ? document.body.appendChild(errDiv) : document.documentElement.appendChild(errDiv);
-        }
-        errDiv.innerHTML = '<h2>🚨 Client Error Caught:</h2>' + msg + '\n\nFile: ' + url + ':' + lineNo + ':' + columnNo + '\n\nStack:\n' + (error ? error.stack : 'N/A');
-        return false;
-      };
-      window.onunhandledrejection = function(event) {
-        console.error('PROMISE REJECTION:', event.reason);
-        var errDiv = document.getElementById('debug-error-box');
-        if (!errDiv) {
-          errDiv = document.createElement('div');
-          errDiv.id = 'debug-error-box';
-          errDiv.style = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#1a0505;color:#ff6b6b;padding:30px;font-family:monospace;font-size:14px;z-index:9999999;overflow:auto;white-space:pre-wrap;';
-          document.body ? document.body.appendChild(errDiv) : document.documentElement.appendChild(errDiv);
-        }
-        errDiv.innerHTML = '<h2>🚨 Unhandled Promise Rejection:</h2>' + (event.reason ? (event.reason.stack || event.reason.message || event.reason) : 'Unknown reason');
-      };
-    </script>
   </head>
   <body>
     <div class="bg-noise"></div>
