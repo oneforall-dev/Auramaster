@@ -184,8 +184,8 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
       onPeakCalculated(20 * Math.log10(safeMax));
     }
 
-    const maxPeak = overallAbsMax > 0.05 ? overallAbsMax : 0.891;
-    const scaleFactor = 0.92 / maxPeak;
+    // True 1:1 physical dBFS amplitude scale (1.0 = 0 dBFS ceiling)
+    const scaleFactor = 1.0;
 
     return { mins, maxs, scaleFactor, numPoints };
   }, [audioBuffer]);
@@ -231,17 +231,17 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
       ctx.fillRect(0, 0, drawWidth, drawHeight);
 
       const centerY = drawHeight / 2;
-      const PADDING_Y = 18;
+      const PADDING_Y = 16;
       const amp = centerY - PADDING_Y;
 
-      // 1. COMPLETE MASTERING dB RULER GUIDELINES
+      // 1. COMPLETE MASTERING dB RULER GUIDELINES (True 1:1 Physical dBFS Scale)
       const getYPos = (db: number) => {
         if (db === 0) return amp;
         const lin = Math.pow(10, db / 20);
-        return amp * 0.92 * lin;
+        return amp * lin;
       };
 
-      // 0 dBFS lines (Top & Bottom)
+      // 0 dBFS lines (Top & Bottom Full Scale)
       const y0Top = centerY - amp;
       const y0Bot = centerY + amp;
       ctx.setLineDash([]);
