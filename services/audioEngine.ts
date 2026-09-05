@@ -871,21 +871,31 @@ export class AudioEngine {
     newParams.stereoWidth = 1.15;
     decisions.push('Stereo image widened (+15%) with mono-compatible side matrix');
 
-    newParams.distortion.enabled = false;
-    newParams.distortion.amount = 0;
+    // Subtle Analog Tape Console Saturation (Adds body, harmonics & perceived loudness without peak overs)
+    newParams.distortion.enabled = true;
+    newParams.distortion.mode = 'tape';
+    newParams.distortion.amount = 0.06;
+    decisions.push('Analog Tape Console Harmonics engaged (subtle 2nd/3rd harmonics) for rich analog body and density');
 
-    // 5. Loudness Normalization & True-Peak Limiting Stage
-    // Target: -13.5 LUFS-I and Max -1.0 dBTP
+    // Transient Sculpting (Snap & Punch)
+    newParams.transient.enabled = true;
+    newParams.transient.amount = 8;
+    newParams.transient.sustain = 4;
+    decisions.push('Transient Sculptor calibrated for crisp attack (+8%) and natural acoustic sustain');
+
+    // 5. Loudness Normalization & Adaptive True-Peak Limiting Stage
+    // Target: -13.5 LUFS-I and Adaptive True Peak (between -1.0 dBTP and -1.1 dBTP depending on crest factor)
+    const adaptiveCeiling = beforeStats.crestFactor < 10 ? -1.1 : -1.0;
     const lufsDeficit = TARGET_LUFS - beforeStats.integratedLUFS;
     const initialGainDb = Math.max(-18, Math.min(25, lufsDeficit));
     const startGain = Number.isFinite(currentParams.gain) && currentParams.gain > 0.1 ? currentParams.gain : 1.0;
     newParams.gain = Math.max(0.1, Math.min(15.0, startGain * Math.pow(10, initialGainDb / 20)));
 
-    // True-Peak Limiter with -1.0 dBTP ceiling & smooth soft-knee
+    // True-Peak Limiter with adaptive ceiling & smooth soft-knee
     newParams.limiter.enabled = true;
-    newParams.limiter.threshold = MAX_TRUE_PEAK;
+    newParams.limiter.threshold = adaptiveCeiling;
     newParams.limiter.breathe = 0;
-    decisions.push('Mastering Limiter engaged with strict -1.0 dBTP ceiling and smooth 8dB knee to eliminate hard clipping');
+    decisions.push(`Adaptive True Peak Limiter calibrated to ${adaptiveCeiling.toFixed(1)} dBTP ceiling with smooth 8dB soft-knee`);
 
     // Stage 3: Render Mastered Preview Audio & Closed-Loop Precision Refinement
     let masteredBuffer = await this.renderPreview(newParams, tracks);
