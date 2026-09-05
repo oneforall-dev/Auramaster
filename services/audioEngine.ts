@@ -777,7 +777,8 @@ export class AudioEngine {
     const decisions: string[] = [];
 
     // Target specifications
-    const TARGET_LUFS = -14.0;
+    // Target: -13.5 LUFS-I (optimal loudness in user's -13.1 to -14.9 LUFS target range) and Max -1.0 dBTP
+    const TARGET_LUFS = -13.5;
     const MAX_TRUE_PEAK = -1.0;
 
     // 1. Tonal Balance & 5-Band EQ Strategy
@@ -786,10 +787,10 @@ export class AudioEngine {
     // Low-end balance: gentle sub-rumble cleanup + punch
     newParams.eq.low.frequency = 80;
     if (beforeStats.crestFactor > 12) {
-      newParams.eq.low.gain = 1.0;
-      decisions.push('Low-end warmth and sub-bass foundation enhanced (+1.0 dB @ 80Hz)');
+      newParams.eq.low.gain = 1.2;
+      decisions.push('Low-end warmth and sub-bass foundation enhanced (+1.2 dB @ 80Hz)');
     } else {
-      newParams.eq.low.gain = 0.5;
+      newParams.eq.low.gain = 0.8;
       decisions.push('Low-end balanced and sub-frequencies (<20Hz) cleanly filtered');
     }
 
@@ -806,31 +807,31 @@ export class AudioEngine {
     if (hasMultipleStems && hasVocalStem) {
       newParams.eq.mid.frequency = 2200;
       newParams.eq.mid.q = 0.9;
-      newParams.eq.mid.gain = 0.6;
+      newParams.eq.mid.gain = 0.8;
       decisions.push('Stem Mix Vocal Focus: Vocal presence boosted (+2.4 dB @ 3.4kHz, +2.2 dB @ 11.5kHz air) with dedicated -1.8 dB pocket carved into instrumental stems to keep vocals forward.');
     } else if (hasMultipleStems) {
       newParams.eq.mid.frequency = 2000;
       newParams.eq.mid.q = 0.9;
-      newParams.eq.mid.gain = 0.5;
-      decisions.push('Multi-Stem Cohesion: Midrange balanced across stems (+0.5 dB @ 2.0kHz)');
+      newParams.eq.mid.gain = 0.7;
+      decisions.push('Multi-Stem Cohesion: Midrange balanced across stems (+0.7 dB @ 2.0kHz)');
     } else {
       // Full stereo master (single audio file)
       newParams.eq.mid.frequency = 3200;
       newParams.eq.mid.q = 1.0;
-      newParams.eq.mid.gain = 1.2;
-      decisions.push('Stereo Master Vocal Unmasking: Mid-channel presence focused (+1.2 dB @ 3.2kHz) and pristine air (+1.4 dB @ 10.5kHz) with +15% side stereo expansion to lift the voice out of the music.');
+      newParams.eq.mid.gain = 1.4;
+      decisions.push('Stereo Master Vocal Unmasking: Mid-channel presence focused (+1.4 dB @ 3.2kHz) and pristine air (+1.5 dB @ 10.5kHz) with +15% side stereo expansion to lift the voice out of the music.');
     }
 
     // High-Mid harshness control (3.5kHz - 5.5kHz)
     newParams.eq.highMid.frequency = 4200;
     newParams.eq.highMid.q = 1.3;
-    newParams.eq.highMid.gain = -0.5;
-    decisions.push('Harsh high-mid frequencies smoothed to prevent ear fatigue (-0.5 dB @ 4.2kHz)');
+    newParams.eq.highMid.gain = -0.4;
+    decisions.push('Harsh high-mid frequencies smoothed to prevent ear fatigue (-0.4 dB @ 4.2kHz)');
 
     // High Air & Sparkle (10kHz - 20kHz)
     newParams.eq.high.frequency = 10500;
-    newParams.eq.high.gain = 1.4;
-    decisions.push('High-end air, sheen, and transient clarity enhanced (+1.4 dB @ 10.5kHz)');
+    newParams.eq.high.gain = 1.6;
+    decisions.push('High-end air, sheen, and transient clarity enhanced (+1.6 dB @ 10.5kHz)');
 
     // 2. Dynamic Clean Control
     newParams.gate.enabled = false;
@@ -867,14 +868,14 @@ export class AudioEngine {
     }
 
     // 4. Stereo Imaging & Analog Warmth
-    newParams.stereoWidth = 1.10;
-    decisions.push('Stereo image widened (+10%) with mono-compatible side matrix');
+    newParams.stereoWidth = 1.15;
+    decisions.push('Stereo image widened (+15%) with mono-compatible side matrix');
 
     newParams.distortion.enabled = false;
     newParams.distortion.amount = 0;
 
     // 5. Loudness Normalization & True-Peak Limiting Stage
-    // Target: -14.0 LUFS-I and Max -1.0 dBTP
+    // Target: -13.5 LUFS-I and Max -1.0 dBTP
     const lufsDeficit = TARGET_LUFS - beforeStats.integratedLUFS;
     const initialGainDb = Math.max(-18, Math.min(25, lufsDeficit));
     const startGain = Number.isFinite(currentParams.gain) && currentParams.gain > 0.1 ? currentParams.gain : 1.0;
@@ -892,7 +893,7 @@ export class AudioEngine {
       ? await this.calculateAccurateDSPMetrics(masteredBuffer)
       : null;
 
-    // Multi-iteration closed-loop convergence towards target LUFS (-14.0 LUFS)
+    // Multi-iteration closed-loop convergence towards target LUFS (-13.5 LUFS)
     for (let iter = 0; iter < 4; iter++) {
       if (afterMetrics && Number.isFinite(afterMetrics.integratedLUFS) && afterMetrics.integratedLUFS > -60) {
         const currentLUFS = afterMetrics.integratedLUFS;
@@ -934,8 +935,8 @@ export class AudioEngine {
       after: afterStats,
       decisions,
       appliedParams: newParams,
-      targetMet: afterStats.integratedLUFS <= -13.8 && afterStats.truePeakDbTP <= -1.0,
-      statusNote: 'Spotify & Streaming Standard Met: LUFS-I ≤ -14.0 | True Peak ≤ -1.0 dBTP',
+      targetMet: afterStats.integratedLUFS >= -14.9 && afterStats.integratedLUFS <= -13.1 && afterStats.truePeakDbTP <= -1.0,
+      statusNote: `Loudness Optimizado: ${afterStats.integratedLUFS.toFixed(1)} LUFS-I (Rango -13.1 a -14.9) | True Peak: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`,
       timestamp: Date.now()
     };
 

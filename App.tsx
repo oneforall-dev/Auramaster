@@ -52,7 +52,7 @@ const DEFAULT_PARAMS: MasteringChainParams = {
   modulation: { enabled: false, type: 'chorus', mix: 0, rate: 1.5, depth: 50, feedback: 0 },
   delay: { enabled: false, mix: 0, time: 0.3, feedback: 0.3 },
   reverb: { enabled: false, mix: 0, decay: 2.0 },
-  gain: 1.25, // +2dB clean mastering gain
+  gain: 1.45, // +3.2dB clean mastering gain
   stereoWidth: 1.15, // +15% enhanced stereo air
   limiter: { enabled: true, threshold: -1.0, breathe: 0 } // Strict -1.0dB true-peak ceiling with soft knee
 };
