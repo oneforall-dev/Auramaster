@@ -381,94 +381,10 @@ export class AudioEngine {
       return 'other';
   }
 
-  private createStemChain(ctx: BaseAudioContext, type: StemType): { input: GainNode, output: AudioNode, nodes: AudioNode[] } {
-      const nodes: AudioNode[] = [];
+  private createStemChain(ctx: BaseAudioContext, _type: StemType): { input: GainNode, output: AudioNode, nodes: AudioNode[] } {
       const input = ctx.createGain();
-      nodes.push(input);
-      
-      let chain: AudioNode = input;
-
-      if (type === 'vocals') {
-          // 1. High-Pass Filter @ 80Hz: Clean rumble without cutting body
-          const hpf = ctx.createBiquadFilter();
-          hpf.type = 'highpass'; hpf.frequency.value = 80;
-          chain.connect(hpf); chain = hpf; nodes.push(hpf);
-
-          // 2. Gentle Low-Mid Scoop @ 320Hz: Remove boxiness without thinning vocals
-          const eqMud = ctx.createBiquadFilter();
-          eqMud.type = 'peaking'; eqMud.frequency.value = 320; eqMud.gain.value = -1.0; eqMud.Q.value = 1.0;
-          chain.connect(eqMud); chain = eqMud; nodes.push(eqMud);
-
-          // 3. Core Intelligibility & Front-Plane Presence @ 3.4kHz: Smooth articulation
-          const eqPres = ctx.createBiquadFilter();
-          eqPres.type = 'peaking'; eqPres.frequency.value = 3400; eqPres.gain.value = 1.2; eqPres.Q.value = 0.9;
-          chain.connect(eqPres); chain = eqPres; nodes.push(eqPres);
-
-          // 4. Vocal High-End Air @ 11.5kHz: Smooth sheen
-          const eqAir = ctx.createBiquadFilter();
-          eqAir.type = 'highshelf'; eqAir.frequency.value = 11500; eqAir.gain.value = 1.2;
-          chain.connect(eqAir); chain = eqAir; nodes.push(eqAir);
-
-          // 5. Transparent Vocal Dynamics Leveler: Gentle 2:1 ratio to preserve natural expression
-          const comp = ctx.createDynamicsCompressor();
-          comp.threshold.value = -20; comp.ratio.value = 2.0; comp.attack.value = 0.03; comp.release.value = 0.20;
-          chain.connect(comp); chain = comp; nodes.push(comp);
-      } 
-      else if (type === 'drums') {
-          const drive = ctx.createWaveShaper();
-          drive.curve = this.makeTapeCurve(10); drive.oversample = '2x';
-          chain.connect(drive); chain = drive; nodes.push(drive);
-
-          const eqKick = ctx.createBiquadFilter();
-          eqKick.type = 'peaking'; eqKick.frequency.value = 60; eqKick.gain.value = 3; eqKick.Q.value = 1.0;
-          chain.connect(eqKick); chain = eqKick; nodes.push(eqKick);
-
-          // Carve small pocket around 3.2kHz on drums to keep snare snap without overpowering vocal
-          const eqVocalNotch = ctx.createBiquadFilter();
-          eqVocalNotch.type = 'peaking'; eqVocalNotch.frequency.value = 3200; eqVocalNotch.gain.value = -1.0; eqVocalNotch.Q.value = 1.2;
-          chain.connect(eqVocalNotch); chain = eqVocalNotch; nodes.push(eqVocalNotch);
-
-          const eqHat = ctx.createBiquadFilter();
-          eqHat.type = 'peaking'; eqHat.frequency.value = 8000; eqHat.gain.value = 2.5; eqHat.Q.value = 0.7;
-          chain.connect(eqHat); chain = eqHat; nodes.push(eqHat);
-      }
-      else if (type === 'bass') {
-          const splitter = ctx.createChannelSplitter(2);
-          const merger = ctx.createChannelMerger(1); 
-          chain.connect(splitter);
-          splitter.connect(merger, 0, 0); splitter.connect(merger, 1, 0);
-          chain = merger; nodes.push(splitter, merger);
-
-          // High cut harsh bleed above 4.5kHz from bass
-          const lpf = ctx.createBiquadFilter();
-          lpf.type = 'lowpass'; lpf.frequency.value = 5000;
-          chain.connect(lpf); chain = lpf; nodes.push(lpf);
-
-          const comp = ctx.createDynamicsCompressor();
-          comp.threshold.value = -20; comp.ratio.value = 5.0; comp.attack.value = 0.01; comp.release.value = 0.2;
-          chain.connect(comp); chain = comp; nodes.push(comp);
-      }
-      else if (type === 'other') {
-          // Instrumental Stems (Guitars, Synths, Keys, Pads):
-          // 1. High-Pass @ 80Hz to prevent low-end mud
-          const hpf = ctx.createBiquadFilter();
-          hpf.type = 'highpass'; hpf.frequency.value = 80;
-          chain.connect(hpf); chain = hpf; nodes.push(hpf);
-
-          // 2. Vocal Pocket Carve @ 3.2kHz (-1.8 dB): Clears space in instruments for the vocal to sit forward
-          const vocalCarve = ctx.createBiquadFilter();
-          vocalCarve.type = 'peaking'; vocalCarve.frequency.value = 3200; vocalCarve.gain.value = -1.8; vocalCarve.Q.value = 1.1;
-          chain.connect(vocalCarve); chain = vocalCarve; nodes.push(vocalCarve);
-
-          const lpf = ctx.createBiquadFilter();
-          lpf.type = 'lowpass'; lpf.frequency.value = 14000;
-          chain.connect(lpf); chain = lpf; nodes.push(lpf);
-
-          const tamer = ctx.createGain(); tamer.gain.value = 0.85; 
-          chain.connect(tamer); chain = tamer; nodes.push(tamer);
-      }
-
-      return { input, output: chain, nodes };
+      input.gain.value = 1.0;
+      return { input, output: input, nodes: [input] };
   }
 
   async addTrack(file: File): Promise<Track> {
