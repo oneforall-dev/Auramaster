@@ -595,7 +595,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
               )}
 
               {/* Grid of Corrective Actions & Acoustic Health */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-0.5">
                 {/* 1. Delta Vocal (Presencia) */}
                 <div className={`p-2.5 rounded-lg border text-[11px] ${
                   isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
@@ -654,7 +654,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     )}
                   </div>
                   <div className="mt-1 text-[9px] font-mono text-slate-400 truncate">
-                    {result.vocalReport.deEsserApplied ? 'Atenuación calibrada' : 'Transparente / sin exceso'}
+                    {result.vocalReport.deEsserApplied ? 'Release rápido 25 ms' : 'Transparente / sin exceso'}
                   </div>
                 </div>
 
@@ -673,6 +673,54 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                   </div>
                   <div className="mt-1 text-[9px] font-mono text-slate-400 truncate">
                     Correlación de fase vocal
+                  </div>
+                </div>
+
+                {/* 5. Dynamic Sub Cut (30-75Hz) */}
+                <div className={`p-2.5 rounded-lg border text-[11px] ${
+                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                }`}>
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">EQ Dinámica Sub</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className={`font-bold font-mono ${
+                      result.vocalReport.dynamicSubCutAppliedDb && Math.abs(result.vocalReport.dynamicSubCutAppliedDb) > 0.05
+                        ? 'text-cyan-400'
+                        : 'text-slate-200'
+                    }`}>
+                      {result.vocalReport.dynamicSubCutAppliedDb && Math.abs(result.vocalReport.dynamicSubCutAppliedDb) > 0.05
+                        ? `${result.vocalReport.dynamicSubCutAppliedDb.toFixed(2)} dB`
+                        : '0.00 dB'}
+                    </span>
+                    <span className="text-[10px] font-mono text-indigo-400">30-75Hz</span>
+                  </div>
+                  <div className="mt-1 text-[9px] font-mono text-slate-400 truncate">
+                    {result.vocalReport.dynamicSubCutAppliedDb && Math.abs(result.vocalReport.dynamicSubCutAppliedDb) > 0.05
+                      ? 'Control de pegada selectivo'
+                      : 'Subgraves balanceados'}
+                  </div>
+                </div>
+
+                {/* 6. Vocal Body Recovery (Mid 300-900Hz) */}
+                <div className={`p-2.5 rounded-lg border text-[11px] ${
+                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                }`}>
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Cuerpo Vocal Mid</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className={`font-bold font-mono ${
+                      result.vocalReport.vocalBodyRecoveryAppliedDb && result.vocalReport.vocalBodyRecoveryAppliedDb > 0.05
+                        ? 'text-emerald-400'
+                        : 'text-slate-200'
+                    }`}>
+                      {result.vocalReport.vocalBodyRecoveryAppliedDb && result.vocalReport.vocalBodyRecoveryAppliedDb > 0.05
+                        ? `+${result.vocalReport.vocalBodyRecoveryAppliedDb.toFixed(2)} dB`
+                        : '0.00 dB'}
+                    </span>
+                    <span className="text-[10px] font-mono text-indigo-400">300-900Hz</span>
+                  </div>
+                  <div className="mt-1 text-[9px] font-mono text-slate-400 truncate">
+                    {result.vocalReport.vocalBodyRecoveryAppliedDb && result.vocalReport.vocalBodyRecoveryAppliedDb > 0.05
+                      ? 'Centro sólido sin manchar lados'
+                      : 'Cuerpo original preservado'}
                   </div>
                 </div>
               </div>

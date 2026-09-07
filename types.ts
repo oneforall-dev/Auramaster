@@ -103,6 +103,8 @@ export interface MasteringChainParams {
   gain: number; // 0 to 2
   stereoWidth: number; // 0 to 2
   midDensity750Gain?: number; // Dynamic 750 Hz density control
+  dynamicSubCutDb?: number; // Selective 30-75 Hz dynamic sub/kick attenuation
+  vocalBodyMidRecoveryDb?: number; // Selective 300-900 Hz mid recovery in vocal sections
 }
 
 export interface Track {
@@ -262,6 +264,15 @@ export interface VocalAnalysisProfile {
   temporalConsistencyScore: number;   // 0-100 stability across verse/chorus blocks
   vocalSectionsCount: number;         // Count of temporal blocks with active voice
   instrumentalSectionsCount: number;  // Count of temporal blocks without voice
+  vocalBlocksP50PresenceDb?: number;  // Robust 50th percentile (median) presence in vocal blocks
+  vocalBlocksP50BodyDb?: number;      // Robust 50th percentile body in vocal blocks
+  blockHarmonicVocalEnergy?: number[]; // Synchronized block energy values representing coherent vocal energy
+  blockMidRmsArr?: number[];          // 16 block Mid RMS values
+  blockPresRmsArr?: number[];         // 16 block Presence RMS values
+  blockBodyRmsArr?: number[];         // 16 block Estimated Vocal Body RMS values
+  blockLowEndRmsArr?: number[];       // 16 block Low-End RMS values
+  blockSideRmsArr?: number[];         // 16 block Side RMS values
+  vocalActiveBlocks?: boolean[];      // 16 block boolean indicators of vocal activity
 }
 
 export interface VocalProtectionReport {
@@ -291,6 +302,8 @@ export interface VocalProtectionReport {
   density750ReductionDb: number;
   midCompensationAppliedDb: number;   // Applied Mid boost (0.0 if not needed)
   midCompensationFreq: number;        // Frequency of Mid compensation (Hz)
+  dynamicSubCutAppliedDb?: number;    // Selective 30-75 Hz dynamic sub cut
+  vocalBodyRecoveryAppliedDb?: number;// Selective 300-900 Hz Mid vocal body recovery
   bassDuckingPrevented: boolean;
   monoCompatibilityPreserved: boolean;
   safetyLimitReached: boolean;        // True if further correction would alter mix too heavily
