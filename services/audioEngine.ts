@@ -930,17 +930,14 @@ export class AudioEngine {
     if (isAlreadyOptimalLoudness) {
       targetLUFS = beforeStats.integratedLUFS;
       initialGainDb = 0.0; // Transparent gain
-      decisions.push(`Loudness contextual óptimo (${beforeStats.integratedLUFS.toFixed(1)} LUFS-I): volumen natural respetado sin forzar ganancia innecesaria`);
     } else if (isAlreadyHotMix) {
       targetLUFS = beforeStats.integratedLUFS;
       initialGainDb = 0.0;
-      decisions.push(`Mezcla con alta densidad (${beforeStats.integratedLUFS.toFixed(1)} LUFS-I): protegiendo transitorios sin compresión adicional`);
     } else {
       // Unmastered / low level mixdown (typically < -15.0 LUFS):
       targetLUFS = beforeStats.crestFactor > 12.5 ? -14.0 : (beforeStats.crestFactor < 9.0 ? -13.2 : -13.5);
       const lufsDeficit = targetLUFS - beforeStats.integratedLUFS;
       initialGainDb = Math.max(-12, Math.min(18, lufsDeficit));
-      decisions.push(`Loudness normalizado a estándar de distribución: calibrando nivel desde ${beforeStats.integratedLUFS.toFixed(1)} hacia ${targetLUFS.toFixed(1)} LUFS-I`);
     }
 
     const MAX_TRUE_PEAK = -1.0;
@@ -1055,7 +1052,6 @@ export class AudioEngine {
     newParams.limiter.enabled = true;
     newParams.limiter.threshold = adaptiveCeiling;
     newParams.limiter.breathe = 0;
-    decisions.push(`True Peak Limiter engaged with 8x oversampling, 3.5ms lookahead, and strict ${adaptiveCeiling.toFixed(1)} dBTP ceiling`);
 
     // Stage 3: Render Mastered Preview Audio & Closed-Loop Precision Refinement
     let masteredBuffer = await this.renderPreview(newParams, tracks);
@@ -1088,11 +1084,27 @@ export class AudioEngine {
     const finalLRA = afterMetrics ? afterMetrics.dynamicRangeLRA : beforeStats.dynamicRangeLRA;
     const finalCrest = afterMetrics ? afterMetrics.crestFactor : 9.0;
 
-    decisions.push(
-      isAlreadyOptimalLoudness
-        ? `Loudness finalizado en ${finalLUFS.toFixed(1)} LUFS-I (dinámica original conservada) con limitador True Peak en ${finalTP.toFixed(1)} dBTP`
-        : `Loudness finalizado en ${finalLUFS.toFixed(1)} LUFS-I con limitador True Peak en ${finalTP.toFixed(1)} dBTP`
-    );
+    const deltaLU = finalLUFS - beforeStats.integratedLUFS;
+    const deltaSign = deltaLU >= 0 ? '+' : '';
+
+    let loudnessReportLine = '';
+    if (isAlreadyOptimalLoudness) {
+      if (Math.abs(deltaLU) <= 0.15) {
+        loudnessReportLine = `Loudness original ya cercano al objetivo (${beforeStats.integratedLUFS.toFixed(1)} LUFS-I): volumen natural respetado (0.0 LU delta), sin forzar ganancia innecesaria.`;
+      } else {
+        loudnessReportLine = `Loudness original ya cercano al objetivo (${beforeStats.integratedLUFS.toFixed(1)} LUFS-I): se aplicó únicamente ${deltaSign}${deltaLU.toFixed(1)} LU, sin forzar ganancia innecesaria.`;
+      }
+    } else if (isAlreadyHotMix) {
+      loudnessReportLine = `Mezcla con alta densidad original (${beforeStats.integratedLUFS.toFixed(1)} LUFS-I): transitorios protegidos (${deltaSign}${deltaLU.toFixed(1)} LU delta), sin compresión destructiva.`;
+    } else {
+      loudnessReportLine = `Loudness calibrado a estándar de distribución: nivel optimizado desde ${beforeStats.integratedLUFS.toFixed(1)} hasta ${finalLUFS.toFixed(1)} LUFS-I (${deltaSign}${deltaLU.toFixed(1)} LU aplicados).`;
+    }
+
+    // Insert truthful loudness summary at the beginning of decisions list
+    decisions.unshift(loudnessReportLine);
+
+    // True Peak limiter with explicit distinction between configured ceiling and final measured peak
+    decisions.push(`True Peak limiter configured with a maximum ceiling of ${adaptiveCeiling.toFixed(1)} dBTP; final measured peak: ${finalTP.toFixed(1)} dBTP.`);
 
     const afterStats: AIMasteringStats = {
       integratedLUFS: parseFloat(finalLUFS.toFixed(1)),
@@ -1507,17 +1519,14 @@ export class AudioEngine {
       const safeTarget = Math.max(-14.5, Math.min(-11.5, targetProfile.integratedLUFS));
       targetLUFS = originalProfile.integratedLUFS + (safeTarget - originalProfile.integratedLUFS) * intensityFactor;
       initialGainDb = targetLUFS - originalProfile.integratedLUFS;
-      decisions.push(`Loudness alineado hacia la referencia: ${targetLUFS.toFixed(1)} LUFS-I`);
     } else {
       // Adapt & Adapt-and-Enhance: Contextual loudness (do not force volume if original is already in sweet spot)
       if (originalProfile.integratedLUFS >= -14.8 && originalProfile.integratedLUFS <= -12.8) {
         targetLUFS = originalProfile.integratedLUFS;
         initialGainDb = 0.0;
-        decisions.push(`Loudness contextual óptimo (${originalProfile.integratedLUFS.toFixed(1)} LUFS-I): volumen conservado`);
       } else {
         targetLUFS = originalProfile.crestFactor > 12.5 ? -14.0 : -13.5;
         initialGainDb = targetLUFS - originalProfile.integratedLUFS;
-        decisions.push(`Loudness contextual adaptado a ${targetLUFS.toFixed(1)} LUFS-I`);
       }
     }
 
@@ -1529,7 +1538,6 @@ export class AudioEngine {
     newParams.limiter.enabled = true;
     newParams.limiter.threshold = adaptiveCeiling;
     newParams.limiter.breathe = 0;
-    decisions.push(`True Peak Limiter con sobremuestreo 8x y techo seguro ≤ ${adaptiveCeiling.toFixed(1)} dBTP`);
 
     // 6. Render Master Preview & Measure Exact Output
     let masteredBuffer = await this.renderPreview(newParams, tracks);
@@ -1552,6 +1560,23 @@ export class AudioEngine {
     }
 
     this.setMasterParams(newParams);
+
+    const deltaLU = finalProfile.integratedLUFS - originalProfile.integratedLUFS;
+    const deltaSign = deltaLU >= 0 ? '+' : '';
+
+    let loudnessReportLine = '';
+    if (config.mode === 'replicate') {
+      loudnessReportLine = `Loudness adaptado hacia la referencia: ${originalProfile.integratedLUFS.toFixed(1)} LUFS-I → ${finalProfile.integratedLUFS.toFixed(1)} LUFS-I (${deltaSign}${deltaLU.toFixed(1)} LU aplicados).`;
+    } else {
+      if (Math.abs(deltaLU) <= 0.15) {
+        loudnessReportLine = `Loudness original ya cercano al objetivo (${originalProfile.integratedLUFS.toFixed(1)} LUFS-I): volumen natural respetado (0.0 LU delta), sin forzar ganancia innecesaria.`;
+      } else {
+        loudnessReportLine = `Loudness original ya cercano al objetivo (${originalProfile.integratedLUFS.toFixed(1)} LUFS-I): se aplicó únicamente ${deltaSign}${deltaLU.toFixed(1)} LU, sin forzar ganancia innecesaria.`;
+      }
+    }
+
+    decisions.unshift(loudnessReportLine);
+    decisions.push(`True Peak limiter configured with a maximum ceiling of ${adaptiveCeiling.toFixed(1)} dBTP; final measured peak: ${finalProfile.truePeakDbTP.toFixed(1)} dBTP.`);
 
     // Compute Matching Score % (based on convergence across Tone, Width, LRA, TP)
     const toneDist = Math.abs(finalProfile.spectralBands[0] - targetProfile.spectralBands[0]) +

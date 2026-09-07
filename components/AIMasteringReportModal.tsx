@@ -115,7 +115,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     : 'Estándar de Distribución & Streaming Calibrado'}
                 </div>
                 <div className="text-xs opacity-90 font-mono mt-0.5">
-                  LUFS-I: {after.integratedLUFS.toFixed(1)} LUFS &nbsp;|&nbsp; True Peak: {after.truePeakDbTP.toFixed(1)} dBTP (Ceiling ≤ -1.0 dBTP)
+                  LUFS-I: {after.integratedLUFS.toFixed(1)} LUFS &nbsp;|&nbsp; True Peak medido: {after.truePeakDbTP.toFixed(1)} dBTP (Ceiling configurado: ≤ -1.0 dBTP)
                 </div>
               </div>
             </div>
@@ -319,12 +319,12 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                   </div>
                   <ArrowRight size={16} className="text-cyan-500 opacity-60" />
                   <div className="text-center">
-                    <span className="text-[10px] text-emerald-500 font-bold block">MASTER</span>
+                    <span className="text-[10px] text-emerald-500 font-bold block">PICO MEDIDO</span>
                     <span className="font-mono text-base font-black text-emerald-500">{after.truePeakDbTP.toFixed(1)}</span>
                   </div>
                 </div>
                 <div className="text-[10px] opacity-70 font-mono text-center">
-                  Ceiling: ≤ -1.0 dBTP (Seguro)
+                  Ceiling configurado: ≤ -1.0 dBTP
                 </div>
               </div>
 
