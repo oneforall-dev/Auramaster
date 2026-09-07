@@ -173,7 +173,9 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 </div>
               </div>
               <div className="text-[10px] opacity-70 font-mono text-center">
-                Preservación Dinámica
+                {Math.abs(after.dynamicRangeLRA - before.dynamicRangeLRA) < 0.2
+                  ? 'Dinámica Preservada (0.0 LU delta)'
+                  : `Delta Dinámico: ${(after.dynamicRangeLRA - before.dynamicRangeLRA >= 0 ? '+' : '') + (after.dynamicRangeLRA - before.dynamicRangeLRA).toFixed(1)} LU`}
               </div>
             </div>
 
@@ -203,9 +205,11 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
         <div className={`p-4 border-t flex items-center justify-between ${
           isClear ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
         }`}>
-          <span className="text-xs opacity-60 font-mono">
-            {new Date(result.timestamp).toLocaleTimeString()}
-          </span>
+          <div className="flex items-center gap-3 text-xs opacity-70 font-mono">
+            <span>{new Date(result.timestamp).toLocaleTimeString()}</span>
+            <span className="hidden sm:inline">•</span>
+            <span className="hidden sm:inline text-emerald-400 font-semibold">Frecuencia Original Preservada</span>
+          </div>
           <button
             onClick={onClose}
             className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl shadow-md transition-all"

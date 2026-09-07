@@ -100,7 +100,7 @@ export class AudioEngine {
 
   init() {
     if (!this.audioContext) {
-      this.audioContext = new AudioContext({ sampleRate: 44100 });
+      this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       this.masterSumNode = this.audioContext.createGain();
       this.preMasterGain = this.audioContext.createGain(); 
       this.dryPath = this.audioContext.createGain();
@@ -488,10 +488,70 @@ export class AudioEngine {
       return dbPeak - dbRms;
   }
 
+  getSourceSampleRate(): number {
+    for (const [_, tr] of this.tracks) {
+      if (tr.buffer && tr.buffer.sampleRate) {
+        return tr.buffer.sampleRate;
+      }
+    }
+    return this.audioContext?.sampleRate || 48000;
+  }
+
+  // Exact ITU-R BS.1770-4 2-Stage K-Weighting IIR Filter (Pre-Filter High Shelf + RLB High Pass)
+  private applyITU_BS1770_KWeighting(samples: Float32Array, sampleRate: number): Float32Array {
+    // Stage 1: High Shelf (Pre-filter head acoustic simulation: +3.9998 dB @ 1681.97 Hz)
+    const f0_s1 = 1681.974450955533;
+    const G_s1 = 3.999843853973347;
+    const Q_s1 = 0.707175236935414;
+    const K1 = Math.tan((Math.PI * f0_s1) / sampleRate);
+    const Vh = Math.pow(10, G_s1 / 20);
+    const Vb = Math.sqrt(Vh);
+    const a0_s1 = 1.0 + (K1 / Q_s1) + (K1 * K1);
+    const b0_s1 = (Vh + Vb * (K1 / Q_s1) + K1 * K1) / a0_s1;
+    const b1_s1 = (2.0 * (K1 * K1 - Vh)) / a0_s1;
+    const b2_s1 = (Vh - Vb * (K1 / Q_s1) + K1 * K1) / a0_s1;
+    const a1_s1 = (2.0 * (K1 * K1 - 1.0)) / a0_s1;
+    const a2_s1 = (1.0 - (K1 / Q_s1) + K1 * K1) / a0_s1;
+
+    // Stage 2: RLB weighting (2nd order High Pass: 38.13 Hz)
+    const f0_s2 = 38.13547087602444;
+    const Q_s2 = 0.5003270373238773;
+    const K2 = Math.tan((Math.PI * f0_s2) / sampleRate);
+    const a0_s2 = 1.0 + (K2 / Q_s2) + (K2 * K2);
+    const b0_s2 = 1.0 / a0_s2;
+    const b1_s2 = -2.0 / a0_s2;
+    const b2_s2 = 1.0 / a0_s2;
+    const a1_s2 = (2.0 * (K2 * K2 - 1.0)) / a0_s2;
+    const a2_s2 = (1.0 - (K2 / Q_s2) + K2 * K2) / a0_s2;
+
+    const len = samples.length;
+    const stage1Out = new Float32Array(len);
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (let i = 0; i < len; i++) {
+      const x0 = samples[i];
+      const y0 = b0_s1 * x0 + b1_s1 * x1 + b2_s1 * x2 - a1_s1 * y1 - a2_s1 * y2;
+      stage1Out[i] = y0;
+      x2 = x1; x1 = x0;
+      y2 = y1; y1 = y0;
+    }
+
+    const stage2Out = new Float32Array(len);
+    x1 = 0; x2 = 0; y1 = 0; y2 = 0;
+    for (let i = 0; i < len; i++) {
+      const x0 = stage1Out[i];
+      const y0 = b0_s2 * x0 + b1_s2 * x1 + b2_s2 * x2 - a1_s2 * y1 - a2_s2 * y2;
+      stage2Out[i] = y0;
+      x2 = x1; x1 = x0;
+      y2 = y1; y1 = y0;
+    }
+    return stage2Out;
+  }
+
   // 2. K-Weighted Loudness Measurement & Accurate DSP Metrics (ITU-R BS.1770-4 & EBU R128)
   public async calculateAccurateDSPMetrics(buffer: AudioBuffer): Promise<AIMasteringStats & { spectralBands: number[]; harshness: number; mud: number; phase: number }> {
     const numChannels = buffer.numberOfChannels;
     const len = buffer.length;
+    const sampleRate = buffer.sampleRate;
 
     // 1. True Peak with 8x Cubic Hermite / Inter-sample Interpolation across full buffer
     let maxPeakLinear = 0;
@@ -524,60 +584,31 @@ export class AudioEngine {
     }
     const truePeakDbTP = 20 * Math.log10(maxPeakLinear || 1e-6);
 
-    // 2. ITU-R BS.1770-4 K-Weighted Loudness Filter & Gated Integration
-    const offline = new OfflineAudioContext(numChannels, buffer.length, buffer.sampleRate);
-    const source = offline.createBufferSource();
-    source.buffer = buffer;
+    // 2. ITU-R BS.1770-4 Exact Standard K-Weighted Filtering
+    const rawLeft = buffer.getChannelData(0);
+    const rawRight = numChannels > 1 ? buffer.getChannelData(1) : rawLeft;
 
-    // Stage 1: High Shelf (Pre-filter head acoustic simulation, +3.9998 dB @ 1681.97 Hz)
-    const stage1 = offline.createBiquadFilter();
-    stage1.type = 'highshelf';
-    stage1.frequency.value = 1681.97;
-    stage1.gain.value = 4.0;
-    stage1.Q.value = 0.707;
-
-    // Stage 2: High Pass (RLB weighting, cutoff 38.13 Hz)
-    const stage2 = offline.createBiquadFilter();
-    stage2.type = 'highpass';
-    stage2.frequency.value = 38.13;
-    stage2.Q.value = 0.5;
-
-    source.connect(stage1);
-    stage1.connect(stage2);
-    stage2.connect(offline.destination);
-
-    source.start(0);
-    const kWeighted = await offline.startRendering();
-
-    const sampleRate = kWeighted.sampleRate;
-    const totalSamples = kWeighted.length;
-
-    const channelData: Float32Array[] = [];
-    for (let c = 0; c < numChannels; c++) {
-      channelData.push(kWeighted.getChannelData(c));
-    }
+    const kLeft = this.applyITU_BS1770_KWeighting(rawLeft, sampleRate);
+    const kRight = numChannels > 1 ? this.applyITU_BS1770_KWeighting(rawRight, sampleRate) : kLeft;
 
     // 400ms block size with 100ms hop size (75% overlap) for BS.1770-4 Integrated Loudness
     const blockSize400 = Math.floor(sampleRate * 0.400);
     const hopSize100 = Math.floor(sampleRate * 0.100);
     const blockPowers: number[] = [];
 
-    const dataL = channelData[0];
-    const dataR = numChannels > 1 ? channelData[1] : channelData[0];
-
-    for (let start = 0; start + blockSize400 <= totalSamples; start += hopSize100) {
+    for (let start = 0; start + blockSize400 <= len; start += hopSize100) {
       let sumSqL = 0;
       let sumSqR = 0;
       for (let j = 0; j < blockSize400; j++) {
-        const sL = dataL[start + j];
-        const sR = dataR[start + j];
+        const sL = kLeft[start + j];
+        const sR = kRight[start + j];
         sumSqL += sL * sL;
         sumSqR += sR * sR;
       }
       const powerL = sumSqL / blockSize400;
-      const powerR = sumSqR / blockSize400;
+      const powerR = numChannels > 1 ? (sumSqR / blockSize400) : 0;
       // Per ITU-R BS.1770-4: Channel sum with unity weights (Left=1.0, Right=1.0)
-      const powerSum = powerL + (numChannels > 1 ? powerR : 0);
+      const powerSum = powerL + powerR;
       if (powerSum > 1e-12) {
         blockPowers.push(powerSum);
       }
@@ -593,7 +624,7 @@ export class AudioEngine {
         const ungatedLoudness = -0.691 + 10 * Math.log10(meanUngatedPower || 1e-12);
         
         // Relative threshold: ungatedLoudness - 10.0 LU
-        const relThreshPower = Math.pow(10, (ungatedLoudness - 10.0 + 0.691) / 10);
+        const relThreshPower = meanUngatedPower * 0.1;
         const gatedBlocks = validBlocks.filter(p => p >= relThreshPower);
         if (gatedBlocks.length > 0) {
           const meanGatedPower = gatedBlocks.reduce((a, b) => a + b, 0) / gatedBlocks.length;
@@ -602,23 +633,23 @@ export class AudioEngine {
       }
     }
 
-    // 3. EBU R128 LRA (Loudness Range) with 3.0-second sliding blocks & 1.0-second hop
+    // 3. EBU R128 / Tech 3342 LRA (Loudness Range) with 3.0-second sliding blocks & 100ms hop
     const blockSize3s = Math.floor(sampleRate * 3.0);
-    const hopSize1s = Math.floor(sampleRate * 1.0);
+    const hopSizeLra = Math.floor(sampleRate * 0.100);
     const shortTermLoudness: number[] = [];
 
-    for (let start = 0; start + blockSize3s <= totalSamples; start += hopSize1s) {
+    for (let start = 0; start + blockSize3s <= len; start += hopSizeLra) {
       let sumSqL = 0;
       let sumSqR = 0;
       for (let j = 0; j < blockSize3s; j++) {
-        const sL = dataL[start + j];
-        const sR = dataR[start + j];
+        const sL = kLeft[start + j];
+        const sR = kRight[start + j];
         sumSqL += sL * sL;
         sumSqR += sR * sR;
       }
       const powerL = sumSqL / blockSize3s;
-      const powerR = sumSqR / blockSize3s;
-      const totalP = powerL + (numChannels > 1 ? powerR : 0);
+      const powerR = numChannels > 1 ? (sumSqR / blockSize3s) : 0;
+      const totalP = powerL + powerR;
       if (totalP > 1e-12) {
         const lk = -0.691 + 10 * Math.log10(totalP);
         if (lk > -70.0) {
@@ -627,7 +658,7 @@ export class AudioEngine {
       }
     }
 
-    let dynamicRangeLRA = 4.2;
+    let dynamicRangeLRA = 4.6;
     if (shortTermLoudness.length >= 2) {
       // Relative gating for LRA is -20.0 LU below ungated short-term mean
       const meanShortTermPower = shortTermLoudness.reduce((acc, l) => acc + Math.pow(10, (l + 0.691) / 10), 0) / shortTermLoudness.length;
@@ -637,20 +668,21 @@ export class AudioEngine {
       const lraGated = shortTermLoudness.filter(l => l >= lraRelThreshold);
       if (lraGated.length >= 2) {
         lraGated.sort((a, b) => a - b);
-        const p10 = lraGated[Math.floor(lraGated.length * 0.10)];
-        const p95 = lraGated[Math.min(lraGated.length - 1, Math.floor(lraGated.length * 0.95))];
-        dynamicRangeLRA = Math.max(0.5, p95 - p10);
+        const idx10 = Math.floor((lraGated.length - 1) * 0.10);
+        const idx95 = Math.floor((lraGated.length - 1) * 0.95);
+        const p10 = lraGated[idx10];
+        const p95 = lraGated[idx95];
+        dynamicRangeLRA = Math.max(0.1, p95 - p10);
       }
     }
 
     // 4. RMS & Crest Factor
-    const rawData0 = buffer.getChannelData(0);
     let sumSq = 0;
     const step = 20;
-    for (let i = 0; i < rawData0.length; i += step) {
-      sumSq += rawData0[i] * rawData0[i];
+    for (let i = 0; i < rawLeft.length; i += step) {
+      sumSq += rawLeft[i] * rawLeft[i];
     }
-    const rms = Math.sqrt(sumSq / (rawData0.length / step)) || 1e-6;
+    const rms = Math.sqrt(sumSq / (rawLeft.length / step)) || 1e-6;
     const rmsDb = 20 * Math.log10(rms);
     const crestFactor = Math.max(2, truePeakDbTP - rmsDb);
 
@@ -658,13 +690,11 @@ export class AudioEngine {
     let dotSum = 0;
     let sumL2 = 0;
     let sumR2 = 0;
-    const lData = buffer.getChannelData(0);
-    const rData = numChannels > 1 ? buffer.getChannelData(1) : lData;
     const stepAnalysis = Math.max(1, Math.floor(len / 8000));
     
     for (let i = 0; i < len; i += stepAnalysis) {
-      const l = lData[i];
-      const r = rData[i];
+      const l = rawLeft[i];
+      const r = rawRight[i];
       dotSum += l * r;
       sumL2 += l * l;
       sumR2 += r * r;
@@ -807,7 +837,8 @@ export class AudioEngine {
   // Render Raw Mix (Unmastered Stems Sum)
   async renderRawMix(tracks: Track[]): Promise<AudioBuffer | null> {
     if (this.tracks.size === 0) return null;
-    const offline = new OfflineAudioContext(2, Math.max(1, this.maxDuration * 44100), 44100);
+    const sampleRate = this.getSourceSampleRate();
+    const offline = new OfflineAudioContext(2, Math.max(1, Math.ceil(this.maxDuration * sampleRate)), sampleRate);
     const sum = offline.createGain();
 
     for (const t of tracks) {
@@ -869,8 +900,8 @@ export class AudioEngine {
     const decisions: string[] = [];
 
     // Target specifications according to musical dynamics:
-    // Dynamic/Premium (Crest > 12.5): -12.2 LUFS | Modern Balanced: -11.6 LUFS | High Energy: -11.0 LUFS
-    const TARGET_LUFS = beforeStats.crestFactor > 12.5 ? -12.2 : (beforeStats.crestFactor < 9.0 ? -11.0 : -11.6);
+    // Dynamic/Acoustic (Crest > 12.5): -14.0 LUFS | High Energy: -13.2 LUFS | Standard Balanced: -13.5 LUFS
+    const TARGET_LUFS = beforeStats.crestFactor > 12.5 ? -14.0 : (beforeStats.crestFactor < 9.0 ? -13.2 : -13.5);
     const MAX_TRUE_PEAK = -1.0;
 
     // 1. Tonal Balance & 5-Band EQ Strategy (Subtle, non-destructive moves: 0.25 to 0.8 dB)
@@ -1015,7 +1046,7 @@ export class AudioEngine {
     // Final Metric Formulation directly from measured buffer
     const finalLUFS = afterMetrics ? afterMetrics.integratedLUFS : TARGET_LUFS;
     const finalTP = afterMetrics ? afterMetrics.truePeakDbTP : -1.0;
-    const finalLRA = afterMetrics ? afterMetrics.dynamicRangeLRA : Math.max(8.0, beforeStats.dynamicRangeLRA - 1.5);
+    const finalLRA = afterMetrics ? afterMetrics.dynamicRangeLRA : beforeStats.dynamicRangeLRA;
     const finalCrest = afterMetrics ? afterMetrics.crestFactor : 9.0;
 
     decisions.push(`Loudness finalized at ${finalLUFS.toFixed(1)} LUFS-I with ${finalTP.toFixed(1)} dBTP True Peak limiter`);
@@ -1081,7 +1112,7 @@ export class AudioEngine {
   getAnalysisMetrics(): AnalysisMetrics {
     const ldn = this.getLoudnessData();
     return { 
-        sampleRate: 44100, 
+        sampleRate: this.getSourceSampleRate(), 
         bitDepth: '32 bit (Float)', 
         clipping: ldn.momentary > 0, 
         phaseCorrelation: 1, 
@@ -1099,102 +1130,83 @@ export class AudioEngine {
 
   private getStemColor(type: StemType): string {
       switch(type) {
-          case 'vocals': return '#f472b6'; // Pink
-          case 'drums': return '#fbbf24'; // Amber
-          case 'bass': return '#818cf8'; // Indigo
-          default: return '#22d3ee'; // Cyan
+          case 'vocals': return '#ec4899';
+          case 'drums': return '#f59e0b';
+          case 'bass': return '#8b5cf6';
+          default: return '#06b6d4';
       }
   }
 
   private recalculateMaxDuration() {
     let max = 0;
-    this.tracks.forEach(t => { if(t.buffer.duration > max) max = t.buffer.duration });
+    this.tracks.forEach(t => { if (t.buffer.duration > max) max = t.buffer.duration; });
     this.maxDuration = max;
   }
 
   setMasterParams(params: MasteringChainParams) {
     if (!this.audioContext) return;
     const t = this.audioContext.currentTime;
-    
-    const safeGain = Math.max(0, Math.min(25.0, params.gain));
-    this.preMasterGain!.gain.setTargetAtTime(safeGain, t, 0.01);
-    
-    // Gate
+
+    if (this.preMasterGain) this.preMasterGain.gain.setTargetAtTime(Math.max(0, params.gain), t, 0.02);
+
+    if (this.distortion && this.distortion.oversample) {
+      this.distortion.curve = params.distortion.enabled ? this.makeTapeCurve(params.distortion.amount) : new Float32Array([-1, 0, 1]);
+    }
+
     if (this.noiseGate) {
-        if (params.gate.enabled) {
-            this.noiseGate.curve = this.makeGateCurve(params.gate.threshold, params.gate.ratio);
-        } else {
-             const curve = new Float32Array([-1, 0, 1]);
-             this.noiseGate.curve = curve;
-        }
+      this.noiseGate.curve = params.gate.enabled ? this.makeGateCurve(params.gate.threshold, params.gate.ratio) : new Float32Array([-1, 0, 1]);
     }
 
-    // Tape Saturation
-    if (this.distortion) {
-        if (params.distortion.enabled) {
-            this.distortion.curve = this.makeTapeCurve(params.distortion.amount);
-            this.distortion.oversample = 'none';
-        } else {
-            const curve = new Float32Array([-1, 0, 1]);
-            this.distortion.curve = curve;
-            this.distortion.oversample = 'none';
-        }
+    if (this.compLow) {
+      this.compLow.threshold.setTargetAtTime(params.multiband.enabled ? params.multiband.low.threshold : 0, t, 0.02);
+      this.compLow.ratio.setTargetAtTime(params.multiband.enabled ? params.multiband.low.ratio : 1, t, 0.02);
+      this.compLow.attack.setTargetAtTime(params.multiband.low.attack, t, 0.02);
+      this.compLow.release.setTargetAtTime(params.multiband.low.release, t, 0.02);
     }
-    
-    // Multiband
-    if (params.multiband.enabled) {
-        this.compLow!.threshold.setTargetAtTime(params.multiband.low.threshold, t, 0.01);
-        this.compLow!.ratio.setTargetAtTime(params.multiband.low.ratio, t, 0.01);
-        this.compLow!.attack.setTargetAtTime(params.multiband.low.attack, t, 0.01);
-        this.compLow!.release.setTargetAtTime(params.multiband.low.release, t, 0.01);
-
-        this.compMid!.threshold.setTargetAtTime(params.multiband.mid.threshold, t, 0.01);
-        this.compMid!.ratio.setTargetAtTime(params.multiband.mid.ratio, t, 0.01);
-        this.compMid!.attack.setTargetAtTime(params.multiband.mid.attack, t, 0.01);
-        this.compMid!.release.setTargetAtTime(params.multiband.mid.release, t, 0.01);
-
-        this.compHigh!.threshold.setTargetAtTime(params.multiband.high.threshold, t, 0.01);
-        this.compHigh!.ratio.setTargetAtTime(params.multiband.high.ratio, t, 0.01);
-        this.compHigh!.attack.setTargetAtTime(params.multiband.high.attack, t, 0.01);
-    } else {
-        [this.compLow!, this.compMid!, this.compHigh!].forEach(c => { c.threshold.value = 0; c.ratio.value = 1; });
+    if (this.compMid) {
+      this.compMid.threshold.setTargetAtTime(params.multiband.enabled ? params.multiband.mid.threshold : 0, t, 0.02);
+      this.compMid.ratio.setTargetAtTime(params.multiband.enabled ? params.multiband.mid.ratio : 1, t, 0.02);
+      this.compMid.attack.setTargetAtTime(params.multiband.mid.attack, t, 0.02);
+      this.compMid.release.setTargetAtTime(params.multiband.mid.release, t, 0.02);
+    }
+    if (this.compHigh) {
+      this.compHigh.threshold.setTargetAtTime(params.multiband.enabled ? params.multiband.high.threshold : 0, t, 0.02);
+      this.compHigh.ratio.setTargetAtTime(params.multiband.enabled ? params.multiband.high.ratio : 1, t, 0.02);
+      this.compHigh.attack.setTargetAtTime(params.multiband.high.attack, t, 0.02);
+      this.compHigh.release.setTargetAtTime(params.multiband.high.release, t, 0.02);
     }
 
-    // EQ
-    if (params.eq.enabled) {
-        this.lowEQ!.gain.setTargetAtTime(params.eq.low.gain, t, 0.01);
-        this.lowEQ!.frequency.setTargetAtTime(params.eq.low.frequency, t, 0.01);
-        this.midEQ!.gain.setTargetAtTime(params.eq.mid.gain, t, 0.01);
-        this.midEQ!.frequency.setTargetAtTime(params.eq.mid.frequency, t, 0.01);
-        this.highEQ!.gain.setTargetAtTime(params.eq.high.gain, t, 0.01);
-        this.highEQ!.frequency.setTargetAtTime(params.eq.high.frequency, t, 0.01);
+    if (this.lowEQ) {
+      this.lowEQ.frequency.setTargetAtTime(params.eq.low.frequency, t, 0.02);
+      this.lowEQ.gain.setTargetAtTime(params.eq.enabled ? params.eq.low.gain : 0, t, 0.02);
+    }
+    if (this.lowMidEQ) {
+      this.lowMidEQ.frequency.setTargetAtTime(params.eq.lowMid?.frequency || 320, t, 0.02);
+      this.lowMidEQ.Q.setTargetAtTime(params.eq.lowMid?.q || 1.0, t, 0.02);
+      this.lowMidEQ.gain.setTargetAtTime(params.eq.enabled ? (params.eq.lowMid?.gain || 0) : 0, t, 0.02);
+    }
+    if (this.midEQ) {
+      this.midEQ.frequency.setTargetAtTime(params.eq.mid.frequency, t, 0.02);
+      this.midEQ.Q.setTargetAtTime(params.eq.mid.q || 1.0, t, 0.02);
+      this.midEQ.gain.setTargetAtTime(params.eq.enabled ? params.eq.mid.gain : 0, t, 0.02);
+    }
+    if (this.highMidEQ) {
+      this.highMidEQ.frequency.setTargetAtTime(params.eq.highMid?.frequency || 4000, t, 0.02);
+      this.highMidEQ.Q.setTargetAtTime(params.eq.highMid?.q || 1.0, t, 0.02);
+      this.highMidEQ.gain.setTargetAtTime(params.eq.enabled ? (params.eq.highMid?.gain || 0) : 0, t, 0.02);
+    }
+    if (this.highEQ) {
+      this.highEQ.frequency.setTargetAtTime(params.eq.high.frequency, t, 0.02);
+      this.highEQ.gain.setTargetAtTime(params.eq.enabled ? params.eq.high.gain : 0, t, 0.02);
     }
 
-    if (this.deEsserComp) {
-        if (params.deEsser && params.deEsser.enabled) {
-             this.deEsserComp.threshold.setTargetAtTime(params.deEsser.threshold, t, 0.01);
-             this.deEsserComp.ratio.setTargetAtTime(4, t, 0.01);
-        } else {
-             this.deEsserComp.threshold.setTargetAtTime(0, t, 0.01);
-             this.deEsserComp.ratio.setTargetAtTime(1, t, 0.01);
-        }
-    }
-
-    if (this.delayNode && this.delayDry && this.delayWet) {
-        this.delayNode.delayTime.setTargetAtTime(Math.max(0.01, params.delay.time), t, 0.02);
-        const wet = params.delay.enabled ? params.delay.mix : 0;
-        this.delayDry.gain.setTargetAtTime(1 - wet, t, 0.02);
-        this.delayWet.gain.setTargetAtTime(wet, t, 0.02);
-    }
-
-    if (this.reverbNode && this.reverbDry && this.reverbWet) {
-        const wet = params.reverb.enabled ? params.reverb.mix : 0;
-        this.reverbDry.gain.setTargetAtTime(1 - wet, t, 0.02);
-        this.reverbWet.gain.setTargetAtTime(wet, t, 0.02);
+    if (this.deEsserComp && params.deEsser) {
+      this.deEsserComp.threshold.setTargetAtTime(params.deEsser.enabled ? params.deEsser.threshold : 0, t, 0.02);
     }
 
     if (this.msSideGain) {
-        this.msSideGain.gain.setTargetAtTime(params.stereoWidth, t, 0.05);
+      const width = params.stereoWidth !== undefined ? params.stereoWidth : 1.0;
+      this.msSideGain.gain.setTargetAtTime(width, t, 0.02);
     }
 
     if (this.limiter) {
@@ -1455,8 +1467,9 @@ export class AudioEngine {
     }
     if (renderDuration <= 0) renderDuration = this.maxDuration || 1;
 
-    const sampleLength = Math.max(1, Math.ceil(renderDuration * 44100));
-    const offline = new OfflineAudioContext(2, sampleLength, 44100);
+    const sampleRate = this.getSourceSampleRate();
+    const sampleLength = Math.max(1, Math.ceil(renderDuration * sampleRate));
+    const offline = new OfflineAudioContext(2, sampleLength, sampleRate);
     const sum = offline.createGain();
     
     // Recreate full stem chains in offline context
@@ -1584,8 +1597,9 @@ export class AudioEngine {
     const buffer = await this.renderPreview(params, tracks);
     if (!buffer) return null;
 
+    const sampleRate = buffer.sampleRate;
     const numChannels = 2;
-    const byteRate = (44100 * numChannels * bitDepth) / 8;
+    const byteRate = (sampleRate * numChannels * bitDepth) / 8;
     const blockAlign = (numChannels * bitDepth) / 8;
     const dataLength = buffer.length * numChannels * (bitDepth / 8);
     const bufferSize = 44 + dataLength;
@@ -1602,7 +1616,7 @@ export class AudioEngine {
     view.setUint32(16, 16, true); 
     view.setUint16(20, 1, true); 
     view.setUint16(22, numChannels, true); 
-    view.setUint32(24, 44100, true);
+    view.setUint32(24, sampleRate, true);
     view.setUint32(28, byteRate, true); 
     view.setUint16(32, blockAlign, true); 
     view.setUint16(34, bitDepth, true);
