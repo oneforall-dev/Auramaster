@@ -331,6 +331,31 @@ export interface VocalProtectionReport {
   summaryNote: string;
 }
 
+export interface MasteringQualityScore {
+  totalScore: number; // 0 - 100
+  tonalBalance: number; // max 20
+  vocalPreservation: number; // max 20
+  dynamicsTransients: number; // max 15
+  lowEndControl: number; // max 10
+  claritySeparation: number; // max 10
+  stereoPhase: number; // max 10
+  loudnessTruePeak: number; // max 10
+  distortionFatigue: number; // max 5
+  breakdown: string[];
+  rejectionTriggers: string[];
+  isApproved: boolean;
+}
+
+export interface MasteringIterationRecord {
+  iterationIndex: number;
+  mqs: MasteringQualityScore;
+  appliedTweaks: string[];
+  renderedLufs: number;
+  renderedPeak: number;
+  isRejected: boolean;
+  rejectedReasons: string[];
+}
+
 export interface AIMasteringResult {
   before: AIMasteringStats;
   after: AIMasteringStats;
@@ -343,6 +368,13 @@ export interface AIMasteringResult {
   vocalReport?: VocalProtectionReport;
   sourceId?: string; // Links master to exact source audio
   sessionId?: string; // Tracks execution session to prevent stale race conditions
+  mqs?: MasteringQualityScore;
+  originalMqs?: MasteringQualityScore;
+  selectedIteration?: number;
+  totalIterationsRun?: number;
+  iterationHistory?: MasteringIterationRecord[];
+  isFallbackApplied?: boolean;
+  qualityVerdict?: 'APPROVED_BETTER' | 'TRANSPARENT_FALLBACK' | 'REJECTED';
 }
 
 export interface BulkMasteringSummary {

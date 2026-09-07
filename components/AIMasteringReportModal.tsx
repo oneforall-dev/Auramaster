@@ -134,6 +134,184 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
             </button>
           </div>
 
+          {/* MASTERING QUALITY SCORE (MQS) AUDIT: EL MASTER DEBE SUPERAR AL ORIGINAL */}
+          {result.mqs && (
+            <div className={`p-4 rounded-xl border space-y-4 ${
+              isClear 
+                ? 'bg-gradient-to-br from-indigo-50/70 via-slate-50 to-emerald-50/50 border-indigo-200/80 text-slate-800' 
+                : 'bg-gradient-to-br from-indigo-950/40 via-slate-900/80 to-emerald-950/30 border-indigo-500/30 text-slate-200'
+            }`}>
+              {/* Header with Title & Overall Score */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 border-slate-700/50">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 text-white shadow-lg shrink-0">
+                    <Gauge size={20} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-sm sm:text-base tracking-wide flex items-center gap-1.5">
+                        Auditoría de Calidad: El Master Debe Superar al Original
+                      </h4>
+                      <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
+                        result.isFallbackApplied
+                          ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                          : result.mqs.isApproved
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                            : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                      }`}>
+                        {result.isFallbackApplied 
+                          ? 'Fallback Transparente' 
+                          : result.mqs.isApproved ? 'Master Superior Aprobado' : 'Revisión Requerida'}
+                      </span>
+                    </div>
+                    <p className="text-xs opacity-75 font-mono mt-0.5">
+                      {result.isFallbackApplied 
+                        ? 'La mezcla original ya posee balance sobresaliente; se aplicó preservación pura sin sobreprocesar.'
+                        : `Evaluación comparativa a loudness igualado: Original ${result.originalMqs ? `${result.originalMqs.totalScore} pts` : ''} ➔ Master ${result.mqs.totalScore} pts (+${result.originalMqs ? (result.mqs.totalScore - result.originalMqs.totalScore).toFixed(1) : '0'} pts).`
+                      }
+                    </p>
+                  </div>
+                </div>
+
+                {/* Main Score Badge */}
+                <div className="flex items-center gap-3 self-end sm:self-center">
+                  {result.selectedIteration !== undefined && result.selectedIteration > 0 && (
+                    <div className="text-right font-mono text-[11px] text-slate-400 hidden sm:block">
+                      <span>Iteración {result.selectedIteration} de {result.totalIterationsRun || 1}</span>
+                    </div>
+                  )}
+                  <div className={`px-4 py-2 rounded-xl flex items-baseline gap-1 border shadow-inner ${
+                    result.mqs.totalScore >= 90
+                      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                      : result.mqs.totalScore >= 80
+                        ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300'
+                        : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                  }`}>
+                    <span className="text-2xl font-black font-mono leading-none">{result.mqs.totalScore}</span>
+                    <span className="text-xs font-bold opacity-70">/100 MQS</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 8 Audited Pillars Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                {/* 1. Tonal Balance */}
+                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Balance Tonal</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold font-mono text-cyan-400">{result.mqs.tonalBalance}</span>
+                    <span className="text-[10px] font-mono text-slate-500">/20 pts</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                    <div className="bg-cyan-400 h-full rounded-full" style={{ width: `${(result.mqs.tonalBalance / 20) * 100}%` }}></div>
+                  </div>
+                </div>
+
+                {/* 2. Vocal Preservation */}
+                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Protección Vocal</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold font-mono text-emerald-400">{result.mqs.vocalPreservation}</span>
+                    <span className="text-[10px] font-mono text-slate-500">/20 pts</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                    <div className="bg-emerald-400 h-full rounded-full" style={{ width: `${(result.mqs.vocalPreservation / 20) * 100}%` }}></div>
+                  </div>
+                </div>
+
+                {/* 3. Dynamics & Transients */}
+                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Dinámica & LRA</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold font-mono text-purple-400">{result.mqs.dynamicsTransients}</span>
+                    <span className="text-[10px] font-mono text-slate-500">/15 pts</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                    <div className="bg-purple-400 h-full rounded-full" style={{ width: `${(result.mqs.dynamicsTransients / 15) * 100}%` }}></div>
+                  </div>
+                </div>
+
+                {/* 4. Low-End Control */}
+                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Control de Graves</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold font-mono text-blue-400">{result.mqs.lowEndControl}</span>
+                    <span className="text-[10px] font-mono text-slate-500">/10 pts</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                    <div className="bg-blue-400 h-full rounded-full" style={{ width: `${(result.mqs.lowEndControl / 10) * 100}%` }}></div>
+                  </div>
+                </div>
+
+                {/* 5. Clarity & Separation */}
+                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Claridad & Medios</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold font-mono text-teal-400">{result.mqs.claritySeparation}</span>
+                    <span className="text-[10px] font-mono text-slate-500">/10 pts</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                    <div className="bg-teal-400 h-full rounded-full" style={{ width: `${(result.mqs.claritySeparation / 10) * 100}%` }}></div>
+                  </div>
+                </div>
+
+                {/* 6. Stereo & Phase */}
+                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Estéreo & Fase</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold font-mono text-indigo-400">{result.mqs.stereoPhase}</span>
+                    <span className="text-[10px] font-mono text-slate-500">/10 pts</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                    <div className="bg-indigo-400 h-full rounded-full" style={{ width: `${(result.mqs.stereoPhase / 10) * 100}%` }}></div>
+                  </div>
+                </div>
+
+                {/* 7. Loudness & True Peak */}
+                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">True Peak ≤ -1dBTP</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold font-mono text-pink-400">{result.mqs.loudnessTruePeak}</span>
+                    <span className="text-[10px] font-mono text-slate-500">/10 pts</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                    <div className="bg-pink-400 h-full rounded-full" style={{ width: `${(result.mqs.loudnessTruePeak / 10) * 100}%` }}></div>
+                  </div>
+                </div>
+
+                {/* 8. Distortion & Fatigue */}
+                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Anti-Fatiga / Puro</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold font-mono text-amber-400">{result.mqs.distortionFatigue}</span>
+                    <span className="text-[10px] font-mono text-slate-500">/5 pts</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                    <div className="bg-amber-400 h-full rounded-full" style={{ width: `${(result.mqs.distortionFatigue / 5) * 100}%` }}></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Rejection triggers or Iterations history summary */}
+              {result.iterationHistory && result.iterationHistory.length > 1 && (
+                <div className="p-2.5 rounded-lg bg-slate-950/50 border border-slate-800 text-[11px] font-mono space-y-1">
+                  <span className="text-slate-400 font-bold block">Historial de Iteraciones Closed-Loop:</span>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {result.iterationHistory.map((iter, idx) => (
+                      <span key={idx} className={`px-2 py-0.5 rounded border text-[10px] ${
+                        !iter.isRejected
+                          ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 font-bold'
+                          : 'bg-amber-500/10 text-amber-300 border-amber-500/30 opacity-70'
+                      }`}>
+                        Iteración {iter.iterationIndex}: {iter.mqs.totalScore} pts {!iter.isRejected ? '✓ (Aprobada)' : '✗ (Descartada)'}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* If Reference Report exists: 4-Way Comparison Table */}
           {referenceReport ? (
             <div className="space-y-4">
