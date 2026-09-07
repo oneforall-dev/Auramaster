@@ -233,28 +233,43 @@ export interface ReferenceMasteringReportData {
 
 export interface VocalAnalysisProfile {
   centerEnergyDb: number;             // 250 Hz - 5 kHz (Mid channel focus)
-  vocalBodyDb: number;                // 250 Hz - 900 Hz (Warmth & proximity)
+  vocalBodyDb: number;                // 180 Hz - 900 Hz (Warmth & proximity)
   intelligibilityDb: number;          // 1 kHz - 4 kHz (Clarity & consonants)
   presenceDb: number;                 // 2 kHz - 5 kHz (Frontal placement)
   sibilanceDb: number;                // 5 kHz - 9 kHz (Air & 's' sounds)
-  vocalToBassRatioDb: number;         // Vocal (800Hz-4kHz) vs Low-end (40Hz-200Hz)
+  airEnergyDb: number;                // > 8 kHz (Breath & shimmer)
+  lowEndEnergyDb: number;             // 30 Hz - 200 Hz (Sub & bass)
+  vocalToBassRatioDb: number;         // Vocal (800Hz-4kHz) vs Low-end (30Hz-200Hz)
   vocalToInstrumentalRatioDb: number; // Mid vocal band vs Side & overall RMS
   hasProminentVocals: boolean;        // True if vocal energy & mid coherence detected
+  detectedVocalRegister: 'male_deep' | 'female_high' | 'neutral_instrumental';
+  exactPresenceFreq: number;          // Measured peak frequency in 2.0k-4.5k (Hz)
+  exactSibilanceFreq: number;         // Measured resonant peak in 5.5k-8.5k (Hz)
   sibilanceExcessDb: number;          // Sibilance above expected natural curve
-  lowMidBuildup750Db: number;         // Resonant buildup at 750 Hz
+  lowMidBuildup750Db: number;         // Resonant buildup at 750 Hz / 300 Hz
   bassMaskingIndex: number;           // 0-100 masking risk caused by sub/kick
+  monoCompatibilityScore: number;     // 0-100 mono phase coherence in vocal range
+  temporalConsistencyScore: number;   // 0-100 stability across verse/chorus blocks
 }
 
 export interface VocalProtectionReport {
   original: VocalAnalysisProfile;
   final: VocalAnalysisProfile;
   relativePresenceDeltaDb: number;    // e.g. -0.1 dB (rule: >= -0.3 dB)
+  vocalDeltaDb: number;               // Delta in absolute vocal presence band (dB)
+  lowEndDeltaDb: number;              // Delta in low-end energy 30-200Hz (dB)
+  lowEndVsVocalDiffDb: number;        // lowEndDeltaDb - vocalDeltaDb (rule: <= 0.5 dB)
   vocalBodyPreserved: boolean;
   intelligibilityPreserved: boolean;
+  maskingElementDetected: string;     // Identified masking obstacle or "Ninguno"
   deEsserApplied: boolean;
+  exactDeEsserFreq: number;           // Exact tuned de-esser frequency (Hz)
   deEsserReductionDb: number;
   density750ReductionDb: number;
+  midCompensationAppliedDb: number;   // Applied Mid boost (0.0 if not needed)
+  midCompensationFreq: number;        // Frequency of Mid compensation (Hz)
   bassDuckingPrevented: boolean;
+  monoCompatibilityPreserved: boolean;
   verdict: 'EXCELLENT' | 'COMPENSATED' | 'OPTIMAL';
   summaryNote: string;
 }

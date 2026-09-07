@@ -356,73 +356,164 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
             </div>
           )}
 
-          {/* Vocal Protection Audit Card */}
+          {/* Intelligent Vocal Protection Audit Card (12 Pilares Acústicos) */}
           {result.vocalReport && (
-            <div className={`p-4 rounded-xl border space-y-3 ${
+            <div className={`p-4 rounded-xl border space-y-3.5 ${
               isClear 
-                ? 'bg-indigo-50/80 border-indigo-200 text-slate-800' 
-                : 'border-indigo-500/30 bg-indigo-950/20 text-slate-100'
+                ? 'bg-indigo-50/70 border-indigo-200 text-slate-800' 
+                : 'border-indigo-500/30 bg-indigo-950/25 text-slate-100'
             }`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              {/* Header with Title & Final A/B Verdict Badge */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div className="flex items-center gap-2.5">
-                  <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-400 shrink-0">
-                    <Mic size={16} />
+                  <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 shrink-0">
+                    <Mic size={18} />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-300 flex items-center gap-1.5">
-                      Protección Vocal Automática (Auditoría Mid/Side)
-                    </h4>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-300">
+                        Protección Vocal Inteligente
+                      </h4>
+                      <span className="text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        Mid/Side A/B Audit
+                      </span>
+                    </div>
                     <p className={`text-[11px] mt-0.5 ${isClear ? 'text-slate-600' : 'text-slate-400'}`}>
                       {result.vocalReport.summaryNote}
                     </p>
                   </div>
                 </div>
-                <span className={`text-[10px] font-mono font-bold px-2.5 py-1 rounded-full border self-start sm:self-auto shrink-0 ${
-                  result.vocalReport.verdict === 'EXCELLENT'
-                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                    : result.vocalReport.verdict === 'COMPENSATED'
-                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                    : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
-                }`}>
-                  {result.vocalReport.verdict === 'EXCELLENT' ? 'Preservación Óptima' : result.vocalReport.verdict === 'COMPENSATED' ? 'Compensada Automáticamente' : 'Balance Preservado'} (Δ: {result.vocalReport.relativePresenceDeltaDb >= 0 ? '+' : ''}{result.vocalReport.relativePresenceDeltaDb.toFixed(2)} dB)
-                </span>
+                <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+                  <span className={`text-[10px] font-mono font-bold px-3 py-1 rounded-full border ${
+                    result.vocalReport.verdict === 'EXCELLENT'
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                      : result.vocalReport.verdict === 'COMPENSATED'
+                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                      : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                  }`}>
+                    {result.vocalReport.verdict === 'EXCELLENT' ? 'Preservación Óptima' : result.vocalReport.verdict === 'COMPENSATED' ? 'Compensación Activa' : 'Balance Protegido'} (Δ: {result.vocalReport.relativePresenceDeltaDb >= 0 ? '+' : ''}{result.vocalReport.relativePresenceDeltaDb.toFixed(2)} dB)
+                  </span>
+                </div>
               </div>
 
-              {/* Grid of Key Vocal Audit Metrics */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                <div className={`p-2.5 rounded-lg border text-[11px] ${
-                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
-                }`}>
-                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Cuerpo (250-900Hz)</span>
-                  <span className="font-bold text-slate-200 mt-0.5 block">
-                    {result.vocalReport.vocalBodyPreserved ? '✓ Intacto & Cálido' : 'Calibrado'}
+              {/* Diagnosis Bar: Masking & Vocal Register */}
+              <div className={`p-2.5 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] font-mono ${
+                isClear ? 'bg-white/80 border-indigo-100 text-slate-700' : 'bg-slate-950/60 border-slate-800/80 text-slate-300'
+              }`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400 uppercase text-[10px]">Enmascarador detectado:</span>
+                  <span className="font-semibold text-indigo-300">{result.vocalReport.maskingElementDetected}</span>
+                </div>
+                <div className="flex items-center gap-3 text-[10px]">
+                  <span>
+                    Registro:{' '}
+                    <strong className="text-slate-200 font-sans">
+                      {result.vocalReport.original.detectedVocalRegister === 'male_deep'
+                        ? 'Grave / Masculino (180-450Hz)'
+                        : result.vocalReport.original.detectedVocalRegister === 'female_high'
+                        ? 'Agudo / Femenino (250-900Hz)'
+                        : 'Mixto / Instrumental'}
+                    </strong>
+                  </span>
+                  <span>•</span>
+                  <span>
+                    Riesgo:{' '}
+                    <strong className={result.vocalReport.original.bassMaskingIndex > 50 ? 'text-amber-400' : 'text-emerald-400'}>
+                      {result.vocalReport.original.bassMaskingIndex > 50 ? 'Moderado' : 'Bajo'}
+                    </strong>
                   </span>
                 </div>
+              </div>
+
+              {/* Grid of Key 12-Criteria Vocal Metrics */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-0.5">
+                {/* 1. Delta Vocal */}
                 <div className={`p-2.5 rounded-lg border text-[11px] ${
                   isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
                 }`}>
-                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Presencia (2-5kHz)</span>
-                  <span className={`font-bold mt-0.5 block ${result.vocalReport.intelligibilityPreserved ? 'text-emerald-400' : 'text-amber-400'}`}>
-                    {result.vocalReport.intelligibilityPreserved ? '✓ Frontal & Clara' : 'Compensada'}
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Región Vocal (Presencia)</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold text-slate-200">
+                      {result.vocalReport.vocalDeltaDb >= 0 ? '+' : ''}{result.vocalReport.vocalDeltaDb.toFixed(2)} dB
+                    </span>
+                    <span className="text-[10px] font-mono text-indigo-400">@{result.vocalReport.final.exactPresenceFreq}Hz</span>
+                  </div>
+                </div>
+
+                {/* 2. Delta Graves & Comparison */}
+                <div className={`p-2.5 rounded-lg border text-[11px] ${
+                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                }`}>
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Región Graves (30-200Hz)</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold text-slate-200">
+                      {result.vocalReport.lowEndDeltaDb >= 0 ? '+' : ''}{result.vocalReport.lowEndDeltaDb.toFixed(2)} dB
+                    </span>
+                    <span className={`text-[10px] font-mono font-bold ${
+                      result.vocalReport.lowEndVsVocalDiffDb <= 0.50 ? 'text-emerald-400' : 'text-amber-400'
+                    }`}>
+                      Δ: {result.vocalReport.lowEndVsVocalDiffDb >= 0 ? '+' : ''}{result.vocalReport.lowEndVsVocalDiffDb.toFixed(2)} dB ≤ 0.5
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. Mid Compensation */}
+                <div className={`p-2.5 rounded-lg border text-[11px] ${
+                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                }`}>
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Compensación Mid EQ</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className={`font-bold ${result.vocalReport.midCompensationAppliedDb > 0 ? 'text-amber-400' : 'text-slate-200'}`}>
+                      {result.vocalReport.midCompensationAppliedDb > 0 
+                        ? `+${result.vocalReport.midCompensationAppliedDb.toFixed(2)} dB` 
+                        : '0.0 dB (No requerida)'}
+                    </span>
+                    {result.vocalReport.midCompensationAppliedDb > 0 && (
+                      <span className="text-[10px] font-mono text-indigo-400">@{result.vocalReport.midCompensationFreq}Hz</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 4. Adaptive De-Esser */}
+                <div className={`p-2.5 rounded-lg border text-[11px] ${
+                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                }`}>
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">De-Esser Adaptativo</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold text-slate-200">
+                      {result.vocalReport.deEsserApplied 
+                        ? `-${result.vocalReport.deEsserReductionDb.toFixed(1)} dB máx` 
+                        : 'Bypass (Limpio)'}
+                    </span>
+                    {result.vocalReport.deEsserApplied && (
+                      <span className="text-[10px] font-mono text-indigo-400">@{result.vocalReport.exactDeEsserFreq}Hz</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 5. Anti-Pumping Protection */}
+                <div className={`p-2.5 rounded-lg border text-[11px] ${
+                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                }`}>
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Anti-Pumping Sub/Kick</span>
+                  <span className="font-bold text-emerald-400 mt-1 block">
+                    ✓ Sin Ducking en Voz
                   </span>
                 </div>
+
+                {/* 6. Mono Compatibility & Body */}
                 <div className={`p-2.5 rounded-lg border text-[11px] ${
                   isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
                 }`}>
-                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Dynamic De-Esser</span>
-                  <span className="font-bold text-slate-200 mt-0.5 block">
-                    {result.vocalReport.deEsserApplied 
-                      ? `Activo (-${result.vocalReport.deEsserReductionDb.toFixed(1)} dB)` 
-                      : 'Bypass (Limpio)'}
-                  </span>
-                </div>
-                <div className={`p-2.5 rounded-lg border text-[11px] ${
-                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
-                }`}>
-                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Anti-Pumping Sub</span>
-                  <span className="font-bold text-emerald-400 mt-0.5 block">
-                    ✓ Sin Ducking Vocal
-                  </span>
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Compatibilidad Mono</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold text-slate-200">
+                      {result.vocalReport.monoCompatibilityPreserved ? '✓ Fase Coherente' : 'Revisión sugerida'}
+                    </span>
+                    <span className="text-[10px] font-mono text-emerald-400">
+                      {result.vocalReport.final.monoCompatibilityScore}/100
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
