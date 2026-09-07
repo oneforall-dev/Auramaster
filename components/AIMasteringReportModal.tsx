@@ -1,5 +1,8 @@
 import React from 'react';
-import { X, CheckCircle2, Sparkles, VolumeX, ArrowRight, ShieldCheck, Activity, Music2, Cpu } from 'lucide-react';
+import { 
+  X, CheckCircle2, Sparkles, VolumeX, ArrowRight, ShieldCheck, 
+  Activity, Music2, Cpu, Disc, Sliders, Layers, BarChart2, Gauge
+} from 'lucide-react';
 import { AIMasteringResult, SkinMode } from '../types';
 import { Language, getT } from '../services/i18n';
 
@@ -26,11 +29,27 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
   const t = getT(lang);
   const isClear = false;
-  const { before, after, decisions, targetMet, statusNote } = result;
+  const { before, after, decisions, targetMet, statusNote, referenceReport } = result;
+
+  const formatMode = (m: string) => {
+    switch(m) {
+      case 'replicate': return 'Replicar Estilo';
+      case 'adapt_and_enhance': return 'Adaptar y Mejorar';
+      default: return 'Adaptar Estilo';
+    }
+  };
+
+  const formatIntensity = (i: string) => {
+    switch(i) {
+      case 'subtle': return 'Sutil (35%)';
+      case 'strong': return 'Fuerte (90%)';
+      default: return 'Moderado (65%)';
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className={`w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl border flex flex-col max-h-[90vh] ${
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-6 animate-in fade-in duration-200">
+      <div className={`w-full max-w-3xl rounded-2xl overflow-hidden shadow-2xl border flex flex-col max-h-[92vh] ${
         isClear 
           ? 'bg-white border-slate-200 text-slate-900' 
           : 'bg-slate-900 border-slate-800 text-slate-100'
@@ -41,18 +60,26 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
           isClear ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
         }`}>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-gradient-to-br from-indigo-500 to-cyan-500 text-white rounded-xl shadow-md">
+            <div className={`p-2.5 rounded-xl shadow-md text-white ${
+              referenceReport 
+                ? 'bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500' 
+                : 'bg-gradient-to-br from-indigo-500 to-cyan-500'
+            }`}>
               <Sparkles size={20} />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-lg">Reporte de Mixer Fixer AI</h3>
+                <h3 className="font-bold text-lg">
+                  {referenceReport ? 'Reporte de Mastering Multi-Referencia AI' : 'Reporte de Mixer Fixer AI'}
+                </h3>
                 <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
                   targetMet 
                     ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' 
                     : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
                 }`}>
-                  {targetMet ? 'Objetivo Cumplido' : 'Master Optimizado'}
+                  {referenceReport 
+                    ? `Match Sónico: ${referenceReport.matchingScorePercent}%` 
+                    : targetMet ? 'Objetivo Cumplido' : 'Master Optimizado'}
                 </span>
               </div>
               <p className={`text-xs mt-0.5 ${isClear ? 'text-slate-600' : 'text-slate-400'}`}>
@@ -71,7 +98,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-6 overflow-y-auto space-y-6">
+        <div className="p-6 overflow-y-auto space-y-6 custom-scrollbar">
           
           {/* Target Compliance Banner */}
           <div className={`p-4 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-4 ${
@@ -82,7 +109,11 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
             <div className="flex items-center gap-3">
               <ShieldCheck size={26} className="text-emerald-500 shrink-0" />
               <div>
-                <div className="font-bold text-sm">Estándar de Distribución & Streaming Calibrado</div>
+                <div className="font-bold text-sm">
+                  {referenceReport 
+                    ? 'Perfil de Referencia Calibrado & True Peak Protegido' 
+                    : 'Estándar de Distribución & Streaming Calibrado'}
+                </div>
                 <div className="text-xs opacity-90 font-mono mt-0.5">
                   LUFS-I: {after.integratedLUFS.toFixed(1)} LUFS &nbsp;|&nbsp; True Peak: {after.truePeakDbTP.toFixed(1)} dBTP (Ceiling ≤ -1.0 dBTP)
                 </div>
@@ -103,85 +134,227 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
             </button>
           </div>
 
-          {/* Before vs After Metric Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            
-            {/* Integrated Loudness */}
-            <div className={`p-4 rounded-xl border flex flex-col justify-between ${
-              isClear ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
-            }`}>
-              <div className="text-xs font-bold uppercase tracking-wider opacity-60">
-                Integrated LUFS
-              </div>
-              <div className="flex items-center justify-between my-3">
-                <div className="text-center">
-                  <span className="text-[10px] opacity-60 block">ORIGINAL</span>
-                  <span className="font-mono text-sm font-bold opacity-80">{before.integratedLUFS.toFixed(1)}</span>
-                </div>
-                <ArrowRight size={16} className="text-cyan-500 opacity-60" />
-                <div className="text-center">
-                  <span className="text-[10px] text-emerald-500 font-bold block">MASTER</span>
-                  <span className="font-mono text-base font-black text-emerald-500">{after.integratedLUFS.toFixed(1)}</span>
-                </div>
-              </div>
-              <div className="text-[10px] opacity-70 font-mono text-center">
-                {Math.abs(after.integratedLUFS - before.integratedLUFS) <= 0.3
-                  ? 'Volumen Preservado (0.0 LU delta)'
-                  : `Ganancia: ${(after.integratedLUFS - before.integratedLUFS >= 0 ? '+' : '') + (after.integratedLUFS - before.integratedLUFS).toFixed(1)} LU`}
-              </div>
-            </div>
-
-            {/* True Peak */}
-            <div className={`p-4 rounded-xl border flex flex-col justify-between ${
-              isClear ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
-            }`}>
-              <div className="text-xs font-bold uppercase tracking-wider opacity-60">
-                True Peak (dBTP)
-              </div>
-              <div className="flex items-center justify-between my-3">
-                <div className="text-center">
-                  <span className="text-[10px] opacity-60 block">ORIGINAL</span>
-                  <span className={`font-mono text-sm font-bold ${before.truePeakDbTP > -1.0 ? 'text-rose-400' : 'opacity-80'}`}>
-                    {before.truePeakDbTP.toFixed(1)}
+          {/* If Reference Report exists: 4-Way Comparison Table */}
+          {referenceReport ? (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <BarChart2 size={14} className="text-indigo-400" />
+                  Comparativa Cuádruple: Original vs. Referencia vs. Master
+                </h4>
+                <div className="flex items-center gap-2 text-[10px] font-mono">
+                  <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                    Modo: {formatMode(referenceReport.config.mode)}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                    {formatIntensity(referenceReport.config.intensity)}
                   </span>
                 </div>
-                <ArrowRight size={16} className="text-cyan-500 opacity-60" />
-                <div className="text-center">
-                  <span className="text-[10px] text-emerald-500 font-bold block">MASTER</span>
-                  <span className="font-mono text-base font-black text-emerald-500">{after.truePeakDbTP.toFixed(1)}</span>
+              </div>
+
+              {/* 4-Way Table */}
+              <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/60">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-400 font-mono uppercase text-[10px] border-b border-slate-800">
+                    <tr>
+                      <th className="p-3">Métrica</th>
+                      <th className="p-3 text-center">Original (Mix)</th>
+                      <th className="p-3 text-center text-indigo-300">Referencia (Obj.)</th>
+                      <th className="p-3 text-center text-emerald-400 font-bold">Master Final</th>
+                      <th className="p-3 text-right">Resultado / Delta</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
+                    
+                    {/* Integrated LUFS */}
+                    <tr className="hover:bg-white/5 transition-colors">
+                      <td className="p-3 font-sans font-semibold text-slate-200">Integrated LUFS</td>
+                      <td className="p-3 text-center text-slate-400">{referenceReport.originalProfile.integratedLUFS.toFixed(1)}</td>
+                      <td className="p-3 text-center text-indigo-300">{referenceReport.targetProfile.integratedLUFS.toFixed(1)}</td>
+                      <td className="p-3 text-center text-emerald-400 font-bold">{referenceReport.finalProfile.integratedLUFS.toFixed(1)}</td>
+                      <td className="p-3 text-right text-slate-300">
+                        {Math.abs(referenceReport.finalProfile.integratedLUFS - referenceReport.originalProfile.integratedLUFS) < 0.2
+                          ? 'Preservado (0.0 LU)'
+                          : `${(referenceReport.finalProfile.integratedLUFS - referenceReport.originalProfile.integratedLUFS >= 0 ? '+' : '')}${(referenceReport.finalProfile.integratedLUFS - referenceReport.originalProfile.integratedLUFS).toFixed(1)} LU`}
+                      </td>
+                    </tr>
+
+                    {/* True Peak */}
+                    <tr className="hover:bg-white/5 transition-colors">
+                      <td className="p-3 font-sans font-semibold text-slate-200">True Peak (dBTP)</td>
+                      <td className="p-3 text-center text-slate-400">{referenceReport.originalProfile.truePeakDbTP.toFixed(1)}</td>
+                      <td className="p-3 text-center text-indigo-300">{referenceReport.targetProfile.truePeakDbTP.toFixed(1)}</td>
+                      <td className="p-3 text-center text-emerald-400 font-bold">{referenceReport.finalProfile.truePeakDbTP.toFixed(1)}</td>
+                      <td className="p-3 text-right text-emerald-400">≤ -1.0 dBTP Seguro</td>
+                    </tr>
+
+                    {/* Dynamic Range LRA */}
+                    <tr className="hover:bg-white/5 transition-colors">
+                      <td className="p-3 font-sans font-semibold text-slate-200">Dynamic Range (LRA)</td>
+                      <td className="p-3 text-center text-slate-400">{referenceReport.originalProfile.dynamicRangeLRA.toFixed(1)} LU</td>
+                      <td className="p-3 text-center text-indigo-300">{referenceReport.targetProfile.dynamicRangeLRA.toFixed(1)} LU</td>
+                      <td className="p-3 text-center text-cyan-400 font-bold">{referenceReport.finalProfile.dynamicRangeLRA.toFixed(1)} LU</td>
+                      <td className="p-3 text-right text-slate-300">
+                        {Math.abs(referenceReport.finalProfile.dynamicRangeLRA - referenceReport.originalProfile.dynamicRangeLRA) < 0.2
+                          ? 'Dinámica Preservada'
+                          : `${(referenceReport.finalProfile.dynamicRangeLRA - referenceReport.originalProfile.dynamicRangeLRA >= 0 ? '+' : '')}${(referenceReport.finalProfile.dynamicRangeLRA - referenceReport.originalProfile.dynamicRangeLRA).toFixed(1)} LU`}
+                      </td>
+                    </tr>
+
+                    {/* Crest Factor */}
+                    <tr className="hover:bg-white/5 transition-colors">
+                      <td className="p-3 font-sans font-semibold text-slate-200">Crest Factor (Pegada)</td>
+                      <td className="p-3 text-center text-slate-400">{referenceReport.originalProfile.crestFactor.toFixed(1)} dB</td>
+                      <td className="p-3 text-center text-indigo-300">{referenceReport.targetProfile.crestFactor.toFixed(1)} dB</td>
+                      <td className="p-3 text-center text-emerald-400 font-bold">{referenceReport.finalProfile.crestFactor.toFixed(1)} dB</td>
+                      <td className="p-3 text-right text-slate-300">Transientes Intactos</td>
+                    </tr>
+
+                    {/* Stereo Width Ratio */}
+                    <tr className="hover:bg-white/5 transition-colors">
+                      <td className="p-3 font-sans font-semibold text-slate-200">Ancho Estéreo (M/S)</td>
+                      <td className="p-3 text-center text-slate-400">{referenceReport.originalProfile.stereoWidthRatio.toFixed(2)}x</td>
+                      <td className="p-3 text-center text-indigo-300">{referenceReport.targetProfile.stereoWidthRatio.toFixed(2)}x</td>
+                      <td className="p-3 text-center text-cyan-400 font-bold">{referenceReport.finalProfile.stereoWidthRatio.toFixed(2)}x</td>
+                      <td className="p-3 text-right text-cyan-400">Sub Mono &lt; 105 Hz</td>
+                    </tr>
+
+                    {/* Transient Punch */}
+                    <tr className="hover:bg-white/5 transition-colors">
+                      <td className="p-3 font-sans font-semibold text-slate-200">Punch de Transientes</td>
+                      <td className="p-3 text-center text-slate-400">{referenceReport.originalProfile.transientPunch}/100</td>
+                      <td className="p-3 text-center text-indigo-300">{referenceReport.targetProfile.transientPunch}/100</td>
+                      <td className="p-3 text-center text-emerald-400 font-bold">{referenceReport.finalProfile.transientPunch}/100</td>
+                      <td className="p-3 text-right text-emerald-400">Calibrado</td>
+                    </tr>
+
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Spectral Comparison Bar */}
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/50 space-y-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Activity size={14} className="text-indigo-400" />
+                  Distribución Espectral de 5 Bandas (Master Final)
+                </span>
+                <div className="grid grid-cols-5 gap-2 font-mono text-center text-[10px]">
+                  {['Sub (<80Hz)', 'Low-Mid (320Hz)', 'Mid (1kHz)', 'High-Mid (4.2k)', 'Air (>10kHz)'].map((bandName, idx) => {
+                    const finalVal = referenceReport.finalProfile.spectralBands[idx] || 0;
+                    const targetVal = referenceReport.targetProfile.spectralBands[idx] || 0;
+                    return (
+                      <div key={idx} className="p-2 rounded-lg bg-slate-900 border border-slate-800/80 flex flex-col gap-1">
+                        <span className="text-slate-400 text-[9px] font-sans truncate">{bandName}</span>
+                        <span className="font-bold text-slate-200">{finalVal.toFixed(1)} dB</span>
+                        <span className="text-[9px] text-indigo-400">Ref: {targetVal.toFixed(1)} dB</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-              <div className="text-[10px] opacity-70 font-mono text-center">
-                Ceiling: ≤ -1.0 dBTP (Seguro)
+
+              {/* Reference Track Sources */}
+              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/40 text-xs">
+                <div className="font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
+                  <Disc size={13} className="text-indigo-400" />
+                  <span>Referencias Utilizadas ({referenceReport.references.length}):</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {referenceReport.references.map((r, i) => (
+                    <div key={i} className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 flex items-center gap-2 text-[11px]">
+                      <span className="font-medium text-slate-200">{r.name}</span>
+                      {r.isPrimary && (
+                        <span className="text-[9px] font-black uppercase text-indigo-400 bg-indigo-950/60 px-1 rounded">
+                          Primaria
+                        </span>
+                      )}
+                      <span className="text-slate-500 font-mono">({Math.round(r.weight * 100)}%)</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
+          ) : (
+            /* Standard Before vs After Metric Grid */
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              
+              {/* Integrated Loudness */}
+              <div className={`p-4 rounded-xl border flex flex-col justify-between ${
+                isClear ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
+              }`}>
+                <div className="text-xs font-bold uppercase tracking-wider opacity-60">
+                  Integrated LUFS
+                </div>
+                <div className="flex items-center justify-between my-3">
+                  <div className="text-center">
+                    <span className="text-[10px] opacity-60 block">ORIGINAL</span>
+                    <span className="font-mono text-sm font-bold opacity-80">{before.integratedLUFS.toFixed(1)}</span>
+                  </div>
+                  <ArrowRight size={16} className="text-cyan-500 opacity-60" />
+                  <div className="text-center">
+                    <span className="text-[10px] text-emerald-500 font-bold block">MASTER</span>
+                    <span className="font-mono text-base font-black text-emerald-500">{after.integratedLUFS.toFixed(1)}</span>
+                  </div>
+                </div>
+                <div className="text-[10px] opacity-70 font-mono text-center">
+                  {Math.abs(after.integratedLUFS - before.integratedLUFS) <= 0.3
+                    ? 'Volumen Preservado (0.0 LU delta)'
+                    : `Ganancia: ${(after.integratedLUFS - before.integratedLUFS >= 0 ? '+' : '') + (after.integratedLUFS - before.integratedLUFS).toFixed(1)} LU`}
+                </div>
+              </div>
 
-            {/* Dynamic Range */}
-            <div className={`p-4 rounded-xl border flex flex-col justify-between ${
-              isClear ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
-            }`}>
-              <div className="text-xs font-bold uppercase tracking-wider opacity-60">
-                Dynamic Range (LRA)
-              </div>
-              <div className="flex items-center justify-between my-3">
-                <div className="text-center">
-                  <span className="text-[10px] opacity-60 block">ORIGINAL</span>
-                  <span className="font-mono text-sm font-bold opacity-80">{before.dynamicRangeLRA.toFixed(1)} LU</span>
+              {/* True Peak */}
+              <div className={`p-4 rounded-xl border flex flex-col justify-between ${
+                isClear ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
+              }`}>
+                <div className="text-xs font-bold uppercase tracking-wider opacity-60">
+                  True Peak (dBTP)
                 </div>
-                <ArrowRight size={16} className="text-cyan-500 opacity-60" />
-                <div className="text-center">
-                  <span className="text-[10px] text-cyan-400 font-bold block">MASTER</span>
-                  <span className="font-mono text-base font-black text-cyan-400">{after.dynamicRangeLRA.toFixed(1)} LU</span>
+                <div className="flex items-center justify-between my-3">
+                  <div className="text-center">
+                    <span className="text-[10px] opacity-60 block">ORIGINAL</span>
+                    <span className={`font-mono text-sm font-bold ${before.truePeakDbTP > -1.0 ? 'text-rose-400' : 'opacity-80'}`}>
+                      {before.truePeakDbTP.toFixed(1)}
+                    </span>
+                  </div>
+                  <ArrowRight size={16} className="text-cyan-500 opacity-60" />
+                  <div className="text-center">
+                    <span className="text-[10px] text-emerald-500 font-bold block">MASTER</span>
+                    <span className="font-mono text-base font-black text-emerald-500">{after.truePeakDbTP.toFixed(1)}</span>
+                  </div>
+                </div>
+                <div className="text-[10px] opacity-70 font-mono text-center">
+                  Ceiling: ≤ -1.0 dBTP (Seguro)
                 </div>
               </div>
-              <div className="text-[10px] opacity-70 font-mono text-center">
-                {Math.abs(after.dynamicRangeLRA - before.dynamicRangeLRA) < 0.2
-                  ? 'Dinámica Preservada (0.0 LU delta)'
-                  : `Delta Dinámico: ${(after.dynamicRangeLRA - before.dynamicRangeLRA >= 0 ? '+' : '') + (after.dynamicRangeLRA - before.dynamicRangeLRA).toFixed(1)} LU`}
+
+              {/* Dynamic Range */}
+              <div className={`p-4 rounded-xl border flex flex-col justify-between ${
+                isClear ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
+              }`}>
+                <div className="text-xs font-bold uppercase tracking-wider opacity-60">
+                  Dynamic Range (LRA)
+                </div>
+                <div className="flex items-center justify-between my-3">
+                  <div className="text-center">
+                    <span className="text-[10px] opacity-60 block">ORIGINAL</span>
+                    <span className="font-mono text-sm font-bold opacity-80">{before.dynamicRangeLRA.toFixed(1)} LU</span>
+                  </div>
+                  <ArrowRight size={16} className="text-cyan-500 opacity-60" />
+                  <div className="text-center">
+                    <span className="text-[10px] text-cyan-400 font-bold block">MASTER</span>
+                    <span className="font-mono text-base font-black text-cyan-400">{after.dynamicRangeLRA.toFixed(1)} LU</span>
+                  </div>
+                </div>
+                <div className="text-[10px] opacity-70 font-mono text-center">
+                  {Math.abs(after.dynamicRangeLRA - before.dynamicRangeLRA) < 0.2
+                    ? 'Dinámica Preservada (0.0 LU delta)'
+                    : `Delta Dinámico: ${(after.dynamicRangeLRA - before.dynamicRangeLRA >= 0 ? '+' : '') + (after.dynamicRangeLRA - before.dynamicRangeLRA).toFixed(1)} LU`}
+                </div>
               </div>
+
             </div>
-
-          </div>
+          )}
 
           {/* DSP Decisions & Process Applied */}
           <div className="space-y-2">
@@ -210,11 +383,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
           <div className="flex items-center gap-3 text-xs opacity-70 font-mono">
             <span>{new Date(result.timestamp).toLocaleTimeString()}</span>
             <span className="hidden sm:inline">•</span>
-            <span className="hidden sm:inline text-emerald-400 font-semibold">Frecuencia Original Preservada</span>
+            <span className="text-emerald-400 font-semibold">
+              {referenceReport ? `Exportación Nativa Preservada (${(referenceReport.sampleRate / 1000).toFixed(1)} kHz / 24-bit)` : 'Frecuencia Original Preservada'}
+            </span>
           </div>
           <button
             onClick={onClose}
-            className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl shadow-md transition-all"
+            className="px-5 py-2 bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-bold text-xs rounded-xl shadow-md transition-all"
           >
             Entendido
           </button>

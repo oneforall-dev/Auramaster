@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, Activity, Download, Loader2, Globe, Sparkles, Zap, Disc, Plus, FileAudio, FolderOpen, Settings2, Sliders, Cpu, Headphones, Music, Guitar, Leaf, CheckCircle2, Monitor, Maximize2, Minimize2, VolumeX, PenTool, UploadCloud, BrainCircuit, BarChart2, Archive, Undo2 } from 'lucide-react';
 import { audioEngine } from './services/audioEngine';
-import { MasteringChainParams, PlaybackState, Track, SkinMode, ProcessingMode, TrackMasterInfo, AIMasteringResult } from './types';
+import { MasteringChainParams, PlaybackState, Track, SkinMode, ProcessingMode, TrackMasterInfo, AIMasteringResult, ReferenceTrack, ReferenceMasteringConfig } from './types';
 import { Visualizer } from './components/Visualizer';
 import { EffectRack } from './components/EffectRack';
 import { TimelineBar } from './components/TimelineBar';
@@ -12,6 +12,7 @@ import { GoogleAuthButton } from './components/GoogleAuthButton';
 import { AuthGate } from './components/AuthGate';
 import { AISettingsModal } from './components/AISettingsModal';
 import { AIMasteringReportModal } from './components/AIMasteringReportModal';
+import { ReferenceMasteringModal } from './components/ReferenceMasteringModal';
 import { ExportSuccessModal } from './components/ExportSuccessModal';
 import { FilesBox } from './components/FilesBox';
 import { createMasteredZip } from './services/exportZip';
@@ -104,6 +105,11 @@ export default function App() {
   const [isExportSuccessOpen, setIsExportSuccessOpen] = useState(false);
   const [exportedFileName, setExportedFileName] = useState('');
   const [editHistory, setEditHistory] = useState<{ trackId: string; buffer: AudioBuffer; description: string }[]>([]);
+
+  // Multi-Reference AI Mastering State
+  const [references, setReferences] = useState<ReferenceTrack[]>([]);
+  const [isReferenceModalOpen, setIsReferenceModalOpen] = useState(false);
+  const [isReferenceProcessing, setIsReferenceProcessing] = useState(false);
 
   useEffect(() => {
     return authService.subscribe((u) => setCurrentUser(u));
@@ -578,6 +584,40 @@ export default function App() {
     }, 100);
   };
 
+  const handleAddReference = (ref: ReferenceTrack) => {
+    setReferences(prev => [...prev, ref]);
+  };
+
+  const handleUpdateReference = (id: string, updates: Partial<ReferenceTrack>) => {
+    setReferences(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
+  };
+
+  const handleRemoveReference = (id: string) => {
+    setReferences(prev => prev.filter(r => r.id !== id));
+  };
+
+  const handleRunReferenceMastering = async (config: ReferenceMasteringConfig) => {
+    if (references.length === 0 || tracks.length === 0) return;
+    setIsReferenceProcessing(true);
+
+    try {
+      const activeTracks = processingMode === 'bulk' && activeTrackId
+        ? tracks.filter(t => t.id === activeTrackId)
+        : tracks;
+
+      const result = await audioEngine.runReferenceAIMastering(params, activeTracks, references, config);
+      setParams(result.appliedParams);
+      setMasteringReport(result);
+      setIsReferenceModalOpen(false);
+      setIsReportOpen(true);
+    } catch (err: any) {
+      console.error("Reference mastering failed:", err);
+      alert(`Error al ejecutar mastering por referencia: ${err?.message || 'Revisa la consola'}`);
+    } finally {
+      setIsReferenceProcessing(false);
+    }
+  };
+
   const applyPreset = (id: string) => { 
     const p = PRESETS.find(pr => pr.id === id); 
     if (p) { setParams(p.params); setActivePreset(id); setIsBypassed(false); } 
@@ -876,6 +916,16 @@ export default function App() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setIsReferenceModalOpen(true)}
+                    disabled={tracks.length === 0}
+                    className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all border border-indigo-500/40 bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-200 shadow-md shadow-indigo-950/30 active:scale-95"
+                    title="Mastering inteligente por canciones de referencia"
+                  >
+                    <Disc size={15} className="text-indigo-400" />
+                    <span>Referencia {references.length > 0 ? `(${references.length})` : ''}</span>
+                  </button>
+
                   {processingMode === 'bulk' && tracks.length > 1 && (
                     <button
                       onClick={handleDownloadAllMasteredZip}
@@ -916,10 +966,25 @@ export default function App() {
                   selection={selection}
                   activeTrackId={activeTrackId}
                   onSelectTrack={handleSelectTrack}
+                  onOpenReferenceMastering={() => setIsReferenceModalOpen(true)}
+                  referenceCount={references.length}
                 />
              </div>
          </div>
       </main>
+
+      <ReferenceMasteringModal 
+        isOpen={isReferenceModalOpen}
+        onClose={() => setIsReferenceModalOpen(false)}
+        references={references}
+        onAddReference={handleAddReference}
+        onUpdateReference={handleUpdateReference}
+        onRemoveReference={handleRemoveReference}
+        onRunMastering={handleRunReferenceMastering}
+        skin={skin}
+        lang={lang}
+        isProcessing={isReferenceProcessing}
+      />
 
       <AIMasteringReportModal 
         isOpen={isReportOpen}

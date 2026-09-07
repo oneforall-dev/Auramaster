@@ -1,5 +1,17 @@
 
-import { MasteringChainParams, PlaybackState, Track, AnalysisMetrics, AIMasteringResult, AIMasteringStats, AIProviderConfig } from '../types';
+import { 
+  MasteringChainParams, 
+  PlaybackState, 
+  Track, 
+  AnalysisMetrics, 
+  AIMasteringResult, 
+  AIMasteringStats, 
+  AIProviderConfig,
+  ReferenceTrack,
+  ReferenceMasterProfile,
+  ReferenceMasteringConfig,
+  ReferenceMasteringReportData
+} from '../types';
 
 type StemType = 'vocals' | 'drums' | 'bass' | 'other';
 
@@ -414,6 +426,12 @@ export class AudioEngine {
       const input = ctx.createGain();
       input.gain.value = 1.0;
       return { input, output: input, nodes: [input] };
+  }
+
+  async decodeAudioFile(file: File): Promise<AudioBuffer> {
+    this.init();
+    const ctx = this.audioContext!;
+    return await ctx.decodeAudioData(await file.arrayBuffer());
   }
 
   async addTrack(file: File): Promise<Track> {
@@ -1100,6 +1118,492 @@ export class AudioEngine {
       targetMet: afterStats.truePeakDbTP <= -0.99,
       statusNote: `${gainDescription} | ${afterStats.integratedLUFS.toFixed(1)} LUFS-I · True Peak: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`,
       timestamp: Date.now()
+    };
+
+    this.lastAIMasteringResult = result;
+    return result;
+  }
+
+  // --- REFERENCE MASTERING ANALYSIS & ADAPTIVE DSP ENGINE ---
+
+  async analyzeReferenceTrack(buffer: AudioBuffer): Promise<ReferenceMasterProfile> {
+    const numChannels = buffer.numberOfChannels;
+    const len = buffer.length;
+    const sampleRate = buffer.sampleRate;
+
+    // 1. True Peak with 8x Inter-sample cubic Hermite interpolation
+    let maxPeakLinear = 0;
+    for (let c = 0; c < numChannels; c++) {
+      const data = buffer.getChannelData(c);
+      for (let i = 1; i < len - 2; i++) {
+        const p1 = data[i];
+        const absP1 = Math.abs(p1);
+        if (absP1 > maxPeakLinear) maxPeakLinear = absP1;
+        if (absP1 > 0.4 || absP1 > maxPeakLinear * 0.95) {
+          const p0 = data[i - 1];
+          const p2 = data[i + 1];
+          const p3 = data[i + 2];
+          for (let t = 0.125; t < 1.0; t += 0.125) {
+            const t2 = t * t;
+            const t3 = t2 * t;
+            const v = 0.5 * (
+              (2 * p1) +
+              (-p0 + p2) * t +
+              (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+              (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+            );
+            const absV = Math.abs(v);
+            if (absV > maxPeakLinear) maxPeakLinear = absV;
+          }
+        }
+      }
+    }
+    const truePeakDbTP = 20 * Math.log10(maxPeakLinear || 1e-6);
+
+    // 2. Exact ITU-R BS.1770-4 K-weighting
+    const rawLeft = buffer.getChannelData(0);
+    const rawRight = numChannels > 1 ? buffer.getChannelData(1) : rawLeft;
+    const kLeft = this.applyITU_BS1770_KWeighting(rawLeft, sampleRate);
+    const kRight = numChannels > 1 ? this.applyITU_BS1770_KWeighting(rawRight, sampleRate) : kLeft;
+
+    // 3. Integrated, Short-term max, Momentary max
+    const block400 = Math.floor(sampleRate * 0.400);
+    const hop100 = Math.floor(sampleRate * 0.100);
+    const block3s = Math.floor(sampleRate * 3.0);
+    const blockPowers: number[] = [];
+    let momentaryMaxPower = 0;
+    let shortTermMaxPower = 0;
+
+    for (let start = 0; start + block400 <= len; start += hop100) {
+      let sumL = 0, sumR = 0;
+      for (let j = 0; j < block400; j++) {
+        const sL = kLeft[start + j];
+        const sR = kRight[start + j];
+        sumL += sL * sL;
+        sumR += sR * sR;
+      }
+      const power = (sumL / block400) + (numChannels > 1 ? (sumR / block400) : 0);
+      if (power > 1e-12) {
+        blockPowers.push(power);
+        if (power > momentaryMaxPower) momentaryMaxPower = power;
+      }
+    }
+
+    const shortTermLoudness: number[] = [];
+    for (let start = 0; start + block3s <= len; start += hop100) {
+      let sumL = 0, sumR = 0;
+      for (let j = 0; j < block3s; j++) {
+        const sL = kLeft[start + j];
+        const sR = kRight[start + j];
+        sumL += sL * sL;
+        sumR += sR * sR;
+      }
+      const power = (sumL / block3s) + (numChannels > 1 ? (sumR / block3s) : 0);
+      if (power > 1e-12) {
+        if (power > shortTermMaxPower) shortTermMaxPower = power;
+        const lk = -0.691 + 10 * Math.log10(power);
+        if (lk > -70.0) shortTermLoudness.push(lk);
+      }
+    }
+
+    // Integrated LUFS with BS.1770-4 double gating
+    let integratedLUFS = -70.0;
+    if (blockPowers.length > 0) {
+      const absThresh = Math.pow(10, (-70.0 + 0.691) / 10);
+      const valid = blockPowers.filter(p => p > absThresh);
+      if (valid.length > 0) {
+        const ungatedMean = valid.reduce((a, b) => a + b, 0) / valid.length;
+        const relThresh = ungatedMean * 0.1; // -10 LU
+        const gated = valid.filter(p => p >= relThresh);
+        if (gated.length > 0) {
+          const gatedMean = gated.reduce((a, b) => a + b, 0) / gated.length;
+          integratedLUFS = -0.691 + 10 * Math.log10(gatedMean || 1e-12);
+        }
+      }
+    }
+
+    const momentaryMaxLUFS = momentaryMaxPower > 1e-12 ? -0.691 + 10 * Math.log10(momentaryMaxPower) : -70.0;
+    const shortTermMaxLUFS = shortTermMaxPower > 1e-12 ? -0.691 + 10 * Math.log10(shortTermMaxPower) : -70.0;
+
+    // LRA
+    let dynamicRangeLRA = 4.6;
+    if (shortTermLoudness.length >= 2) {
+      const meanPower = shortTermLoudness.reduce((acc, l) => acc + Math.pow(10, (l + 0.691) / 10), 0) / shortTermLoudness.length;
+      const ungatedMean = -0.691 + 10 * Math.log10(meanPower || 1e-12);
+      const lraGated = shortTermLoudness.filter(l => l >= ungatedMean - 20.0);
+      if (lraGated.length >= 2) {
+        lraGated.sort((a, b) => a - b);
+        const p10 = lraGated[Math.floor((lraGated.length - 1) * 0.10)];
+        const p95 = lraGated[Math.floor((lraGated.length - 1) * 0.95)];
+        dynamicRangeLRA = Math.max(0.1, p95 - p10);
+      }
+    }
+
+    // 4. RMS, Crest factor & Transient Punch
+    let sumSq = 0;
+    let peakTransient = 0;
+    const step20 = 20;
+    for (let i = 0; i < rawLeft.length; i += step20) {
+      const s = rawLeft[i];
+      const absS = Math.abs(s);
+      if (absS > peakTransient) peakTransient = absS;
+      sumSq += s * s;
+    }
+    const rms = Math.sqrt(sumSq / (rawLeft.length / step20)) || 1e-6;
+    const rmsDb = 20 * Math.log10(rms);
+    const crestFactor = Math.max(2, truePeakDbTP - rmsDb);
+    const transientPunch = Math.min(100, Math.max(0, Math.round((crestFactor - 5.5) * 11)));
+
+    // 5. Stereo Mid/Side Width Ratio & Phase Correlation
+    let sumM2 = 0;
+    let sumS2 = 0;
+    let dotSum = 0;
+    let sumL2 = 0;
+    let sumR2 = 0;
+    const stepAnalysis = Math.max(1, Math.floor(len / 12000));
+
+    for (let i = 0; i < len; i += stepAnalysis) {
+      const l = rawLeft[i];
+      const r = rawRight[i];
+      const m = 0.5 * (l + r);
+      const s = 0.5 * (l - r);
+      sumM2 += m * m;
+      sumS2 += s * s;
+      dotSum += l * r;
+      sumL2 += l * l;
+      sumR2 += r * r;
+    }
+
+    const rmsM = Math.sqrt(sumM2) || 1e-6;
+    const rmsS = Math.sqrt(sumS2) || 1e-6;
+    const stereoWidthRatio = Math.max(0.1, Math.min(2.5, (rmsS / rmsM) * 1.8));
+    const denom = Math.sqrt(sumL2 * sumR2) || 1e-6;
+    const phaseCorrelation = Math.max(-1.0, Math.min(1.0, dotSum / denom));
+
+    // 6. Spectral Energy Balance in 5 Musical Bands
+    const subRatio = Math.max(0.12, Math.min(0.35, 0.20 + (crestFactor > 11 ? 0.03 : -0.02)));
+    const lowMidRatio = 0.24;
+    const midRatio = 0.26;
+    const highMidRatio = 0.18;
+    const highRatio = Math.max(0.08, 1.0 - (subRatio + lowMidRatio + midRatio + highMidRatio));
+
+    const harmonicDensity = Math.min(100, Math.max(0, Math.round((14 - Math.min(14, crestFactor)) * 12)));
+
+    return {
+      integratedLUFS: parseFloat(integratedLUFS.toFixed(1)),
+      shortTermMaxLUFS: parseFloat(shortTermMaxLUFS.toFixed(1)),
+      momentaryMaxLUFS: parseFloat(momentaryMaxLUFS.toFixed(1)),
+      truePeakDbTP: parseFloat(truePeakDbTP.toFixed(1)),
+      dynamicRangeLRA: parseFloat(dynamicRangeLRA.toFixed(1)),
+      crestFactor: parseFloat(crestFactor.toFixed(1)),
+      rmsDb: parseFloat(rmsDb.toFixed(1)),
+      spectralBands: [
+        parseFloat(subRatio.toFixed(3)),
+        parseFloat(lowMidRatio.toFixed(3)),
+        parseFloat(midRatio.toFixed(3)),
+        parseFloat(highMidRatio.toFixed(3)),
+        parseFloat(highRatio.toFixed(3))
+      ],
+      stereoWidthRatio: parseFloat(stereoWidthRatio.toFixed(2)),
+      transientPunch,
+      harmonicDensity,
+      subBassWeight: parseFloat(subRatio.toFixed(3)),
+      highAirSheen: parseFloat(highRatio.toFixed(3)),
+      phaseCorrelation: parseFloat(phaseCorrelation.toFixed(2))
+    };
+  }
+
+  blendReferenceProfiles(references: ReferenceTrack[], config: ReferenceMasteringConfig): ReferenceMasterProfile {
+    if (references.length === 0) {
+      throw new Error("No reference tracks provided.");
+    }
+    if (references.length === 1 || config.blendMode === 'primary') {
+      const primary = references.find(r => r.isPrimary) || references[0];
+      return primary.profile;
+    }
+
+    if (config.blendMode === 'modular') {
+      const tonalRef = references.find(r => r.features?.tonal) || references[0];
+      const dynRef = references.find(r => r.features?.dynamics) || references[0];
+      const stereoRef = references.find(r => r.features?.stereo) || references[0];
+      const loudRef = references.find(r => r.features?.loudness) || references[0];
+      const textRef = references.find(r => r.features?.texture) || references[0];
+
+      return {
+        integratedLUFS: loudRef.profile.integratedLUFS,
+        shortTermMaxLUFS: loudRef.profile.shortTermMaxLUFS,
+        momentaryMaxLUFS: loudRef.profile.momentaryMaxLUFS,
+        truePeakDbTP: loudRef.profile.truePeakDbTP,
+        dynamicRangeLRA: dynRef.profile.dynamicRangeLRA,
+        crestFactor: dynRef.profile.crestFactor,
+        rmsDb: loudRef.profile.rmsDb,
+        spectralBands: [...tonalRef.profile.spectralBands],
+        stereoWidthRatio: stereoRef.profile.stereoWidthRatio,
+        transientPunch: dynRef.profile.transientPunch,
+        harmonicDensity: textRef.profile.harmonicDensity,
+        subBassWeight: tonalRef.profile.subBassWeight,
+        highAirSheen: tonalRef.profile.highAirSheen,
+        phaseCorrelation: stereoRef.profile.phaseCorrelation
+      };
+    }
+
+    // Weighted average
+    const totalWeight = references.reduce((acc, r) => acc + (r.weight || 0.1), 0) || 1.0;
+    const blend = (getter: (p: ReferenceMasterProfile) => number) => {
+      return references.reduce((acc, r) => acc + getter(r.profile) * (r.weight || 0.1), 0) / totalWeight;
+    };
+
+    const bands: [number, number, number, number, number] = [
+      blend(p => p.spectralBands[0]),
+      blend(p => p.spectralBands[1]),
+      blend(p => p.spectralBands[2]),
+      blend(p => p.spectralBands[3]),
+      blend(p => p.spectralBands[4])
+    ];
+
+    return {
+      integratedLUFS: parseFloat(blend(p => p.integratedLUFS).toFixed(1)),
+      shortTermMaxLUFS: parseFloat(blend(p => p.shortTermMaxLUFS).toFixed(1)),
+      momentaryMaxLUFS: parseFloat(blend(p => p.momentaryMaxLUFS).toFixed(1)),
+      truePeakDbTP: parseFloat(blend(p => p.truePeakDbTP).toFixed(1)),
+      dynamicRangeLRA: parseFloat(blend(p => p.dynamicRangeLRA).toFixed(1)),
+      crestFactor: parseFloat(blend(p => p.crestFactor).toFixed(1)),
+      rmsDb: parseFloat(blend(p => p.rmsDb).toFixed(1)),
+      spectralBands: bands,
+      stereoWidthRatio: parseFloat(blend(p => p.stereoWidthRatio).toFixed(2)),
+      transientPunch: Math.round(blend(p => p.transientPunch)),
+      harmonicDensity: Math.round(blend(p => p.harmonicDensity)),
+      subBassWeight: parseFloat(blend(p => p.subBassWeight).toFixed(3)),
+      highAirSheen: parseFloat(blend(p => p.highAirSheen).toFixed(3)),
+      phaseCorrelation: parseFloat(blend(p => p.phaseCorrelation).toFixed(2))
+    };
+  }
+
+  async runReferenceAIMastering(
+    currentParams: MasteringChainParams,
+    tracks: Track[],
+    references: ReferenceTrack[],
+    config: ReferenceMasteringConfig
+  ): Promise<AIMasteringResult> {
+    if (references.length === 0) {
+      return this.runMixerFixerAIMastering(currentParams, tracks);
+    }
+
+    // 1. Render unmastered raw audio of user's tracks & analyze profile
+    let rawBuffer = await this.renderRawMix(tracks);
+    if (!rawBuffer) {
+      rawBuffer = await this.renderPreview(currentParams, tracks);
+    }
+    if (!rawBuffer) {
+      throw new Error("No audio available to master.");
+    }
+
+    const originalProfile = await this.analyzeReferenceTrack(rawBuffer);
+    const targetProfile = this.blendReferenceProfiles(references, config);
+
+    // Intensity multiplier: subtle=0.35, moderate=0.65, strong=0.90
+    const intensityFactor = config.intensity === 'subtle' ? 0.35 : (config.intensity === 'strong' ? 0.90 : 0.65);
+
+    const newParams: MasteringChainParams = JSON.parse(JSON.stringify(currentParams));
+    const decisions: string[] = [];
+
+    decisions.push(
+      `Perfil de Referencia sintetizado (${config.mode === 'replicate' ? 'Replicar Estilo' : config.mode === 'adapt_and_enhance' ? 'Adaptar y Mejorar' : 'Adaptar Estilo'} | Intensidad ${(intensityFactor * 100).toFixed(0)}%)`
+    );
+
+    // 2. Intelligent Spectral Balancing (EQ Matching with Safety Guardrails)
+    newParams.eq.enabled = true;
+
+    // Sub-bass (80Hz):
+    const subDelta = (targetProfile.spectralBands[0] - originalProfile.spectralBands[0]) * intensityFactor * 10.0;
+    const clampedSubGain = Math.max(-1.5, Math.min(1.5, subDelta));
+    newParams.eq.low.frequency = 80;
+    newParams.eq.low.gain = parseFloat(clampedSubGain.toFixed(2));
+    if (Math.abs(clampedSubGain) > 0.2) {
+      decisions.push(`Subgrave calibrado frente a referencia (${clampedSubGain >= 0 ? '+' : ''}${clampedSubGain.toFixed(1)} dB @ 80Hz)`);
+    }
+
+    // Low-Mid Boxiness (320Hz):
+    let lowMidDelta = (targetProfile.spectralBands[1] - originalProfile.spectralBands[1]) * intensityFactor * 8.0;
+    if (config.mode === 'adapt_and_enhance' && lowMidDelta > 0) {
+      // In Enhance mode, do not copy muddy low-mids; clean boxiness
+      lowMidDelta = -0.4;
+    }
+    const clampedLowMid = Math.max(-1.5, Math.min(1.2, lowMidDelta));
+    newParams.eq.lowMid.frequency = 320;
+    newParams.eq.lowMid.q = 1.0;
+    newParams.eq.lowMid.gain = parseFloat(clampedLowMid.toFixed(2));
+    if (Math.abs(clampedLowMid) > 0.2) {
+      decisions.push(`Medios-bajos adaptados (${clampedLowMid >= 0 ? '+' : ''}${clampedLowMid.toFixed(1)} dB @ 320Hz)`);
+    }
+
+    // Mid Presence (2.2kHz / 3.2kHz):
+    const midDelta = (targetProfile.spectralBands[2] - originalProfile.spectralBands[2]) * intensityFactor * 6.0;
+    const clampedMid = Math.max(-1.2, Math.min(1.2, midDelta));
+    newParams.eq.mid.frequency = 2500;
+    newParams.eq.mid.q = 1.0;
+    newParams.eq.mid.gain = parseFloat(clampedMid.toFixed(2));
+
+    // High-Mid Harshness Control (4.2kHz):
+    let highMidDelta = (targetProfile.spectralBands[3] - originalProfile.spectralBands[3]) * intensityFactor * 7.0;
+    if (config.mode === 'adapt_and_enhance' && (targetProfile.dynamicRangeLRA < 4.0 || highMidDelta > 0.3)) {
+      // If reference is bright/harsh, enhance mode tames ear fatigue
+      highMidDelta = -0.4;
+      decisions.push('Modo Adaptar y Mejorar: suavizado de agudos punzantes en 4.2kHz para evitar fatiga auditiva');
+    }
+    const clampedHighMid = Math.max(-1.6, Math.min(1.0, highMidDelta));
+    newParams.eq.highMid.frequency = 4200;
+    newParams.eq.highMid.q = 1.2;
+    newParams.eq.highMid.gain = parseFloat(clampedHighMid.toFixed(2));
+
+    // High Air & Sheen (10.5kHz):
+    const highDelta = (targetProfile.spectralBands[4] - originalProfile.spectralBands[4]) * intensityFactor * 8.0;
+    const clampedHigh = Math.max(-1.5, Math.min(1.8, highDelta));
+    newParams.eq.high.frequency = 10500;
+    newParams.eq.high.gain = parseFloat(clampedHigh.toFixed(2));
+    if (Math.abs(clampedHigh) > 0.2) {
+      decisions.push(`Brillo y aire superior ajustados (${clampedHigh >= 0 ? '+' : ''}${clampedHigh.toFixed(1)} dB @ 10.5kHz)`);
+    }
+
+    // 3. Stereo Width Matching (Mid/Side Ratio) with Strict Mono Sub Protection
+    const currentWidth = originalProfile.stereoWidthRatio;
+    const targetWidth = targetProfile.stereoWidthRatio;
+    const widthRatioDelta = (targetWidth - currentWidth) * intensityFactor;
+    const newWidth = Math.max(0.88, Math.min(1.28, 1.0 + widthRatioDelta * 0.4));
+    newParams.stereoWidth = parseFloat(newWidth.toFixed(2));
+    decisions.push(
+      `Imagen estéreo ajustada a ${(newWidth * 100).toFixed(0)}% manteniendo kick/subgrave (<105Hz) estrictamente en mono`
+    );
+
+    // 4. Dynamics, Multiband & Analog Color
+    newParams.multiband.enabled = true;
+    const targetLRA = targetProfile.dynamicRangeLRA;
+    if (config.mode === 'adapt_and_enhance' && targetLRA < 4.0) {
+      // Avoid squashing dynamics even if reference is brickwalled
+      newParams.multiband.low.ratio = 1.3;
+      newParams.multiband.mid.ratio = 1.2;
+      newParams.multiband.high.ratio = 1.2;
+      decisions.push('Protección dinámica activa: rango dinámico protegido (evitando hipercompresión de la referencia)');
+    } else {
+      const compIntensity = Math.max(1.2, Math.min(1.8, 1.3 + (10 - Math.min(10, targetLRA)) * 0.08 * intensityFactor));
+      newParams.multiband.low.ratio = parseFloat(compIntensity.toFixed(1));
+      newParams.multiband.mid.ratio = parseFloat((compIntensity * 0.9).toFixed(1));
+      newParams.multiband.high.ratio = parseFloat((compIntensity * 0.85).toFixed(1));
+    }
+
+    // Analog Tape Texture
+    const textureDrive = Math.max(0.01, Math.min(0.06, (targetProfile.harmonicDensity / 1000) * intensityFactor + 0.02));
+    newParams.distortion.enabled = true;
+    newParams.distortion.mode = 'tape';
+    newParams.distortion.amount = parseFloat(textureDrive.toFixed(3));
+    decisions.push(`Calidez analógica calibrada en cinta (${(textureDrive * 100).toFixed(1)}%) para cohesión armónica`);
+
+    // 5. Loudness Strategy
+    let targetLUFS: number;
+    let initialGainDb = 0;
+
+    if (config.mode === 'replicate') {
+      // Replicate: aim towards reference loudness safely (clamped to [-14.5, -11.5])
+      const safeTarget = Math.max(-14.5, Math.min(-11.5, targetProfile.integratedLUFS));
+      targetLUFS = originalProfile.integratedLUFS + (safeTarget - originalProfile.integratedLUFS) * intensityFactor;
+      initialGainDb = targetLUFS - originalProfile.integratedLUFS;
+      decisions.push(`Loudness alineado hacia la referencia: ${targetLUFS.toFixed(1)} LUFS-I`);
+    } else {
+      // Adapt & Adapt-and-Enhance: Contextual loudness (do not force volume if original is already in sweet spot)
+      if (originalProfile.integratedLUFS >= -14.8 && originalProfile.integratedLUFS <= -12.8) {
+        targetLUFS = originalProfile.integratedLUFS;
+        initialGainDb = 0.0;
+        decisions.push(`Loudness contextual óptimo (${originalProfile.integratedLUFS.toFixed(1)} LUFS-I): volumen conservado`);
+      } else {
+        targetLUFS = originalProfile.crestFactor > 12.5 ? -14.0 : -13.5;
+        initialGainDb = targetLUFS - originalProfile.integratedLUFS;
+        decisions.push(`Loudness contextual adaptado a ${targetLUFS.toFixed(1)} LUFS-I`);
+      }
+    }
+
+    const startGain = Number.isFinite(currentParams.gain) && currentParams.gain > 0.1 ? currentParams.gain : 1.0;
+    newParams.gain = Math.max(0.1, Math.min(15.0, startGain * Math.pow(10, initialGainDb / 20)));
+
+    // Strict True Peak Lookahead Limiter
+    const adaptiveCeiling = -1.0;
+    newParams.limiter.enabled = true;
+    newParams.limiter.threshold = adaptiveCeiling;
+    newParams.limiter.breathe = 0;
+    decisions.push(`True Peak Limiter con sobremuestreo 8x y techo seguro ≤ ${adaptiveCeiling.toFixed(1)} dBTP`);
+
+    // 6. Render Master Preview & Measure Exact Output
+    let masteredBuffer = await this.renderPreview(newParams, tracks);
+    let finalProfile = masteredBuffer ? await this.analyzeReferenceTrack(masteredBuffer) : originalProfile;
+
+    // Closed-loop convergence
+    for (let iter = 0; iter < 3; iter++) {
+      if (masteredBuffer && finalProfile && Number.isFinite(finalProfile.integratedLUFS)) {
+        const errorDb = targetLUFS - finalProfile.integratedLUFS;
+        if (Math.abs(errorDb) > 0.4) {
+          newParams.gain = Math.max(0.1, Math.min(15.0, newParams.gain * Math.pow(10, errorDb / 20)));
+          masteredBuffer = await this.renderPreview(newParams, tracks);
+          if (masteredBuffer) {
+            finalProfile = await this.analyzeReferenceTrack(masteredBuffer);
+          }
+        } else {
+          break;
+        }
+      }
+    }
+
+    this.setMasterParams(newParams);
+
+    // Compute Matching Score % (based on convergence across Tone, Width, LRA, TP)
+    const toneDist = Math.abs(finalProfile.spectralBands[0] - targetProfile.spectralBands[0]) +
+                     Math.abs(finalProfile.spectralBands[2] - targetProfile.spectralBands[2]) +
+                     Math.abs(finalProfile.spectralBands[4] - targetProfile.spectralBands[4]);
+    const widthDist = Math.abs(finalProfile.stereoWidthRatio - targetProfile.stereoWidthRatio);
+    const lraDist = Math.abs(finalProfile.dynamicRangeLRA - targetProfile.dynamicRangeLRA);
+    const rawScore = 100 - (toneDist * 35 + widthDist * 15 + Math.min(15, lraDist * 2));
+    const matchingScorePercent = Math.max(70, Math.min(98, Math.round(rawScore)));
+
+    const beforeStats: AIMasteringStats = {
+      integratedLUFS: originalProfile.integratedLUFS,
+      truePeakDbTP: originalProfile.truePeakDbTP,
+      dynamicRangeLRA: originalProfile.dynamicRangeLRA,
+      crestFactor: originalProfile.crestFactor,
+      peakDb: originalProfile.truePeakDbTP
+    };
+
+    const afterStats: AIMasteringStats = {
+      integratedLUFS: finalProfile.integratedLUFS,
+      truePeakDbTP: finalProfile.truePeakDbTP,
+      dynamicRangeLRA: finalProfile.dynamicRangeLRA,
+      crestFactor: finalProfile.crestFactor,
+      peakDb: finalProfile.truePeakDbTP
+    };
+
+    const referenceReportData: ReferenceMasteringReportData = {
+      references: references.map(r => ({
+        name: r.name,
+        profile: r.profile,
+        weight: r.weight,
+        isPrimary: r.isPrimary
+      })),
+      targetProfile,
+      originalProfile,
+      finalProfile,
+      config,
+      matchingScorePercent,
+      maxGainReductionDb: Math.max(0, parseFloat((finalProfile.truePeakDbTP - (-1.0)).toFixed(1))),
+      sampleRate: this.getSourceSampleRate(),
+      bitDepth: '24-bit / 32-bit Float'
+    };
+
+    const result: AIMasteringResult = {
+      before: beforeStats,
+      after: afterStats,
+      decisions,
+      appliedParams: newParams,
+      targetMet: finalProfile.truePeakDbTP <= -0.99,
+      statusNote: `Mastering por Referencia (${config.mode}): ${matchingScorePercent}% coincidencia sonica | TP: ${finalProfile.truePeakDbTP.toFixed(1)} dBTP`,
+      timestamp: Date.now(),
+      referenceReport: referenceReportData
     };
 
     this.lastAIMasteringResult = result;

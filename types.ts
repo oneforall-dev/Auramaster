@@ -170,6 +170,65 @@ export interface AIMasteringStats {
   peakDb?: number;
 }
 
+export interface ReferenceMasterProfile {
+  integratedLUFS: number;
+  shortTermMaxLUFS: number;
+  momentaryMaxLUFS: number;
+  truePeakDbTP: number;
+  dynamicRangeLRA: number;
+  crestFactor: number;
+  rmsDb: number;
+  // 5 spectral energy bands relative to total RMS: [sub, lowMid, mid, highMid, high]
+  spectralBands: [number, number, number, number, number];
+  stereoWidthRatio: number; // Mid/Side ratio (0.0 = mono, 1.0 = standard, >1.0 = wide)
+  transientPunch: number; // 0-100 punch index based on crest factor & transient envelope
+  harmonicDensity: number; // 0-100 texture and saturation index
+  subBassWeight: number; // Sub-energy <80Hz
+  highAirSheen: number; // Air energy >10kHz
+  phaseCorrelation: number; // -1 to +1
+}
+
+export type ReferenceMasteringMode = 'replicate' | 'adapt' | 'adapt_and_enhance';
+export type ReferenceMatchIntensity = 'subtle' | 'moderate' | 'strong';
+
+export interface ReferenceTrack {
+  id: string;
+  name: string;
+  size: number;
+  duration: number;
+  sampleRate: number;
+  buffer?: AudioBuffer;
+  profile: ReferenceMasterProfile;
+  isPrimary: boolean;
+  weight: number; // 0 to 1
+  features: {
+    tonal: boolean;
+    dynamics: boolean;
+    stereo: boolean;
+    loudness: boolean;
+    texture: boolean;
+  };
+}
+
+export interface ReferenceMasteringConfig {
+  mode: ReferenceMasteringMode;
+  intensity: ReferenceMatchIntensity;
+  blendMode: 'primary' | 'weighted_average' | 'modular';
+  safeMode: boolean; // Protect transients, don't crush dynamics, center sub-bass
+}
+
+export interface ReferenceMasteringReportData {
+  references: Array<{ name: string; profile: ReferenceMasterProfile; weight: number; isPrimary: boolean }>;
+  targetProfile: ReferenceMasterProfile;
+  originalProfile: ReferenceMasterProfile;
+  finalProfile: ReferenceMasterProfile;
+  config: ReferenceMasteringConfig;
+  matchingScorePercent: number;
+  maxGainReductionDb: number;
+  sampleRate: number;
+  bitDepth: string;
+}
+
 export interface AIMasteringResult {
   before: AIMasteringStats;
   after: AIMasteringStats;
@@ -178,5 +237,6 @@ export interface AIMasteringResult {
   targetMet: boolean;
   statusNote: string;
   timestamp: number;
+  referenceReport?: ReferenceMasteringReportData;
 }
 

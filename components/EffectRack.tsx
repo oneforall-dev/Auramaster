@@ -26,9 +26,11 @@ interface EffectRackProps {
   isSmartAdjusting?: boolean;
   activeTrackId?: string | null;
   onSelectTrack?: (id: string) => void;
+  onOpenReferenceMastering?: () => void;
+  referenceCount?: number;
 }
 
-const EffectRack: React.FC<EffectRackProps> = ({ params, onChange, tracks, onTrackChange, onRemove, skin = 'modern', lang = 'es', analysisStats, isExpanded = false, onToggleExpand, onSmartMaster, selection, isSmartAdjusting, activeTrackId, onSelectTrack }) => {
+const EffectRack: React.FC<EffectRackProps> = ({ params, onChange, tracks, onTrackChange, onRemove, skin = 'modern', lang = 'es', analysisStats, isExpanded = false, onToggleExpand, onSmartMaster, selection, isSmartAdjusting, activeTrackId, onSelectTrack, onOpenReferenceMastering, referenceCount = 0 }) => {
   const [activeTab, setActiveTab] = useState<'fixers' | 'mixer' | 'dynamics' | 'eq' | 'transient' | 'color' | 'lofi' | 'space' | 'analysis'>('fixers');
   const [compBand, setCompBand] = useState<'low' | 'mid' | 'high'>('mid');
   const [selectedEQBand, setSelectedEQBand] = useState<keyof EQParams | null>('mid'); 
@@ -265,30 +267,59 @@ const EffectRack: React.FC<EffectRackProps> = ({ params, onChange, tracks, onTra
         {/* FIXERS TAB */}
         {activeTab === 'fixers' && (
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in zoom-in-95 duration-300">
-                  {/* Top Full-Width AI Auto Master Banner */}
+                  {/* Top 1: AI Auto Master Banner */}
                   <button 
                     onClick={() => onSmartMaster?.('super_mix')}
                     disabled={isSmartAdjusting || tracks.length === 0}
-                    className={`col-span-1 md:col-span-2 p-4 rounded-2xl flex items-center justify-between gap-4 transition-all group relative overflow-hidden ${isClear ? "bg-gradient-to-r from-slate-900 to-slate-800 text-white shadow-xl" : "bg-gradient-to-r from-indigo-900/90 via-purple-900/90 to-pink-900/90 border border-purple-500/30 text-white shadow-xl shadow-purple-950/40"}`}
+                    className={`col-span-1 p-4 rounded-2xl flex items-center justify-between gap-3 transition-all group relative overflow-hidden ${isClear ? "bg-gradient-to-r from-slate-900 to-slate-800 text-white shadow-xl" : "bg-gradient-to-r from-indigo-950/90 via-purple-950/90 to-pink-950/90 border border-purple-500/30 text-white shadow-xl shadow-purple-950/40"}`}
                   >
                       <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.1)_50%,transparent_75%)] bg-[length:250%_250%] animate-shimmer opacity-0 group-hover:opacity-100 transition-opacity" />
-                      <div className="flex items-center gap-3.5 z-10">
+                      <div className="flex items-center gap-3 z-10">
                           <div className="p-3 bg-purple-500/20 border border-purple-400/40 rounded-2xl backdrop-blur-md shadow-lg shadow-purple-500/20 text-purple-300">
-                              <Sparkles size={22} className={isSmartAdjusting ? "animate-spin text-purple-300" : "animate-pulse text-purple-300"} strokeWidth={2.5} />
+                              <Sparkles size={20} className={isSmartAdjusting ? "animate-spin text-purple-300" : "animate-pulse text-purple-300"} strokeWidth={2.5} />
                           </div>
                           <div className="flex flex-col items-start text-left">
-                              <span className="text-sm font-black uppercase tracking-wider flex items-center gap-2 text-white">
+                              <span className="text-sm font-black uppercase tracking-wider flex items-center gap-1.5 text-white">
                                  Mixer Fixer AI
-                                 <span className="px-2 py-0.5 rounded-full bg-purple-500/30 border border-purple-400/40 text-[9px] font-extrabold text-purple-200">AUTO 32-BIT</span>
+                                 <span className="px-1.5 py-0.5 rounded-full bg-purple-500/30 border border-purple-400/40 text-[9px] font-extrabold text-purple-200">AUTO 32-BIT</span>
                               </span>
-                              <span className="text-[11px] text-purple-200/80 font-medium max-w-[420px] leading-relaxed">
-                                  {lang === 'es' ? 'Analiza stems, balancea volumen, corrige fase y masteriza a -14 LUFS / -1.0 dBTP.' : 'Analyzes stems, auto-balances volume, aligns phase, and masters to -14 LUFS / -1.0 dBTP.'}
+                              <span className="text-[11px] text-purple-200/80 font-medium leading-tight">
+                                  {lang === 'es' ? 'Balancea stems, fase y masteriza a -14 LUFS.' : 'Auto-balances stems and masters to -14 LUFS.'}
                               </span>
                           </div>
                       </div>
-                      <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-xs font-bold text-white transition-all">
-                          <span>{isSmartAdjusting ? (lang === 'es' ? 'Optimizando...' : 'Optimizing...') : (lang === 'es' ? 'Ejecutar AI Fix' : 'Run AI Fix')}</span>
-                          <Wand2 size={13} />
+                      <div className="hidden xl:flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-[11px] font-bold text-white transition-all shrink-0">
+                          <span>{isSmartAdjusting ? (lang === 'es' ? 'Optimizando...' : 'Optimizing...') : (lang === 'es' ? 'Ejecutar' : 'Run')}</span>
+                          <Wand2 size={12} />
+                      </div>
+                  </button>
+
+                  {/* Top 2: Reference AI Mastering Banner */}
+                  <button 
+                    onClick={() => onOpenReferenceMastering?.()}
+                    disabled={isSmartAdjusting || tracks.length === 0}
+                    className={`col-span-1 p-4 rounded-2xl flex items-center justify-between gap-3 transition-all group relative overflow-hidden ${isClear ? "bg-gradient-to-r from-slate-900 to-slate-800 text-white shadow-xl" : "bg-gradient-to-r from-cyan-950/90 via-blue-950/90 to-indigo-950/90 border border-cyan-500/30 text-white shadow-xl shadow-cyan-950/40"}`}
+                  >
+                      <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.1)_50%,transparent_75%)] bg-[length:250%_250%] animate-shimmer opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <div className="flex items-center gap-3 z-10">
+                          <div className="p-3 bg-cyan-500/20 border border-cyan-400/40 rounded-2xl backdrop-blur-md shadow-lg shadow-cyan-500/20 text-cyan-300">
+                              <Disc size={20} className="animate-pulse text-cyan-300" strokeWidth={2.5} />
+                          </div>
+                          <div className="flex flex-col items-start text-left">
+                              <span className="text-sm font-black uppercase tracking-wider flex items-center gap-1.5 text-white">
+                                 Mastering por Referencia
+                                 <span className="px-1.5 py-0.5 rounded-full bg-cyan-500/30 border border-cyan-400/40 text-[9px] font-extrabold text-cyan-200">
+                                   {referenceCount > 0 ? `${referenceCount} REF` : 'MULTI-REF'}
+                                 </span>
+                              </span>
+                              <span className="text-[11px] text-cyan-200/80 font-medium leading-tight">
+                                  {lang === 'es' ? 'Adapta tono, dinámica y estéreo de temas pro.' : 'Match tone, punch and width from reference songs.'}
+                              </span>
+                          </div>
+                      </div>
+                      <div className="hidden xl:flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-[11px] font-bold text-white transition-all shrink-0">
+                          <span>{referenceCount > 0 ? (lang === 'es' ? 'Gestionar' : 'Manage') : (lang === 'es' ? 'Cargar' : 'Load')}</span>
+                          <Disc size={12} />
                       </div>
                   </button>
 
