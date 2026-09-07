@@ -296,6 +296,17 @@ export interface VocalProtectionReport {
   safetyLimitReached: boolean;        // True if further correction would alter mix too heavily
   recommendedMixAdjustment?: string;  // Guidance for the user's mix if not approved
   sectionsSummary: string;            // Summary of sections evaluated
+  iterationsPerformed: number;        // Real DSP re-render iterations executed (1 to 6)
+  responsibleStagesIdentified: string[]; // Specific DSP processors causing/exacerbating masking
+  dspAdjustmentsSummary: string[];    // DSP parameters modified during closed-loop passes
+  measuredAudioDeltas: {
+    subBassMeasuredDb: number;        // Final measured change in 30-150 Hz
+    vocalBodyMeasuredDb: number;      // Final measured change in 180-900 Hz
+    vocalPresenceMeasuredDb: number;  // Final measured change in vocal presence band
+    highPercussionMeasuredDb: number; // Final measured change in 5-12 kHz
+    sideStereoMeasuredDb: number;     // Final measured change in Side channel RMS
+  };
+  sideStereoStatus: 'centered_stable' | 'widened_risk'; // Center strengthened vs Side widening risk
   verdict: 'EXCELLENT' | 'COMPENSATED' | 'OPTIMAL';
   summaryNote: string;
 }

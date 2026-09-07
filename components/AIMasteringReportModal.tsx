@@ -378,6 +378,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                       <span className="text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                         Multi-Masker Audit
                       </span>
+                      {result.vocalReport.iterationsPerformed && (
+                        <span className="text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                          {result.vocalReport.iterationsPerformed > 1
+                            ? `${result.vocalReport.iterationsPerformed} iteraciones closed-loop`
+                            : '1 iteración'}
+                        </span>
+                      )}
                     </div>
                     <p className={`text-[11px] mt-0.5 ${isClear ? 'text-slate-600' : 'text-slate-400'}`}>
                       {result.vocalReport.summaryNote}
@@ -512,17 +519,69 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     <span className="text-slate-400 block truncate" title="Crecimiento Side vs Crecimiento Mid Vocal">Ancho Side vs Centro</span>
                     <div className="flex items-baseline justify-between mt-1">
                       <span className={`font-bold font-mono ${
+                        (result.vocalReport.sideStereoRelDeltaDb ?? 0) <= 0 ? 'text-emerald-400' :
                         (result.vocalReport.sideStereoRelDeltaDb ?? 0) <= 0.30 ? 'text-emerald-400' :
                         (result.vocalReport.sideStereoRelDeltaDb ?? 0) <= 0.50 ? 'text-cyan-400' :
                         (result.vocalReport.sideStereoRelDeltaDb ?? 0) <= 0.80 ? 'text-amber-400' : 'text-rose-400'
                       }`}>
                         {(result.vocalReport.sideStereoRelDeltaDb ?? 0) >= 0 ? '+' : ''}{(result.vocalReport.sideStereoRelDeltaDb ?? 0).toFixed(2)} dB
                       </span>
-                      <span className="text-[9px] font-mono text-slate-500">≤0.3</span>
+                      <span className={`text-[9px] font-mono ${
+                        (result.vocalReport.sideStereoRelDeltaDb ?? 0) <= 0 ? 'text-emerald-400 font-bold' : 'text-slate-500'
+                      }`}>
+                        {(result.vocalReport.sideStereoRelDeltaDb ?? 0) <= 0 ? '✓ Estable' : '≤0.3'}
+                      </span>
                     </div>
                   </div>
                 </div>
               </div>
+
+              {/* Closed-loop Correction & Responsible Stages */}
+              {((result.vocalReport.responsibleStagesIdentified && result.vocalReport.responsibleStagesIdentified.length > 0) ||
+                (result.vocalReport.dspAdjustmentsSummary && result.vocalReport.dspAdjustmentsSummary.length > 0)) && (
+                <div className={`p-2.5 rounded-lg border text-[11px] space-y-2 ${
+                  isClear ? 'bg-white/80 border-indigo-100 text-slate-700' : 'bg-slate-950/60 border-slate-800 text-slate-300'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono uppercase font-bold text-indigo-300 flex items-center gap-1.5">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                      Corrección Activa Closed-Loop ({result.vocalReport.iterationsPerformed || 1} {(result.vocalReport.iterationsPerformed || 1) === 1 ? 'paso' : 'iteraciones'})
+                    </span>
+                    {result.vocalReport.safetyLimitReached && (
+                      <span className="text-[9px] font-mono text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                        Límite de seguridad alcanzado
+                      </span>
+                    )}
+                  </div>
+                  
+                  {result.vocalReport.responsibleStagesIdentified && result.vocalReport.responsibleStagesIdentified.length > 0 && (
+                    <div className="text-[10px]">
+                      <span className="text-slate-400 font-mono block mb-1">Etapas responsables identificadas:</span>
+                      <div className="flex flex-wrap gap-1">
+                        {result.vocalReport.responsibleStagesIdentified.map((stg, sIdx) => (
+                          <span key={sIdx} className="px-1.5 py-0.5 rounded bg-slate-800/80 text-cyan-300 border border-slate-700 font-mono text-[9px]">
+                            {stg}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {result.vocalReport.dspAdjustmentsSummary && result.vocalReport.dspAdjustmentsSummary.length > 0 && (
+                    <div className="text-[10px] pt-1 border-t border-slate-800/50">
+                      <span className="text-slate-400 font-mono block mb-1">Ajustes DSP ejecutados:</span>
+                      <ul className="space-y-0.5 font-mono text-[10px] text-slate-300">
+                        {result.vocalReport.dspAdjustmentsSummary.map((adj, aIdx) => (
+                          <li key={aIdx} className="flex items-center gap-1.5">
+                            <span className="text-emerald-400">↳</span>
+                            <span>{adj}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Recommended Mix Adjustment Alert (if mix adjustment is recommended) */}
               {result.vocalReport.recommendedMixAdjustment && (
@@ -548,6 +607,11 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     </span>
                     <span className="text-[10px] font-mono text-indigo-400">@{result.vocalReport.final.exactPresenceFreq}Hz</span>
                   </div>
+                  {result.vocalReport.measuredAudioDeltas && (
+                    <div className="mt-1 text-[9px] font-mono text-slate-400 truncate" title="Medición real en audio renderizado">
+                      Audio: {result.vocalReport.measuredAudioDeltas.vocalPresenceMeasuredDb >= 0 ? '+' : ''}{result.vocalReport.measuredAudioDeltas.vocalPresenceMeasuredDb.toFixed(2)} dB
+                    </div>
+                  )}
                 </div>
 
                 {/* 2. Mid Compensation */}
@@ -559,12 +623,19 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     <span className={`font-bold ${result.vocalReport.midCompensationAppliedDb > 0 ? 'text-amber-400' : 'text-slate-200'}`}>
                       {result.vocalReport.midCompensationAppliedDb > 0 
                         ? `+${result.vocalReport.midCompensationAppliedDb.toFixed(2)} dB` 
-                        : '0.0 dB (No requerida)'}
+                        : 'No requerida'}
                     </span>
-                    {result.vocalReport.midCompensationAppliedDb > 0 && (
+                    {result.vocalReport.midCompensationAppliedDb > 0 ? (
                       <span className="text-[10px] font-mono text-indigo-400">@{result.vocalReport.midCompensationFreq}Hz</span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-slate-500">Timbre original</span>
                     )}
                   </div>
+                  {result.vocalReport.midCompensationAppliedDb === 0 && (
+                    <div className="mt-1 text-[9px] font-mono text-slate-400 truncate" title="Balance tonal original conservado">
+                      Timbre original conservado
+                    </div>
+                  )}
                 </div>
 
                 {/* 3. Adaptive De-Esser */}
@@ -582,6 +653,9 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                       <span className="text-[10px] font-mono text-indigo-400">@{result.vocalReport.exactDeEsserFreq}Hz</span>
                     )}
                   </div>
+                  <div className="mt-1 text-[9px] font-mono text-slate-400 truncate">
+                    {result.vocalReport.deEsserApplied ? 'Atenuación calibrada' : 'Transparente / sin exceso'}
+                  </div>
                 </div>
 
                 {/* 4. Mono Compatibility */}
@@ -596,6 +670,9 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     <span className="text-[10px] font-mono text-emerald-400">
                       {result.vocalReport.final.monoCompatibilityScore}/100
                     </span>
+                  </div>
+                  <div className="mt-1 text-[9px] font-mono text-slate-400 truncate">
+                    Correlación de fase vocal
                   </div>
                 </div>
               </div>

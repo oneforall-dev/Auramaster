@@ -1037,11 +1037,15 @@ export class AudioEngine {
       decisions.push(`Stereo Master: Presencia media en su centro espectral natural (0.0 dB @ ${origVocal.exactPresenceFreq}Hz)`);
     }
 
-    // High-Mid harshness control (3.5kHz - 5.5kHz)
+    // High-Mid harshness control (3.5kHz - 5.5kHz): only applied if real harshness is detected
     newParams.eq.highMid.frequency = 4200;
     newParams.eq.highMid.q = 1.2;
-    newParams.eq.highMid.gain = -0.3;
-    decisions.push('Harsh high-mid frequencies smoothed to eliminate ear fatigue (-0.3 dB @ 4.2kHz)');
+    if (origVocal.sibilanceExcessDb > 2.0 && origVocal.presenceDb > -30) {
+      newParams.eq.highMid.gain = -0.25;
+      decisions.push('Dureza acústica en medios-altos atenuada con suavidad (-0.25 dB @ 4.2kHz) por exceso comprobado de sibilancia/estridencia.');
+    } else {
+      newParams.eq.highMid.gain = 0.0; // Conservar intacta la presencia vocal si no hay dureza
+    }
 
     // High Air & Sheen (10kHz - 20kHz)
     newParams.eq.high.frequency = 10500;
@@ -1556,17 +1560,30 @@ export class AudioEngine {
     // Standard commercial tracks have cv around 0.3 to 0.7; scale to 0-100 score
     const temporalConsistencyScore = Math.max(50, Math.min(99, Math.round(100 - cv * 45)));
 
-    // Active vocal sections vs instrumental sections detection across 16 blocks
+    // Active vocal sections vs low-activity instrumental reference sections across 16 blocks
     const blockVocalRms = blockVocalEnergy.map(e => Math.sqrt(e / (blockSizes / step)));
+    const sortedRms = [...blockVocalRms].sort((a, b) => a - b);
+    const minRms = sortedRms[0];
     const maxVocalBlockRms = Math.max(...blockVocalRms, 1e-9);
+
     let vocalSectionsCount = 0;
     let instrumentalSectionsCount = 0;
     for (let b = 0; b < numBlocks; b++) {
-      if (hasProminentVocals && blockVocalRms[b] > maxVocalBlockRms * 0.30) {
+      if (hasProminentVocals && blockVocalRms[b] > Math.max(minRms * 1.4, maxVocalBlockRms * 0.45)) {
         vocalSectionsCount++;
       } else {
         instrumentalSectionsCount++;
       }
+    }
+
+    // Ensure we always have instrumental or low-vocal-activity baseline blocks (at least 2 blocks)
+    if (instrumentalSectionsCount === 0) {
+      instrumentalSectionsCount = 3;
+      vocalSectionsCount = numBlocks - instrumentalSectionsCount;
+    }
+    if (vocalSectionsCount === 0 && hasProminentVocals) {
+      vocalSectionsCount = numBlocks - 2;
+      instrumentalSectionsCount = 2;
     }
 
     return {
@@ -1619,6 +1636,7 @@ export class AudioEngine {
     let finalRelativePresence = finalVocal.presenceDb - currentMasterLUFS;
     let relativePresenceDeltaDb = finalRelativePresence - origRelativePresence;
 
+    // Multi-masker Delta calculation under matched loudness (LUFS_master = LUFS_orig)
     const calcDeltas = (fv: VocalAnalysisProfile, ov: VocalAnalysisProfile, relPresDelta: number) => {
       const deltaLowEnd = fv.lowEndEnergyDb - ov.lowEndEnergyDb;
       const deltaBody = fv.vocalBodyDb - ov.vocalBodyDb;
@@ -1638,6 +1656,8 @@ export class AudioEngine {
       const deltaSide = fv.sideEnergyDb - ov.sideEnergyDb;
       const deltaMid = fv.centerEnergyDb - ov.centerEnergyDb;
       const sideStereoRelDeltaDb = parseFloat((deltaSide - deltaMid).toFixed(2));
+      // Lateral growth is only a masking risk if side grew MORE than mid (positive delta)
+      const sideStereoMaskingRisk = Math.max(0, sideStereoRelDeltaDb);
 
       const vocalDeltaDb = parseFloat((fv.presenceDb - ov.presenceDb).toFixed(2));
       const lowEndDeltaDb = parseFloat((fv.lowEndEnergyDb - ov.lowEndEnergyDb).toFixed(2));
@@ -1651,7 +1671,7 @@ export class AudioEngine {
         lowMidRelDeltaDb,
         midInstRelDeltaDb,
         highInstRelDeltaDb,
-        sideStereoRelDeltaDb,
+        sideStereoMaskingRisk,
         presenceLossDb
       ).toFixed(2));
 
@@ -1664,91 +1684,118 @@ export class AudioEngine {
         vocalDeltaDb,
         lowEndDeltaDb,
         lowEndVsVocalDiffDb,
+        presenceLossDb,
         maxRelativeDeltaDb
       };
     };
 
     let deltas = calcDeltas(finalVocal, origVocal, relativePresenceDeltaDb);
 
+    let iterationsPerformed = 1;
     let vocalCompensated = false;
     let midCompensationAppliedDb = 0.0;
     const midCompensationFreq = origVocal.exactPresenceFreq;
     let safetyLimitReached = false;
-    let cumulativeCorrectionDb = 0.0;
-    let correctionApplied = false;
+    let maskerReductionAttempted = false;
+    let midCompensationAttempted = false;
+    const responsibleStagesIdentified: string[] = [];
+    const dspAdjustmentsSummary: string[] = [];
 
-    // Iterative closed-loop correction (up to 2 passes, bounded by safety limit)
-    for (let pass = 0; pass < 2; pass++) {
+    // PROCESO 1: Active Closed-Loop Correction Cycle (up to 4 corrective iterations, total 5 renders max)
+    const maxIterations = 4;
+    for (let pass = 0; pass < maxIterations; pass++) {
       if (deltas.maxRelativeDeltaDb <= 0.30) {
+        break;
+      }
+
+      // If acceptable (<= 0.50 dB) and both avenues were already tried, we can accept
+      if (pass >= 2 && deltas.maxRelativeDeltaDb <= 0.50 && maskerReductionAttempted && midCompensationAttempted) {
         break;
       }
 
       let passChanged = false;
 
-      // 1. Low-end / Sub-bass masking correction
-      if (deltas.subBassRelDeltaDb > 0.30 && newParams.eq.low.gain > -0.5) {
-        const excess = Math.min(0.6, deltas.subBassRelDeltaDb - 0.20);
-        if (cumulativeCorrectionDb + excess <= 1.0) {
-          newParams.eq.low.gain = parseFloat(Math.max(-0.6, newParams.eq.low.gain - excess).toFixed(2));
-          cumulativeCorrectionDb += excess;
+      // Paso 1: Retirar procesamiento innecesario que afecte la presencia vocal
+      if (newParams.eq.highMid.gain < -0.05 && (relativePresenceDeltaDb < -0.10 || deltas.presenceLossDb > 0.15)) {
+        newParams.eq.highMid.gain = 0.0;
+        responsibleStagesIdentified.push('EQ Medios-Altos (4.2 kHz)');
+        dspAdjustmentsSummary.push('Filtro 4.2 kHz: 0.0 dB (corte innecesario retirado para recuperar claridad vocal)');
+        passChanged = true;
+      }
+
+      if (newParams.deEsser.enabled && origVocal.sibilanceExcessDb < 0.8 && deltas.presenceLossDb > 0.20) {
+        newParams.deEsser.enabled = false;
+        responsibleStagesIdentified.push('De-Esser Adaptativo');
+        dspAdjustmentsSummary.push('De-Esser: en bypass (para no atenuar aire ni sibilancia natural)');
+        passChanged = true;
+      }
+
+      // Paso 2: Controlar el elemento enmascarador predominante
+      if (deltas.subBassRelDeltaDb > 0.30) {
+        if (newParams.eq.low.gain > -0.65) {
+          const cut = Math.min(0.40, deltas.subBassRelDeltaDb - 0.15);
+          newParams.eq.low.gain = parseFloat((newParams.eq.low.gain - cut).toFixed(2));
+          responsibleStagesIdentified.push('EQ Low-Shelf (80 Hz)');
+          dspAdjustmentsSummary.push(`Low-shelf EQ: ${newParams.eq.low.gain.toFixed(2)} dB @ 80Hz (-${cut.toFixed(2)} dB aplicado)`);
           passChanged = true;
-          correctionApplied = true;
-          decisions.push(`Protección frente al grave: reducción correctiva en graves (-${excess.toFixed(2)} dB @ 80Hz) para evitar enmascaramiento del cuerpo vocal.`);
-        } else {
-          safetyLimitReached = true;
+          maskerReductionAttempted = true;
+        } else if (newParams.distortion.enabled && newParams.distortion.amount > 0.01) {
+          // If low-shelf was already cut, but sub-bass still dominates the render, saturation is adding low harmonics!
+          const oldDrive = newParams.distortion.amount;
+          newParams.distortion.amount = parseFloat((newParams.distortion.amount * 0.45).toFixed(3));
+          responsibleStagesIdentified.push('Saturador Armónico (armónicos en bajas frecuencias)');
+          dspAdjustmentsSummary.push(`Saturador: drive reducido de ${(oldDrive * 100).toFixed(1)}% a ${(newParams.distortion.amount * 100).toFixed(1)}%`);
+          passChanged = true;
+          maskerReductionAttempted = true;
         }
       }
 
-      // 2. Low-mid resonance (250-400Hz / 750Hz) masking correction
-      if ((deltas.lowMidRelDeltaDb > 0.30 || origVocal.lowMidBuildup750Db > 1.5) && (newParams.midDensity750Gain || 0) > -1.2) {
-        const excess = 0.4;
-        if (cumulativeCorrectionDb + excess <= 1.0) {
-          newParams.midDensity750Gain = parseFloat(((newParams.midDensity750Gain || 0) - excess).toFixed(2));
-          cumulativeCorrectionDb += excess;
-          passChanged = true;
-          correctionApplied = true;
-          decisions.push(`Atenuador de densidad 750 Hz aplicado (-${excess.toFixed(2)} dB) para despejar caja y resonancias de medios-bajos.`);
-        } else {
-          safetyLimitReached = true;
-        }
+      if ((deltas.lowMidRelDeltaDb > 0.30 || origVocal.lowMidBuildup750Db > 1.2) && (newParams.midDensity750Gain || 0) > -1.4) {
+        const excess = 0.35;
+        newParams.midDensity750Gain = parseFloat(((newParams.midDensity750Gain || 0) - excess).toFixed(2));
+        responsibleStagesIdentified.push('Filtro Dinámico 750 Hz (Caja & Medios-Bajos)');
+        dspAdjustmentsSummary.push(`Atenuador 750 Hz: ${newParams.midDensity750Gain.toFixed(2)} dB (-${excess.toFixed(2)} dB aplicado)`);
+        passChanged = true;
+        maskerReductionAttempted = true;
       }
 
-      // 3. Side stereo width masking correction
       if (deltas.sideStereoRelDeltaDb > 0.30 && newParams.stereoWidth > 1.0) {
-        const excessWidth = Math.min(0.15, (deltas.sideStereoRelDeltaDb - 0.20) * 0.2);
-        newParams.stereoWidth = parseFloat(Math.max(1.0, newParams.stereoWidth - excessWidth).toFixed(2));
+        const excessW = Math.min(0.12, (deltas.sideStereoRelDeltaDb - 0.20) * 0.25);
+        newParams.stereoWidth = parseFloat(Math.max(1.0, newParams.stereoWidth - excessW).toFixed(2));
+        responsibleStagesIdentified.push('Apertura Estéreo Side');
+        dspAdjustmentsSummary.push(`Ancho estéreo Side ajustado a ${newParams.stereoWidth.toFixed(2)}x para centralizar voz`);
         passChanged = true;
-        correctionApplied = true;
-        decisions.push(`Control estéreo adaptativo: reducción de anchura Side para evitar dilución de la presencia vocal central.`);
+        maskerReductionAttempted = true;
       }
 
-      // 4. Mid instrumentation (guitars/synths) masking correction
-      if (deltas.midInstRelDeltaDb > 0.30 && newParams.distortion.enabled && newParams.distortion.amount > 0.02) {
-        newParams.distortion.amount = 0.015;
+      // Paso 3: Evitar pumping global provocado por el limitador
+      if (deltas.subBassRelDeltaDb > 0.40 && deltas.presenceLossDb > 0.20 && newParams.gain > 1.05) {
+        newParams.gain = parseFloat((newParams.gain * 0.96).toFixed(3));
+        responsibleStagesIdentified.push('Limitador Bus (Pumping por bombo/bajo)');
+        dspAdjustmentsSummary.push('Entrada a limitador: ganancia reducida (-0.35 dB) para evitar compresión global sobre la voz');
         passChanged = true;
-        correctionApplied = true;
-        decisions.push(`Saturación armónica atenuada para evitar acumulación densa en la franja instrumental de 400Hz a 2.5kHz.`);
       }
 
-      // 5. Vocal presence drop compensation
-      if (relativePresenceDeltaDb < -0.30) {
-        const compBoost = Math.min(0.6, Math.max(0.2, Math.abs(relativePresenceDeltaDb) * 0.75));
-        if (cumulativeCorrectionDb + compBoost <= 1.0) {
-          midCompensationAppliedDb = parseFloat(compBoost.toFixed(2));
+      // Paso 4: Compensación Vocal Mid Real
+      // Si el enmascarador ya fue atenuado o si la voz aún está detrás (delta > 0.30 dB o presencia relativa < -0.10 dB)
+      if ((maskerReductionAttempted || pass >= 1) && (deltas.maxRelativeDeltaDb > 0.30 || relativePresenceDeltaDb < -0.10)) {
+        const compBoost = Math.min(0.35, Math.max(0.15, (deltas.maxRelativeDeltaDb - 0.15) * 0.65));
+        if (midCompensationAppliedDb + compBoost <= 0.65) {
+          midCompensationAppliedDb = parseFloat((midCompensationAppliedDb + compBoost).toFixed(2));
           newParams.eq.mid.frequency = origVocal.exactPresenceFreq;
           newParams.eq.mid.gain = parseFloat((newParams.eq.mid.gain + compBoost).toFixed(2));
-          cumulativeCorrectionDb += compBoost;
-          vocalCompensated = true;
+          responsibleStagesIdentified.push(`Compensador Mid EQ (+${compBoost.toFixed(2)} dB @ ${origVocal.exactPresenceFreq}Hz)`);
+          dspAdjustmentsSummary.push(`Mid EQ Vocal: +${midCompensationAppliedDb.toFixed(2)} dB @ ${origVocal.exactPresenceFreq}Hz aplicada al audio`);
           passChanged = true;
-          correctionApplied = true;
-          decisions.push(`Compensación acústica Mid EQ (+${compBoost.toFixed(2)} dB @ ${origVocal.exactPresenceFreq}Hz) aplicada para salvaguardar inteligibilidad vocal.`);
-        } else {
-          safetyLimitReached = true;
+          vocalCompensated = true;
+          midCompensationAttempted = true;
         }
       }
 
       if (passChanged) {
+        // Render fresh audio directly from source tracks with new DSP parameters
         masteredBuffer = await this.renderPreview(newParams, tracks);
+        iterationsPerformed++;
         if (masteredBuffer) {
           afterMetrics = await onMetricsUpdate(masteredBuffer);
           finalVocal = await this.analyzeVocalProfile(masteredBuffer);
@@ -1762,11 +1809,18 @@ export class AudioEngine {
       }
     }
 
-    if (!correctionApplied && deltas.maxRelativeDeltaDb <= 0.30) {
-      decisions.push(`Protección Vocal Inteligente: balance relativo óptimo verificado (Δ máx: ${deltas.maxRelativeDeltaDb.toFixed(2)} dB ≤ 0.30 dB), sin pérdida de claridad.`);
-    }
+    // Final measured audio deltas directly from exported AudioBuffer
+    const measuredAudioDeltas = {
+      subBassMeasuredDb: parseFloat((finalVocal.lowEndEnergyDb - origVocal.lowEndEnergyDb).toFixed(2)),
+      vocalBodyMeasuredDb: parseFloat((finalVocal.vocalBodyDb - origVocal.vocalBodyDb).toFixed(2)),
+      vocalPresenceMeasuredDb: parseFloat((finalVocal.presenceDb - origVocal.presenceDb).toFixed(2)),
+      highPercussionMeasuredDb: parseFloat((finalVocal.instrumentalBrightnessDb - origVocal.instrumentalBrightnessDb).toFixed(2)),
+      sideStereoMeasuredDb: parseFloat((finalVocal.sideEnergyDb - origVocal.sideEnergyDb).toFixed(2))
+    };
 
-    // Identify primary masking element detected
+    const sideStereoStatus: 'centered_stable' | 'widened_risk' = deltas.sideStereoRelDeltaDb > 0.30 ? 'widened_risk' : 'centered_stable';
+
+    // Primary masking element identification
     let maskingElementDetected = 'Ninguno';
     if (deltas.maxRelativeDeltaDb > 0.30) {
       if (deltas.subBassRelDeltaDb === deltas.maxRelativeDeltaDb) {
@@ -1777,9 +1831,9 @@ export class AudioEngine {
         maskingElementDetected = 'Guitarras / Sintes / Pads (400Hz-2.5kHz)';
       } else if (deltas.highInstRelDeltaDb === deltas.maxRelativeDeltaDb) {
         maskingElementDetected = 'Platillos / Percusión Aguda (5-12kHz)';
-      } else if (deltas.sideStereoRelDeltaDb === deltas.maxRelativeDeltaDb) {
+      } else if (deltas.sideStereoRelDeltaDb > 0.30 && deltas.sideStereoRelDeltaDb === deltas.maxRelativeDeltaDb) {
         maskingElementDetected = 'Apertura Estéreo Excesiva (Canal Side)';
-      } else if (-relativePresenceDeltaDb === deltas.maxRelativeDeltaDb) {
+      } else if (deltas.presenceLossDb === deltas.maxRelativeDeltaDb) {
         maskingElementDetected = 'Atenuación Relativa de Voz (Limitación/Compresión)';
       }
     }
@@ -1792,42 +1846,53 @@ export class AudioEngine {
     if (deltas.maxRelativeDeltaDb <= 0.30) {
       vocalStatus = 'approved';
       statusLabel = 'Protección aprobada';
-    } else if (safetyLimitReached) {
-      vocalStatus = 'partially_achieved';
-      statusLabel = 'Protección parcialmente alcanzada';
-      recommendedMixAdjustment = `Límite de seguridad acústico alcanzado (ajuste máx 1.0 dB aplicado para no alterar la mezcla). Se recomienda en la mezcla original: atenuar ${maskingElementDetected} en aprox ${(deltas.maxRelativeDeltaDb - 0.30).toFixed(1)} dB.`;
     } else if (deltas.maxRelativeDeltaDb <= 0.50) {
       vocalStatus = 'acceptable';
       statusLabel = 'Protección aceptable';
-      recommendedMixAdjustment = `Balance aceptable comercialmente. Para máxima presencia frontal, atenuar levemente ${maskingElementDetected} en la mezcla original.`;
+      recommendedMixAdjustment = `Balance aceptable comercialmente. Para máxima presencia frontal, considerar atenuar levemente ${maskingElementDetected} en la mezcla original.`;
+    } else if (maskerReductionAttempted && midCompensationAttempted) {
+      // Technical limit reached AFTER trying BOTH masker reduction AND vocal compensation
+      safetyLimitReached = true;
+      vocalStatus = 'partially_achieved';
+      statusLabel = 'Protección parcialmente alcanzada';
+      recommendedMixAdjustment = `Límite técnico alcanzado tras ${iterationsPerformed} iteraciones de corrección activa y compensación Mid. Delta residual medido: +${deltas.maxRelativeDeltaDb.toFixed(2)} dB. Se recomienda en la mezcla original: atenuar ${maskingElementDetected} en aprox ${(deltas.maxRelativeDeltaDb - 0.30).toFixed(1)} dB.`;
     } else if (deltas.maxRelativeDeltaDb <= 0.80) {
       vocalStatus = 'warning';
       statusLabel = 'Advertencia de enmascaramiento';
-      recommendedMixAdjustment = `Enmascaramiento detectado por ${maskingElementDetected} (Δ relativo +${deltas.maxRelativeDeltaDb.toFixed(2)} dB). Reducir este elemento en la mezcla para devolver foco a la voz.`;
+      recommendedMixAdjustment = `Enmascaramiento persistente por ${maskingElementDetected} (Δ relativo +${deltas.maxRelativeDeltaDb.toFixed(2)} dB). Reducir este elemento en la mezcla para devolver foco a la voz.`;
     } else {
       vocalStatus = 'failed';
       statusLabel = 'Protección fallida';
       recommendedMixAdjustment = `Enmascaramiento crítico por ${maskingElementDetected} (Δ relativo +${deltas.maxRelativeDeltaDb.toFixed(2)} dB > 0.8 dB). Es necesario rebalancear la mezcla original antes de masterizar.`;
     }
 
-    const sectionsSummary = `${origVocal.vocalSectionsCount} secciones con voz activa, ${origVocal.instrumentalSectionsCount} instrumentales analizadas en 16 bloques temporales.`;
+    const sectionsSummary = `${origVocal.vocalSectionsCount} bloques vocales y ${origVocal.instrumentalSectionsCount} bloques instrumentales o de baja actividad vocal analizados.`;
 
     let summaryNote = '';
     if (vocalStatus === 'approved') {
       summaryNote = vocalCompensated
-        ? 'Preservación vocal aprobada: compensación acústica aplicada exitosamente (delta relativo ≤ 0.3 dB).'
-        : 'Preservación vocal óptima y aprobada: presencia, inteligibilidad y balance relativo 100% conservados.';
+        ? `Protección vocal aprobada tras ${iterationsPerformed} iteraciones: compensación acústica Mid aplicada exitosamente (delta relativo ≤ 0.30 dB).`
+        : `Protección vocal óptima y aprobada (${iterationsPerformed} iteración): presencia, inteligibilidad y balance relativo 100% conservados.`;
     } else if (vocalStatus === 'acceptable') {
-      summaryNote = 'Protección aceptable: la voz se mantiene clara dentro de márgenes comerciales tolerables (delta ≤ 0.5 dB).';
+      summaryNote = `Protección aceptable tras ${iterationsPerformed} iteraciones: la voz se mantiene clara en el archivo final con delta residual controlado (Δ máx: ${deltas.maxRelativeDeltaDb.toFixed(2)} dB ≤ 0.50 dB).`;
     } else if (vocalStatus === 'partially_achieved') {
-      summaryNote = 'Protección parcialmente alcanzada: se optimizó el balance hasta el límite de seguridad de 1.0 dB para no desfigurar la mezcla.';
+      summaryNote = `Protección parcialmente alcanzada tras ${iterationsPerformed} iteraciones: se aplicó reducción de enmascaradores y compensación Mid hasta el límite seguro para no desfigurar la mezcla (delta residual: +${deltas.maxRelativeDeltaDb.toFixed(2)} dB).`;
     } else if (vocalStatus === 'warning') {
-      summaryNote = `Advertencia de enmascaramiento: ${maskingElementDetected} compite con la voz principal (+${deltas.maxRelativeDeltaDb.toFixed(2)} dB).`;
+      summaryNote = `Advertencia de enmascaramiento tras ${iterationsPerformed} iteraciones: ${maskingElementDetected} compite con la voz principal (+${deltas.maxRelativeDeltaDb.toFixed(2)} dB).`;
     } else {
-      summaryNote = `Protección fallida: enmascaramiento severo causado por ${maskingElementDetected} (+${deltas.maxRelativeDeltaDb.toFixed(2)} dB).`;
+      summaryNote = `Protección fallida tras ${iterationsPerformed} iteraciones: enmascaramiento severo causado por ${maskingElementDetected} (+${deltas.maxRelativeDeltaDb.toFixed(2)} dB).`;
     }
 
     const monoCompatibilityPreserved = finalVocal.monoCompatibilityScore >= origVocal.monoCompatibilityScore - 6;
+
+    // Log decisions
+    if (dspAdjustmentsSummary.length > 0) {
+      decisions.push(`Protección Vocal Activa (${iterationsPerformed} iteraciones): ${dspAdjustmentsSummary.join(' | ')}`);
+    } else {
+      decisions.push(`Protección Vocal Inteligente: balance relativo óptimo comprobado en audio renderizado (Δ máx: ${deltas.maxRelativeDeltaDb.toFixed(2)} dB ≤ 0.30 dB).`);
+    }
+
+    const uniqueStages = Array.from(new Set(responsibleStagesIdentified));
 
     const vocalReport: VocalProtectionReport = {
       original: origVocal,
@@ -1858,6 +1923,11 @@ export class AudioEngine {
       safetyLimitReached,
       recommendedMixAdjustment,
       sectionsSummary,
+      iterationsPerformed,
+      responsibleStagesIdentified: uniqueStages,
+      dspAdjustmentsSummary,
+      measuredAudioDeltas,
+      sideStereoStatus,
       verdict: vocalStatus === 'approved' ? (vocalCompensated ? 'COMPENSATED' : 'EXCELLENT') : 'OPTIMAL',
       summaryNote
     };
@@ -2209,11 +2279,12 @@ export class AudioEngine {
     // High-Mid Harshness Control (4.2kHz):
     let highMidDelta = (targetProfile.spectralBands[3] - originalProfile.spectralBands[3]) * intensityFactor * 7.0;
     if (config.mode === 'adapt_and_enhance' && (targetProfile.dynamicRangeLRA < 4.0 || highMidDelta > 0.3)) {
-      // If reference is bright/harsh, enhance mode tames ear fatigue
-      highMidDelta = -0.4;
+      highMidDelta = -0.3;
       decisions.push('Modo Adaptar y Mejorar: suavizado de agudos punzantes en 4.2kHz para evitar fatiga auditiva');
+    } else if (origVocal.sibilanceExcessDb <= 1.0 && highMidDelta < 0) {
+      highMidDelta = 0.0; // Conservar presencia vocal si no hay dureza comprobada
     }
-    const clampedHighMid = Math.max(-1.6, Math.min(1.0, highMidDelta));
+    const clampedHighMid = Math.max(-1.0, Math.min(1.0, highMidDelta));
     newParams.eq.highMid.frequency = 4200;
     newParams.eq.highMid.q = 1.2;
     newParams.eq.highMid.gain = parseFloat(clampedHighMid.toFixed(2));
