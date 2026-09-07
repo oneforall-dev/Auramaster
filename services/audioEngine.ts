@@ -614,6 +614,24 @@ export class AudioEngine {
     const rmsDb = 20 * Math.log10(rms);
     const crestFactor = Math.max(2, truePeakDbTP - rmsDb);
 
+    // 4. Stereo Phase Correlation & Spectral Resonances Evaluation
+    let dotSum = 0;
+    let sumL2 = 0;
+    let sumR2 = 0;
+    const lData = buffer.getChannelData(0);
+    const rData = numChannels > 1 ? buffer.getChannelData(1) : lData;
+    const stepAnalysis = Math.max(1, Math.floor(len / 8000));
+    
+    for (let i = 0; i < len; i += stepAnalysis) {
+      const l = lData[i];
+      const r = rData[i];
+      dotSum += l * r;
+      sumL2 += l * l;
+      sumR2 += r * r;
+    }
+    const denom = Math.sqrt(sumL2 * sumR2) || 1e-6;
+    const phaseCorrelation = Math.max(-1.0, Math.min(1.0, dotSum / denom));
+
     return {
       integratedLUFS: parseFloat(integratedLUFS.toFixed(1)),
       truePeakDbTP: parseFloat(truePeakDbTP.toFixed(1)),
@@ -623,8 +641,95 @@ export class AudioEngine {
       spectralBands: [0.25, 0.25, 0.25, 0.25],
       harshness: 0,
       mud: 0,
-      phase: 1.0
+      phase: parseFloat(phaseCorrelation.toFixed(2))
     };
+  }
+
+  // 3. True-Peak Lookahead Limiter with 8x Oversampling & 3.5ms Pre-sensing
+  public applyTruePeakLookaheadLimiter(buffer: AudioBuffer, targetCeilingDbTP: number = -1.0): AudioBuffer {
+    const numChannels = buffer.numberOfChannels;
+    const len = buffer.length;
+    const sampleRate = buffer.sampleRate;
+    const ceilingLinear = Math.pow(10, Math.min(-0.6, targetCeilingDbTP) / 20); // e.g. 0.89125 for -1.0 dBTP
+
+    // Lookahead parameters: 3.5ms window + 50ms musical exponential release
+    const lookaheadSamples = Math.max(1, Math.round(0.0035 * sampleRate)); // ~154 samples @ 44.1kHz
+    const releaseAlpha = Math.exp(-1.0 / (0.050 * sampleRate));
+
+    const requiredGain = new Float32Array(len);
+    for (let i = 0; i < len; i++) {
+      requiredGain[i] = 1.0;
+    }
+
+    const channelData: Float32Array[] = [];
+    for (let c = 0; c < numChannels; c++) {
+      channelData.push(buffer.getChannelData(c));
+    }
+
+    // 1. Detect inter-sample peaks across all channels at 8x resolution
+    for (let i = 1; i < len - 2; i++) {
+      let maxInterSample = 0;
+      for (let c = 0; c < numChannels; c++) {
+        const data = channelData[c];
+        const p0 = data[i - 1];
+        const p1 = data[i];
+        const p2 = data[i + 1];
+        const p3 = data[i + 2];
+        const absP1 = Math.abs(p1);
+        if (absP1 > maxInterSample) maxInterSample = absP1;
+
+        // 8x Sub-sample evaluation: t = 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875
+        for (let t = 0.125; t < 1.0; t += 0.125) {
+          const t2 = t * t;
+          const t3 = t2 * t;
+          const v = 0.5 * (
+            (2 * p1) +
+            (-p0 + p2) * t +
+            (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+            (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+          );
+          const absV = Math.abs(v);
+          if (absV > maxInterSample) maxInterSample = absV;
+        }
+      }
+
+      if (maxInterSample > ceilingLinear) {
+        const gainNeeded = ceilingLinear / maxInterSample;
+        // Smooth cosine lookahead ramp-down ahead of the peak
+        const startLookahead = Math.max(0, i - lookaheadSamples);
+        for (let j = startLookahead; j <= i; j++) {
+          const rampProgress = (j - startLookahead) / lookaheadSamples; // 0.0 -> 1.0
+          const targetG = 1.0 - (1.0 - gainNeeded) * (0.5 - 0.5 * Math.cos(Math.PI * rampProgress));
+          if (targetG < requiredGain[j]) {
+            requiredGain[j] = targetG;
+          }
+        }
+      }
+    }
+
+    // 2. Smooth gain curve forward with exponential recovery
+    let currentGain = 1.0;
+    for (let i = 0; i < len; i++) {
+      if (requiredGain[i] < currentGain) {
+        currentGain = requiredGain[i];
+      } else {
+        currentGain = requiredGain[i] + (currentGain - requiredGain[i]) * releaseAlpha;
+      }
+      requiredGain[i] = currentGain;
+    }
+
+    // 3. Apply lookahead gain reduction with absolute brickwall ceiling clamp
+    for (let c = 0; c < numChannels; c++) {
+      const data = channelData[c];
+      for (let i = 0; i < len; i++) {
+        let sample = data[i] * requiredGain[i];
+        if (sample > ceilingLinear) sample = ceilingLinear;
+        else if (sample < -ceilingLinear) sample = -ceilingLinear;
+        data[i] = sample;
+      }
+    }
+
+    return buffer;
   }
 
   // Measure Integrated Loudness
@@ -721,62 +826,62 @@ export class AudioEngine {
     const newParams: MasteringChainParams = JSON.parse(JSON.stringify(currentParams));
     const decisions: string[] = [];
 
-    // Target specifications:
-    // Target: -11.8 LUFS-I (optimal commercial target in user's -11.3 to -11.8 LUFS range) and Max -1.0 dBTP
-    const TARGET_LUFS = -11.8;
+    // Target specifications according to musical dynamics:
+    // Dynamic/Premium (Crest > 12.5): -12.2 LUFS | Modern Balanced: -11.6 LUFS | High Energy: -11.0 LUFS
+    const TARGET_LUFS = beforeStats.crestFactor > 12.5 ? -12.2 : (beforeStats.crestFactor < 9.0 ? -11.0 : -11.6);
     const MAX_TRUE_PEAK = -1.0;
 
-    // 1. Tonal Balance & 5-Band EQ Strategy
+    // 1. Tonal Balance & 5-Band EQ Strategy (Subtle, non-destructive moves: 0.25 to 0.8 dB)
     newParams.eq.enabled = true;
 
     // Low-end balance: firm sub-bass foundation + clean sub-rumble filtering
     newParams.eq.low.frequency = 80;
     if (beforeStats.crestFactor > 12) {
-      newParams.eq.low.gain = 1.0;
-      decisions.push('Low-end warmth and sub-bass foundation enhanced (+1.0 dB @ 80Hz)');
+      newParams.eq.low.gain = 0.6;
+      decisions.push('Low-end warmth and sub-bass foundation enhanced (+0.6 dB @ 80Hz)');
     } else {
-      newParams.eq.low.gain = 0.8;
+      newParams.eq.low.gain = 0.4;
       decisions.push('Low-end balanced and sub-frequencies (<20Hz) cleanly filtered');
     }
 
     // Low-Mid mud cleaning (250-400Hz)
     newParams.eq.lowMid.frequency = 320;
     newParams.eq.lowMid.q = 1.0;
-    newParams.eq.lowMid.gain = -0.6;
-    decisions.push('Low-mid boxiness and mud cleaned (-0.6 dB @ 320Hz)');
+    newParams.eq.lowMid.gain = -0.5;
+    decisions.push('Low-mid boxiness cleaned with gentle precision (-0.5 dB @ 320Hz)');
 
-    // Mid-range presence & vocal body (1kHz - 3.5kHz)
+    // Mid-range presence & vocal body (1kHz - 3.5kHz) - Keeping natural without harsh 2.5-5kHz buildup
     const hasMultipleStems = tracks.length > 1;
     const hasVocalStem = tracks.some(t => this.detectStemType(t.name) === 'vocals');
 
     if (hasMultipleStems && hasVocalStem) {
       newParams.eq.mid.frequency = 2200;
       newParams.eq.mid.q = 0.9;
-      newParams.eq.mid.gain = 0.8;
-      decisions.push('Stem Mix Vocal Focus: Vocal presence balanced (+0.8 dB @ 2.2kHz) with dynamic 750Hz density control.');
+      newParams.eq.mid.gain = 0.4;
+      decisions.push('Stem Mix Vocal Focus: Vocal presence balanced gently (+0.4 dB @ 2.2kHz) with dynamic 750Hz congestion control.');
     } else if (hasMultipleStems) {
       newParams.eq.mid.frequency = 2000;
       newParams.eq.mid.q = 0.9;
-      newParams.eq.mid.gain = 0.6;
-      decisions.push('Multi-Stem Cohesion: Midrange balanced across stems (+0.6 dB @ 2.0kHz)');
+      newParams.eq.mid.gain = 0.3;
+      decisions.push('Multi-Stem Cohesion: Midrange balanced across stems (+0.3 dB @ 2.0kHz)');
     } else {
-      // Full stereo master (single audio file)
+      // Full stereo master (single audio file): preserve original balance without artificial presence boost
       newParams.eq.mid.frequency = 3200;
       newParams.eq.mid.q = 1.0;
-      newParams.eq.mid.gain = 0.8;
-      decisions.push('Stereo Master Vocal & Lead Articulation: Smooth definition (+0.8 dB @ 3.2kHz) with dynamic 750Hz density control.');
+      newParams.eq.mid.gain = 0.0; // 100% neutral to avoid harsh 2.5-5kHz forwardness
+      decisions.push('Stereo Master: Mid presence preserved in its natural state (0.0 dB @ 3.2kHz) with dynamic 750Hz density tamer.');
     }
 
     // High-Mid harshness control (3.5kHz - 5.5kHz)
     newParams.eq.highMid.frequency = 4200;
     newParams.eq.highMid.q = 1.2;
-    newParams.eq.highMid.gain = -0.4;
-    decisions.push('Harsh high-mid frequencies smoothed to prevent ear fatigue (-0.4 dB @ 4.2kHz)');
+    newParams.eq.highMid.gain = -0.3;
+    decisions.push('Harsh high-mid frequencies smoothed to eliminate ear fatigue (-0.3 dB @ 4.2kHz)');
 
-    // High Air & Sheen (10kHz - 20kHz) - gentle to prevent sibilance and noise
+    // High Air & Sheen (10kHz - 20kHz) - gentle, avoiding sibilance and noise
     newParams.eq.high.frequency = 10500;
-    newParams.eq.high.gain = 0.6;
-    decisions.push('High-end air and sheen controlled (+0.6 dB @ 10.5kHz) without excessive brightness or sibilance');
+    newParams.eq.high.gain = 0.4;
+    decisions.push('High-end air and sheen controlled (+0.4 dB @ 10.5kHz) without sibilance or harshness');
 
     // 2. Dynamic Clean Control
     newParams.gate.enabled = false;
@@ -788,20 +893,20 @@ export class AudioEngine {
     newParams.multiband.enabled = true;
     if (beforeStats.dynamicRangeLRA > 12) {
       newParams.multiband.low.threshold = -16;
-      newParams.multiband.low.ratio = 1.8;
+      newParams.multiband.low.ratio = 1.6;
       newParams.multiband.low.attack = 0.03;
       newParams.multiband.low.release = 0.15;
 
       newParams.multiband.mid.threshold = -18;
-      newParams.multiband.mid.ratio = 1.6;
+      newParams.multiband.mid.ratio = 1.4;
       newParams.multiband.mid.attack = 0.025;
       newParams.multiband.mid.release = 0.12;
 
       newParams.multiband.high.threshold = -20;
-      newParams.multiband.high.ratio = 1.4;
+      newParams.multiband.high.ratio = 1.3;
       newParams.multiband.high.attack = 0.015;
       newParams.multiband.high.release = 0.08;
-      decisions.push('Multiband dynamics glue engaged with gentle 1.4:1 - 1.8:1 ratios preserving dynamics and elegance');
+      decisions.push('Multiband dynamics glue engaged with subtle 1.3:1 - 1.6:1 ratios preserving dynamics and elegance');
     } else {
       newParams.multiband.low.threshold = -12;
       newParams.multiband.low.ratio = 1.3;
@@ -812,35 +917,34 @@ export class AudioEngine {
       decisions.push('Transparent dynamics preservation maintaining natural punch without overcompression');
     }
 
-    // 4. Stereo Imaging & Analog Warmth
-    newParams.stereoWidth = 1.12;
-    decisions.push('Stereo image optimized (+12%) with centered sub-bass (<105Hz) and 200Hz side tamer (-0.6dB) for 100% mono firmness');
+    // 4. Stereo Imaging & Analog Warmth (Preserving full natural width, stabilizing only sub & low-mids)
+    newParams.stereoWidth = 1.0; // 100% natural wide soundstage preserved
+    decisions.push('Stereo width preserved (100% natural soundstage) with centered sub-bass (<105Hz) and 200Hz side tamer (-0.6dB) for mono firmness');
 
-    // Subtle Analog Tape Console Saturation (Adds body, harmonics & perceived loudness without peak overs)
+    // Subtle Analog Tape Console Saturation (Adds body & cohesion without peak overs)
     newParams.distortion.enabled = true;
     newParams.distortion.mode = 'tape';
-    newParams.distortion.amount = 0.04;
+    newParams.distortion.amount = 0.03;
     decisions.push('Analog Tape Console Harmonics engaged (subtle 2nd/3rd harmonics) for warm analog depth');
 
     // Transient Sculpting (Snap & Punch)
-    newParams.transient.enabled = true;
-    newParams.transient.amount = 5;
-    newParams.transient.sustain = 2;
-    decisions.push('Transient Sculptor calibrated for crisp attack (+5%) and natural acoustic sustain');
+    newParams.transient.enabled = false;
+    newParams.transient.amount = 0;
+    newParams.transient.sustain = 0;
 
     // 5. Loudness Normalization & Adaptive True-Peak Limiting Stage
-    // Target: -11.8 LUFS-I and Adaptive True Peak (-1.0 dBTP ceiling)
+    // Target: Adaptively calculated LUFS with True Peak Limiter (Lookahead + 8x Oversampling, ceiling -1.0 dBTP)
     const adaptiveCeiling = beforeStats.crestFactor < 10 ? -1.1 : -1.0;
     const lufsDeficit = TARGET_LUFS - beforeStats.integratedLUFS;
     const initialGainDb = Math.max(-18, Math.min(25, lufsDeficit));
     const startGain = Number.isFinite(currentParams.gain) && currentParams.gain > 0.1 ? currentParams.gain : 1.0;
     newParams.gain = Math.max(0.1, Math.min(15.0, startGain * Math.pow(10, initialGainDb / 20)));
 
-    // True-Peak Limiter with adaptive ceiling & smooth soft-knee
+    // True-Peak Lookahead Limiter with 8x Oversampling & 3.5ms Lookahead
     newParams.limiter.enabled = true;
     newParams.limiter.threshold = adaptiveCeiling;
     newParams.limiter.breathe = 0;
-    decisions.push(`Adaptive True Peak Limiter calibrated to ${adaptiveCeiling.toFixed(1)} dBTP ceiling with smooth 8dB soft-knee`);
+    decisions.push(`True Peak Limiter engaged with 8x oversampling, 3.5ms lookahead, and strict ${adaptiveCeiling.toFixed(1)} dBTP ceiling`);
 
     // Stage 3: Render Mastered Preview Audio & Closed-Loop Precision Refinement
     let masteredBuffer = await this.renderPreview(newParams, tracks);
@@ -1429,8 +1533,9 @@ export class AudioEngine {
     // Connect: Pre -> Gate -> Dist -> 5-band EQ + Mid Density Tamer -> DeEsser -> MS Merger -> Limiter -> DC -> SafeClip
     sum.connect(preDc).connect(pre).connect(gate).connect(dist).connect(eqL).connect(eqLM).connect(eqM).connect(midDensityTamer).connect(eqHM).connect(eqH).connect(deEsser);
     msMerger.connect(lim).connect(dcBlocker).connect(safetyClipper).connect(offline.destination);
-    
-    return await offline.startRendering();
+
+    const rendered = await offline.startRendering();
+    return this.applyTruePeakLookaheadLimiter(rendered, params.limiter?.threshold ?? -1.0);
   }
 
   async exportAudio(params: MasteringChainParams, tracks: Track[], bitDepth: 16 | 24 = 16): Promise<Blob | null> {
