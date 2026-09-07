@@ -2905,6 +2905,14 @@ export class AudioEngine {
     this.setMasterParams(getNeutralMasteringParams());
   }
 
+  getCurrentSessionId(): string {
+    return this.currentSessionId || `sess_${Date.now().toString(36)}`;
+  }
+
+  getActiveTrackSessionId(): string {
+    return this.activeTrackSessionId || '';
+  }
+
   clearAllTracks(): void {
     this.stop();
     this.tracks.forEach(t => {

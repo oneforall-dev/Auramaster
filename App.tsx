@@ -128,13 +128,19 @@ export default function App() {
   const [bulkSummary, setBulkSummary] = useState<BulkMasteringSummary | null>(null);
   const [isBulkSummaryOpen, setIsBulkSummaryOpen] = useState(false);
 
-  const currentSessionIdRef = useRef<string>(audioEngine.getCurrentSessionId());
+  const currentSessionIdRef = useRef<string>(
+    typeof audioEngine?.getCurrentSessionId === 'function' 
+      ? audioEngine.getCurrentSessionId() 
+      : (audioEngine?.currentSessionId || `sess_${Date.now().toString(36)}`)
+  );
 
   // HARD RESET: Completely clears mastering state for a pristine session
   const resetMixerFixerSession = useCallback((newSessionId?: string) => {
     const sId = newSessionId || `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     currentSessionIdRef.current = sId;
-    audioEngine.resetMixerFixerSession(sId);
+    if (typeof audioEngine?.resetMixerFixerSession === 'function') {
+      audioEngine.resetMixerFixerSession(sId);
+    }
     setParams(getNeutralMasteringParams());
     setActivePreset('universal');
     setIsBypassed(true); // HARD RESET: Immediately force RAW Original
