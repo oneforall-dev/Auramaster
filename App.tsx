@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, Activity, Download, Loader2, Globe, Sparkles, Zap, Disc, Plus, FileAudio, FolderOpen, Settings2, Sliders, Cpu, Headphones, Music, Guitar, Leaf, CheckCircle2, Monitor, Maximize2, Minimize2, VolumeX, PenTool, UploadCloud, BrainCircuit, BarChart2, Archive, Undo2 } from 'lucide-react';
-import { audioEngine } from './services/audioEngine';
-import { MasteringChainParams, PlaybackState, Track, SkinMode, ProcessingMode, TrackMasterInfo, AIMasteringResult, ReferenceTrack, ReferenceMasteringConfig } from './types';
+import { audioEngine, getNeutralMasteringParams } from './services/audioEngine';
+import { MasteringChainParams, PlaybackState, Track, SkinMode, ProcessingMode, TrackMasterInfo, AIMasteringResult, ReferenceTrack, ReferenceMasteringConfig, BulkMasteringSummary } from './types';
 import { Visualizer } from './components/Visualizer';
 import { EffectRack } from './components/EffectRack';
 import { TimelineBar } from './components/TimelineBar';
@@ -13,6 +13,7 @@ import { AuthGate } from './components/AuthGate';
 import { AISettingsModal } from './components/AISettingsModal';
 import { AIMasteringReportModal } from './components/AIMasteringReportModal';
 import { ReferenceMasteringModal } from './components/ReferenceMasteringModal';
+import { BulkMasteringSummaryModal } from './components/BulkMasteringSummaryModal';
 import { ExportSuccessModal } from './components/ExportSuccessModal';
 import { FilesBox } from './components/FilesBox';
 import { createMasteredZip } from './services/exportZip';
@@ -124,6 +125,24 @@ export default function App() {
   const [isBulkMastering, setIsBulkMastering] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number; trackName: string } | null>(null);
   const [isExportingZip, setIsExportingZip] = useState(false);
+  const [bulkSummary, setBulkSummary] = useState<BulkMasteringSummary | null>(null);
+  const [isBulkSummaryOpen, setIsBulkSummaryOpen] = useState(false);
+
+  const currentSessionIdRef = useRef<string>(audioEngine.getCurrentSessionId());
+
+  // HARD RESET: Completely clears mastering state for a pristine session
+  const resetMixerFixerSession = useCallback((newSessionId?: string) => {
+    const sId = newSessionId || `session_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    currentSessionIdRef.current = sId;
+    audioEngine.resetMixerFixerSession(sId);
+    setParams(getNeutralMasteringParams());
+    setActivePreset('universal');
+    setIsBypassed(true); // HARD RESET: Immediately force RAW Original
+    setProcessedBuffer(null);
+    setMasteringReport(null);
+    setSelection(null);
+    setEditHistory([]);
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const rafRef = useRef<number>(0);
@@ -207,8 +226,13 @@ export default function App() {
         const added: Track[] = [];
         for (const file of newFiles) added.push(await audioEngine.addTrack(file)); 
         
+        // HARD RESET: If loading a new project or tracks, reset session state completely
+        if (tracks.length === 0 || processingMode === 'bulk') {
+          resetMixerFixerSession();
+        }
+
         let allTracks = [...tracks, ...added];
-        const newParams = { ...params };
+        let newParams = getNeutralMasteringParams();
         
         // Stems auto-balance logic if in stems mode
         if (processingMode === 'stems' && allTracks.length > 1) {
@@ -216,14 +240,33 @@ export default function App() {
             newParams.gain = 1.0;
         }
 
-        // Safety limit (-1.0 dBTP strict with soft knee)
+        // Safety limit (-1.0 dBTP strict ceiling)
         newParams.limiter.enabled = true;
         newParams.limiter.threshold = -1.0;
         newParams.limiter.breathe = 0;
         
+        // Initialize tracks in trackMasterMap if in bulk mode
+        if (processingMode === 'bulk') {
+          setTrackMasterMap(prev => {
+            const next = { ...prev };
+            added.forEach(t => {
+              if (!next[t.id]) {
+                next[t.id] = {
+                  trackId: t.id,
+                  sourceId: t.sourceId,
+                  isMastered: false,
+                  isProcessing: false
+                };
+              }
+            });
+            return next;
+          });
+        }
+
         setTracks(allTracks);
         setParams(newParams);
-        setIsBypassed(false); 
+        setIsBypassed(true); // HARD RESET: New audio is always auditioned as ORIGINAL raw first
+        setMasteringReport(null); // Clear old report
         if (added.length > 0) {
           const newActiveId = activeTrackId || added[0].id;
           setActiveTrackId(newActiveId);
@@ -359,11 +402,17 @@ export default function App() {
       });
     }
 
-    if (trackMasterMap[id]?.params) {
-      setParams(trackMasterMap[id].params!);
-    }
-    if (trackMasterMap[id]?.result) {
-      setMasteringReport(trackMasterMap[id].result!);
+    const currentTrack = tracks.find(t => t.id === id);
+    const trackInfo = trackMasterMap[id];
+    if (trackInfo?.isMastered && trackInfo.result && trackInfo.result.sourceId === (currentTrack?.sourceId || id)) {
+      setParams(trackInfo.params || trackInfo.result.appliedParams);
+      setMasteringReport(trackInfo.result);
+      setIsBypassed(false);
+    } else {
+      // Clean slate for unmastered track: strictly neutral params, no previous report, forced raw bypass
+      setParams(getNeutralMasteringParams());
+      setMasteringReport(null);
+      setIsBypassed(true);
     }
     
     // If audio is currently playing in bulk mode, start the newly selected song immediately from 00:00
@@ -372,78 +421,199 @@ export default function App() {
     }
   };
 
-  // 1. Single Track Mastering (Bulk Mode)
+  // 1. Single Track Mastering (Bulk Mode) - with isolated track session and phase tracking
   const handleMasterSingleTrack = async (track: Track) => {
+    const targetSessionId = `track_${Date.now()}_${track.id}`;
     setTrackMasterMap(prev => ({
       ...prev,
-      [track.id]: { trackId: track.id, isProcessing: true, isMastered: false }
+      [track.id]: { 
+        trackId: track.id, 
+        sourceId: track.sourceId,
+        trackSessionId: targetSessionId,
+        isProcessing: true, 
+        isMastered: false,
+        currentPhase: 'reset'
+      }
     }));
     setActiveTrackId(track.id);
 
     try {
-      const result = await audioEngine.runMixerFixerAIForSingleTrack(params, track);
+      const result = await audioEngine.runMixerFixerAIForSingleTrack(
+        getNeutralMasteringParams(),
+        track,
+        null,
+        targetSessionId,
+        (phase) => {
+          setTrackMasterMap(prev => prev[track.id] ? {
+            ...prev,
+            [track.id]: { ...prev[track.id], currentPhase: phase }
+          } : prev);
+        }
+      );
+
+      // Async validation: discard late result if session changed
+      if (result.sessionId && result.sessionId !== targetSessionId) {
+        console.warn(`[BulkMaster] Session mismatch for ${track.name}, discarding stale result`);
+        return;
+      }
+
       setTrackMasterMap(prev => ({
         ...prev,
         [track.id]: {
           trackId: track.id,
+          sourceId: track.sourceId,
+          trackSessionId: targetSessionId,
           isMastered: true,
           isProcessing: false,
+          currentPhase: 'complete',
           result,
           params: result.appliedParams
         }
       }));
-      setParams(result.appliedParams);
-      setMasteringReport(result);
+
+      if (activeTrackId === track.id) {
+        setParams(result.appliedParams);
+        setMasteringReport(result);
+        setIsBypassed(false);
+      }
       setIsReportOpen(true);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error mastering single track:", err);
       setTrackMasterMap(prev => ({
         ...prev,
-        [track.id]: { trackId: track.id, isProcessing: false, isMastered: false }
+        [track.id]: { 
+          trackId: track.id, 
+          sourceId: track.sourceId,
+          isProcessing: false, 
+          isMastered: false,
+          currentPhase: 'error',
+          errorMessage: err?.message || 'Error durante masterización'
+        }
       }));
-      alert(`Error mastering ${track.name}`);
+      alert(`Error mastering ${track.name}: ${err?.message || 'Error'}`);
     }
   };
 
-  // 2. Bulk Master All Tracks
+  // 2. Bulk Master All Tracks - 100% Isolated Sessions per Track
   const handleMasterAllTracks = async () => {
     if (tracks.length === 0) return;
     setIsBulkMastering(true);
     
     const updatedMap = { ...trackMasterMap };
-    let lastResult: AIMasteringResult | null = null;
+    const results: AIMasteringResult[] = [];
+    let failedCount = 0;
 
     for (let i = 0; i < tracks.length; i++) {
       const track = tracks[i];
+      const targetSessionId = `bulk_${Date.now()}_${track.id}_${i}`;
       setBulkProgress({ current: i + 1, total: tracks.length, trackName: track.name });
       
-      updatedMap[track.id] = { trackId: track.id, isProcessing: true, isMastered: false };
+      updatedMap[track.id] = { 
+        trackId: track.id, 
+        sourceId: track.sourceId,
+        trackSessionId: targetSessionId,
+        isProcessing: true, 
+        isMastered: false,
+        currentPhase: 'reset'
+      };
       setTrackMasterMap({ ...updatedMap });
 
       try {
-        const result = await audioEngine.runMixerFixerAIForSingleTrack(params, track);
+        const result = await audioEngine.runMixerFixerAIForSingleTrack(
+          getNeutralMasteringParams(),
+          track,
+          null,
+          targetSessionId,
+          (phase) => {
+            setTrackMasterMap(prev => prev[track.id] ? {
+              ...prev,
+              [track.id]: { ...prev[track.id], currentPhase: phase }
+            } : prev);
+          }
+        );
+
         updatedMap[track.id] = {
           trackId: track.id,
+          sourceId: track.sourceId,
+          trackSessionId: targetSessionId,
           isMastered: true,
           isProcessing: false,
+          currentPhase: 'complete',
           result,
           params: result.appliedParams
         };
-        lastResult = result;
+        results.push(result);
         setTrackMasterMap({ ...updatedMap });
-      } catch (err) {
+      } catch (err: any) {
         console.error(`Error mastering ${track.name}:`, err);
-        updatedMap[track.id] = { trackId: track.id, isProcessing: false, isMastered: false };
+        failedCount++;
+        updatedMap[track.id] = { 
+          trackId: track.id, 
+          sourceId: track.sourceId,
+          isProcessing: false, 
+          isMastered: false,
+          currentPhase: 'error',
+          errorMessage: err?.message || 'Error'
+        };
         setTrackMasterMap({ ...updatedMap });
       }
     }
 
     setIsBulkMastering(false);
     setBulkProgress(null);
-    
-    if (lastResult) {
-      setMasteringReport(lastResult);
-      setIsReportOpen(true);
+
+    // Build BulkMasteringSummary
+    if (results.length > 0) {
+      const totalTracks = tracks.length;
+      const completedTracks = results.length;
+      const avgOrigLUFS = results.reduce((acc, r) => acc + (r.before.integratedLUFS || -14), 0) / results.length;
+      const avgMasterLUFS = results.reduce((acc, r) => acc + (r.after.integratedLUFS || -14), 0) / results.length;
+      const maxTP = Math.max(...results.map(r => r.after.truePeakDbTP || -1.0));
+      const avgLRA = results.reduce((acc, r) => acc + (r.after.dynamicRangeLRA || 8.0), 0) / results.length;
+      const vocalCount = results.filter(r => r.vocalReport && r.vocalReport.original.vocalSectionsCount > 0).length;
+      const instCount = results.length - vocalCount;
+
+      const summaryItems = tracks.map(t => {
+        const info = updatedMap[t.id];
+        return {
+          trackId: t.id,
+          trackName: t.name,
+          sourceId: t.sourceId || t.id,
+          status: (info?.isMastered ? 'completed' : info?.currentPhase === 'error' ? 'failed' : 'skipped') as 'completed' | 'failed' | 'skipped',
+          originalLUFS: info?.result?.before?.integratedLUFS,
+          masterLUFS: info?.result?.after?.integratedLUFS,
+          truePeakDbTP: info?.result?.after?.truePeakDbTP,
+          dynamicRangeLRA: info?.result?.after?.dynamicRangeLRA,
+          vocalProtected: Boolean(info?.result?.vocalReport && info.result.vocalReport.original.vocalSectionsCount > 0),
+          isInstrumental: Boolean(info?.result?.vocalReport && info.result.vocalReport.original.vocalSectionsCount === 0),
+          result: info?.result
+        };
+      });
+
+      const summary: BulkMasteringSummary = {
+        totalTracks,
+        completedTracks,
+        failedTracks: failedCount,
+        averageOriginalLUFS: parseFloat(avgOrigLUFS.toFixed(1)),
+        averageMasterLUFS: parseFloat(avgMasterLUFS.toFixed(1)),
+        maxTruePeakDbTP: parseFloat(maxTP.toFixed(1)),
+        averageLRA: parseFloat(avgLRA.toFixed(1)),
+        vocalProtectedCount: vocalCount,
+        instrumentalCount: instCount,
+        items: summaryItems
+      };
+
+      setBulkSummary(summary);
+      setIsBulkSummaryOpen(true);
+
+      // Select first mastered track
+      const firstMastered = tracks.find(t => updatedMap[t.id]?.isMastered);
+      if (firstMastered && updatedMap[firstMastered.id]?.result) {
+        setActiveTrackId(firstMastered.id);
+        setParams(updatedMap[firstMastered.id].params!);
+        setMasteringReport(updatedMap[firstMastered.id].result!);
+        setIsBypassed(false);
+      }
     }
   };
 
@@ -565,12 +735,24 @@ export default function App() {
                     await handleMasterSingleTrack(activeTrack);
                   }
                 } else {
+                  const targetSessionId = currentSessionIdRef.current;
                   const balancedTracks = audioEngine.autoBalanceTracks(tracks);
                   setTracks(balancedTracks);
-                  const result = await audioEngine.runMixerFixerAIMastering(newParams, balancedTracks);
-                  newParams = result.appliedParams;
-                  setMasteringReport(result);
-                  setIsReportOpen(true);
+                  const activeSourceId = tracks[0]?.sourceId || `stems_${tracks.map(t => t.sourceId || t.id).join('_')}`;
+                  const result = await audioEngine.runMixerFixerAIMastering(
+                    newParams, 
+                    balancedTracks,
+                    null,
+                    activeSourceId,
+                    targetSessionId
+                  );
+                  // Verify session is still active
+                  if (result.sessionId === currentSessionIdRef.current) {
+                    newParams = result.appliedParams;
+                    setMasteringReport(result);
+                    setIsBypassed(false); // Enable master auditioning safely
+                    setIsReportOpen(true);
+                  }
                 }
                 break;
             }
@@ -662,14 +844,11 @@ export default function App() {
 
   const handleStartNewProject = () => {
     audioEngine.stop();
+    resetMixerFixerSession();
+    audioEngine.clearAllTracks();
     setTracks([]);
     setActiveTrackId(null);
     setTrackMasterMap({});
-    setProcessedBuffer(null);
-    setEditHistory([]);
-    setParams(DEFAULT_PARAMS);
-    setSelection(null);
-    setMasteringReport(null);
     setCurrentTime(0);
     setDuration(0);
   };
@@ -816,14 +995,40 @@ export default function App() {
                                     <span>DSP Report</span>
                                 </button>
                             )}
-                            <button 
-                                onClick={() => setIsBypassed(!isBypassed)} 
-                                className={`px-3.5 py-1 rounded-full text-[10px] font-bold transition-all flex items-center gap-1.5 shadow-sm ${isBypassed ? "bg-amber-500 hover:bg-amber-400 text-black" : "bg-gradient-to-r from-cyan-500 to-cyan-400 text-black font-extrabold"}`}
-                                title={isBypassed ? "Activar Master DSP" : "Bypass (Raw)"}
-                            >
-                                {isBypassed ? <VolumeX size={12}/> : <CheckCircle2 size={12}/>}
-                                <span>{isBypassed ? t.originalRaw : t.masteredDsp}</span>
-                            </button>
+                            {(() => {
+                              const activeTrack = tracks.find(t => t.id === activeTrackId) || tracks[0];
+                              const hasActiveMaster = processingMode === 'bulk'
+                                ? Boolean(activeTrack && trackMasterMap[activeTrack.id]?.isMastered && trackMasterMap[activeTrack.id]?.result?.sourceId === (activeTrack.sourceId || activeTrack.id))
+                                : Boolean(masteringReport && activeTrack && masteringReport.sourceId === (activeTrack.sourceId || activeTrack.id));
+
+                              return (
+                                <button 
+                                    onClick={() => {
+                                      if (!hasActiveMaster) {
+                                        setIsBypassed(true);
+                                        return;
+                                      }
+                                      setIsBypassed(!isBypassed);
+                                    }} 
+                                    disabled={!hasActiveMaster}
+                                    className={`px-3.5 py-1 rounded-full text-[10px] font-bold transition-all flex items-center gap-1.5 shadow-sm ${
+                                      !hasActiveMaster
+                                        ? "bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-80"
+                                        : isBypassed 
+                                          ? "bg-amber-500 hover:bg-amber-400 text-black" 
+                                          : "bg-gradient-to-r from-cyan-500 to-cyan-400 text-black font-extrabold"
+                                    }`}
+                                    title={!hasActiveMaster ? (lang === 'es' ? 'Audio Original (sin masterizar)' : 'Original Audio (unmastered)') : isBypassed ? "Activar Master DSP" : "Bypass (Raw)"}
+                                >
+                                    {isBypassed || !hasActiveMaster ? <VolumeX size={12}/> : <CheckCircle2 size={12}/>}
+                                    <span>
+                                      {!hasActiveMaster 
+                                        ? (lang === 'es' ? 'ORIGINAL (Sin Master)' : 'ORIGINAL (Raw)') 
+                                        : isBypassed ? t.originalRaw : t.masteredDsp}
+                                    </span>
+                                </button>
+                              );
+                            })()}
                         </div>
                     </div>
                     <div className="flex-1 relative">
@@ -992,6 +1197,24 @@ export default function App() {
         result={masteringReport}
         isBypassed={isBypassed}
         onToggleBypass={() => setIsBypassed(!isBypassed)}
+        lang={lang}
+      />
+
+      {/* Bulk Mastering Summary Modal */}
+      <BulkMasteringSummaryModal
+        isOpen={isBulkSummaryOpen}
+        onClose={() => setIsBulkSummaryOpen(false)}
+        summary={bulkSummary}
+        onViewReport={(result) => {
+          setMasteringReport(result);
+          setIsReportOpen(true);
+        }}
+        onDownloadSingle={(trackId) => {
+          const t = tracks.find(trk => trk.id === trackId);
+          if (t) handleDownloadSingleTrack(t);
+        }}
+        onDownloadAllZip={handleDownloadAllMasteredZip}
+        isExportingZip={isExportingZip}
         lang={lang}
       />
 

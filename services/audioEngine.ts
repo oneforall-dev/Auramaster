@@ -29,6 +29,69 @@ interface InternalTrackNode {
   fxNodes: AudioNode[];
 }
 
+export function hashString(str: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash;
+}
+
+export async function generateAudioSourceId(file?: File, buffer?: AudioBuffer): Promise<string> {
+  let hashStr = '';
+  if (file) {
+    hashStr += `${file.name}_${file.size}_${file.lastModified}`;
+  }
+  if (buffer) {
+    hashStr += `_${buffer.sampleRate}_${buffer.numberOfChannels}_${buffer.duration.toFixed(3)}`;
+    const ch = buffer.getChannelData(0);
+    const step = Math.max(1, Math.floor(ch.length / 32));
+    let sampleSum = 0;
+    for (let i = 0; i < ch.length; i += step) {
+      sampleSum = (sampleSum * 31 + Math.round(ch[i] * 10000)) | 0;
+    }
+    hashStr += `_${sampleSum.toString(16)}`;
+  }
+  if (!hashStr) {
+    hashStr = `src_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  }
+  return `src_${Math.abs(hashString(hashStr)).toString(36)}`;
+}
+
+export function getNeutralMasteringParams(): MasteringChainParams {
+  return {
+    eq: {
+      enabled: true,
+      low: { frequency: 80, gain: 0.0, q: 0.7 },
+      lowMid: { frequency: 320, gain: 0.0, q: 1.0 },
+      mid: { frequency: 1000, gain: 0.0, q: 1.0 },
+      highMid: { frequency: 3200, gain: 0.0, q: 1.0 },
+      high: { frequency: 10000, gain: 0.0, q: 0.7 }
+    },
+    multiband: {
+      enabled: true,
+      low: { threshold: -16, ratio: 1.4, attack: 0.03, release: 0.2 },
+      mid: { threshold: -18, ratio: 1.3, attack: 0.025, release: 0.15 },
+      high: { threshold: -20, ratio: 1.2, attack: 0.015, release: 0.10 }
+    },
+    gate: { enabled: false, threshold: -80, ratio: 0 },
+    deEsser: { enabled: false, frequency: 6500, threshold: -20, amount: 2.5 },
+    transient: { enabled: false, amount: 0, sustain: 0 },
+    distortion: { enabled: false, amount: 0, mode: 'tape' },
+    lofi: { enabled: false, bitDepth: 32, sampleRate: 48000, mix: 0 },
+    modulation: { enabled: false, type: 'chorus', mix: 0, rate: 1.5, depth: 50, feedback: 0 },
+    delay: { enabled: false, mix: 0, time: 0.3, feedback: 0.3 },
+    reverb: { enabled: false, mix: 0, decay: 2.0 },
+    gain: 1.0,
+    stereoWidth: 1.0,
+    midDensity750Gain: 0.0,
+    dynamicSubCutDb: 0.0,
+    vocalBodyMidRecoveryDb: 0.0,
+    limiter: { enabled: true, threshold: -1.0, breathe: 0 }
+  };
+}
+
 export class AudioEngine {
   private audioContext: AudioContext | null = null;
   private tracks: Map<string, InternalTrackNode> = new Map();
@@ -113,6 +176,8 @@ export class AudioEngine {
   // Adaptive Metrics Storage
   private lastAnalysis: Partial<AnalysisMetrics> = {};
   public lastAIMasteringResult: AIMasteringResult | null = null;
+  public currentSessionId: string = `sess_${Date.now().toString(36)}`;
+  public activeTrackSessionId: string = '';
 
   constructor() {}
 
@@ -460,6 +525,7 @@ export class AudioEngine {
     const ctx = this.audioContext!;
     const buffer = await ctx.decodeAudioData(await file.arrayBuffer());
     const id = Math.random().toString(36).substr(2, 9);
+    const sourceId = await generateAudioSourceId(file, buffer);
     
     const stemType = this.detectStemType(file.name);
     
@@ -474,7 +540,19 @@ export class AudioEngine {
     this.tracks.set(id, { buffer, source: null, outNode: fxIn, gainNode, pannerNode, fxNodes });
     this.recalculateMaxDuration();
 
-    return { id, name: file.name, volume: 1.0, pan: 0, muted: false, soloed: false, color: this.getStemColor(stemType), startTime: 0, fadeIn: 0, fadeOut: 0 };
+    return { 
+      id, 
+      name: file.name, 
+      volume: 1.0, 
+      pan: 0, 
+      muted: false, 
+      soloed: false, 
+      color: this.getStemColor(stemType), 
+      startTime: 0, 
+      fadeIn: 0, 
+      fadeOut: 0,
+      sourceId
+    };
   }
 
   // --- ADAPTIVE & COMPLIANCE ENGINES ---
@@ -937,8 +1015,12 @@ export class AudioEngine {
   async runMixerFixerAIMastering(
     currentParams: MasteringChainParams,
     tracks: Track[],
-    _userAIConfig?: AIProviderConfig | null
+    _userAIConfig?: AIProviderConfig | null,
+    sourceId?: string,
+    sessionId?: string,
+    onPhaseChange?: (phase: 'reset' | 'analyze' | 'dsp' | 'vocal_audit' | 'render' | 'validate' | 'complete') => void
   ): Promise<AIMasteringResult> {
+    onPhaseChange?.('analyze');
     // Stage 1: Render unmastered raw audio and analyze with precision DSP
     let rawBuffer = await this.renderRawMix(tracks);
     if (!rawBuffer) {
@@ -958,6 +1040,7 @@ export class AudioEngine {
     };
 
     // Stage 2: Intelligent DSP Parameter Formulation
+    onPhaseChange?.('dsp');
     const newParams: MasteringChainParams = JSON.parse(JSON.stringify(currentParams));
     let decisions: string[] = [];
 
@@ -1139,6 +1222,7 @@ export class AudioEngine {
     newParams.limiter.breathe = 0;
 
     // Stage 3: Render Mastered Preview Audio & Closed-Loop Precision Refinement
+    onPhaseChange?.('render');
     let masteredBuffer = await this.renderPreview(newParams, tracks);
     let afterMetrics = masteredBuffer 
       ? await this.calculateAccurateDSPMetrics(masteredBuffer)
@@ -1164,6 +1248,7 @@ export class AudioEngine {
     }
 
     // Stage 4: Closed-Loop Vocal Preservation Audit (A/B Matching under equal loudness)
+    onPhaseChange?.('vocal_audit');
     const vocalAudit = await this.executeVocalProtectionAudit(
       origVocal,
       masteredBuffer,
@@ -1179,6 +1264,7 @@ export class AudioEngine {
     const vocalReport = vocalAudit.vocalReport;
 
     // Final Metric Formulation directly from measured buffer
+    onPhaseChange?.('validate');
     const finalLUFS = afterMetrics ? afterMetrics.integratedLUFS : targetLUFS;
     const finalTP = afterMetrics ? afterMetrics.truePeakDbTP : -1.0;
     const finalLRA = afterMetrics ? afterMetrics.dynamicRangeLRA : beforeStats.dynamicRangeLRA;
@@ -1226,6 +1312,9 @@ export class AudioEngine {
       ? 'Volumen natural preservado' 
       : `Ganancia: ${gainDelta >= 0 ? '+' : ''}${gainDelta.toFixed(1)} LU`;
 
+    const resolvedSourceId = sourceId || (tracks.length === 1 ? (tracks[0].sourceId || tracks[0].id) : `stems_${tracks.map(t => t.sourceId || t.id).sort().join('_')}`);
+    const resolvedSessionId = sessionId || this.currentSessionId;
+
     const result: AIMasteringResult = {
       before: beforeStats,
       after: afterStats,
@@ -1234,9 +1323,12 @@ export class AudioEngine {
       targetMet: afterStats.truePeakDbTP <= -0.99,
       statusNote: `${gainDescription} | ${afterStats.integratedLUFS.toFixed(1)} LUFS-I · True Peak: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`,
       timestamp: Date.now(),
-      vocalReport
+      vocalReport,
+      sourceId: resolvedSourceId,
+      sessionId: resolvedSessionId
     };
 
+    onPhaseChange?.('complete');
     this.lastAIMasteringResult = result;
     return result;
   }
@@ -2770,6 +2862,8 @@ export class AudioEngine {
       bitDepth: '24-bit / 32-bit Float'
     };
 
+    const resolvedSourceId = tracks.length === 1 ? (tracks[0].sourceId || tracks[0].id) : `stems_${tracks.map(t => t.sourceId || t.id).sort().join('_')}`;
+
     const result: AIMasteringResult = {
       before: beforeStats,
       after: afterStats,
@@ -2779,19 +2873,71 @@ export class AudioEngine {
       statusNote: `Mastering por Referencia (${config.mode}): ${matchingScorePercent}% coincidencia sonica | TP: ${finalProfile.truePeakDbTP.toFixed(1)} dBTP`,
       timestamp: Date.now(),
       referenceReport: referenceReportData,
-      vocalReport
+      vocalReport,
+      sourceId: resolvedSourceId,
+      sessionId: this.currentSessionId
     };
 
     this.lastAIMasteringResult = result;
     return result;
   }
 
+  resetMixerFixerSession(newSessionId?: string): void {
+    this.stop();
+    this.currentSessionId = newSessionId || `sess_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 5)}`;
+    this.activeTrackSessionId = '';
+    this.lastAIMasteringResult = null;
+    this.lastAnalysis = {};
+
+    // Reset live Web Audio graph to neutral baseline
+    this.setMasterParams(getNeutralMasteringParams());
+    // Force bypass mode active so raw audio plays
+    this.setBypass(true);
+  }
+
+  resetTrackProcessingState(trackSessionId?: string): void {
+    this.stop();
+    this.activeTrackSessionId = trackSessionId || `track_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 5)}`;
+    this.lastAIMasteringResult = null;
+    this.lastAnalysis = {};
+
+    // Reset live Web Audio graph to neutral baseline
+    this.setMasterParams(getNeutralMasteringParams());
+  }
+
+  clearAllTracks(): void {
+    this.stop();
+    this.tracks.forEach(t => {
+      if (t.source) {
+        try { t.source.stop(); } catch (e) {}
+      }
+      t.gainNode.disconnect();
+      t.fxNodes.forEach(n => n.disconnect());
+    });
+    this.tracks.clear();
+    this.maxDuration = 0;
+  }
+
   async runMixerFixerAIForSingleTrack(
-    currentParams: MasteringChainParams,
+    _currentParams: MasteringChainParams,
     track: Track,
-    userAIConfig?: AIProviderConfig | null
+    userAIConfig?: AIProviderConfig | null,
+    trackSessionId?: string,
+    onPhaseChange?: (phase: 'reset' | 'analyze' | 'dsp' | 'vocal_audit' | 'render' | 'validate' | 'complete') => void
   ): Promise<AIMasteringResult> {
-    return this.runMixerFixerAIMastering(currentParams, [track], userAIConfig);
+    const freshSessionId = trackSessionId || `track_${Date.now().toString(36)}_${track.id}`;
+    onPhaseChange?.('reset');
+    // HARD RESET: Never inherit parameters from previous tracks!
+    this.resetTrackProcessingState(freshSessionId);
+    const neutralParams = getNeutralMasteringParams();
+    return this.runMixerFixerAIMastering(
+      neutralParams,
+      [track],
+      userAIConfig,
+      track.sourceId || track.id,
+      freshSessionId,
+      onPhaseChange
+    );
   }
 
   async exportSingleTrackAudio(

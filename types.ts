@@ -118,6 +118,7 @@ export interface Track {
   startTime: number; // Where in the timeline this track starts (seconds)
   fadeIn: number; // Seconds
   fadeOut: number; // Seconds
+  sourceId?: string; // Deterministic unique identifier of source audio
 }
 
 export enum PlaybackState {
@@ -131,10 +132,16 @@ export type ProcessingMode = 'stems' | 'bulk';
 
 export interface TrackMasterInfo {
   trackId: string;
+  sourceId?: string;
+  trackSessionId?: string;
   isMastered: boolean;
   result?: AIMasteringResult;
   params?: MasteringChainParams;
   isProcessing?: boolean;
+  currentPhase?: 'reset' | 'analyze' | 'dsp' | 'vocal_audit' | 'render' | 'validate' | 'complete' | 'error';
+  errorMessage?: string;
+  blob?: Blob;
+  url?: string;
 }
 
 export type AIProvider = 'gemini' | 'openai' | 'groq' | 'anthropic' | 'custom';
@@ -334,5 +341,35 @@ export interface AIMasteringResult {
   timestamp: number;
   referenceReport?: ReferenceMasteringReportData;
   vocalReport?: VocalProtectionReport;
+  sourceId?: string; // Links master to exact source audio
+  sessionId?: string; // Tracks execution session to prevent stale race conditions
+}
+
+export interface BulkMasteringSummary {
+  bulkSessionId: string;
+  totalTracks: number;
+  completedCount: number;
+  warningCount: number;
+  failedCount: number;
+  originalAvgLUFS: number;
+  masterAvgLUFS: number;
+  maxTruePeakDbTP: number;
+  avgLRA: number;
+  vocalApprovedCount: number;
+  vocalPartialCount: number;
+  vocalWarningCount: number;
+  instrumentalCount: number;
+  tracks: {
+    trackId: string;
+    trackName: string;
+    sourceId?: string;
+    status: 'completed' | 'warning' | 'failed';
+    originalLUFS: number;
+    masterLUFS: number;
+    truePeakDbTP: number;
+    dynamicRangeLRA: number;
+    vocalStatus: string;
+    errorMessage?: string;
+  }[];
 }
 

@@ -267,16 +267,24 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
 
                   {/* Row 2: Status Tag and Quick Actions */}
                   <div className="flex items-center justify-between gap-1.5 pt-0.5">
-                    {/* Status Pill */}
+                    {/* Status Pill with real-time phase progression */}
                     {isProcessingThis ? (
-                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center gap-1">
+                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center gap-1 animate-pulse">
                         <Loader2 size={10} className="animate-spin" />
-                        <span>Masterizando...</span>
+                        <span>
+                          {info?.currentPhase === 'reset' ? (lang === 'es' ? 'Reseteando...' : 'Resetting...') :
+                           info?.currentPhase === 'analyze' ? (lang === 'es' ? 'Analizando...' : 'Analyzing...') :
+                           info?.currentPhase === 'dsp' ? (lang === 'es' ? 'Calculando DSP...' : 'Computing DSP...') :
+                           info?.currentPhase === 'vocal_audit' ? (lang === 'es' ? 'Protección vocal...' : 'Vocal audit...') :
+                           info?.currentPhase === 'render' ? (lang === 'es' ? 'Renderizando...' : 'Rendering...') :
+                           info?.currentPhase === 'validate' ? (lang === 'es' ? 'Validando...' : 'Validating...') :
+                           (lang === 'es' ? 'Masterizando...' : 'Mastering...')}
+                        </span>
                       </span>
                     ) : isMastered ? (
                       <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
                         <CheckCircle2 size={10} />
-                        <span>Masterizado (-14 LUFS)</span>
+                        <span>{lang === 'es' ? 'Masterizado' : 'Mastered'} ({info?.result?.after?.integratedLUFS ? `${info.result.after.integratedLUFS.toFixed(1)} LUFS` : '-14 LUFS'})</span>
                       </span>
                     ) : (
                       <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full border ${
