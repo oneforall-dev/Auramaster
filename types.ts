@@ -231,6 +231,13 @@ export interface ReferenceMasteringReportData {
   bitDepth: string;
 }
 
+export type VocalProtectionStatus = 
+  | 'approved'             // delta <= 0.3 dB
+  | 'acceptable'           // 0.3 < delta <= 0.5 dB
+  | 'warning'              // 0.5 < delta <= 0.8 dB
+  | 'failed'               // delta > 0.8 dB
+  | 'partially_achieved';  // improved but safety limits reached
+
 export interface VocalAnalysisProfile {
   centerEnergyDb: number;             // 250 Hz - 5 kHz (Mid channel focus)
   vocalBodyDb: number;                // 180 Hz - 900 Hz (Warmth & proximity)
@@ -239,6 +246,9 @@ export interface VocalAnalysisProfile {
   sibilanceDb: number;                // 5 kHz - 9 kHz (Air & 's' sounds)
   airEnergyDb: number;                // > 8 kHz (Breath & shimmer)
   lowEndEnergyDb: number;             // 30 Hz - 200 Hz (Sub & bass)
+  guitarsSynthsMidDb: number;         // 400 Hz - 2.5 kHz (Mid instrumentation)
+  instrumentalBrightnessDb: number;   // 5 kHz - 12 kHz (High percussion & sheen)
+  sideEnergyDb: number;               // Side channel overall RMS in dB
   vocalToBassRatioDb: number;         // Vocal (800Hz-4kHz) vs Low-end (30Hz-200Hz)
   vocalToInstrumentalRatioDb: number; // Mid vocal band vs Side & overall RMS
   hasProminentVocals: boolean;        // True if vocal energy & mid coherence detected
@@ -250,15 +260,28 @@ export interface VocalAnalysisProfile {
   bassMaskingIndex: number;           // 0-100 masking risk caused by sub/kick
   monoCompatibilityScore: number;     // 0-100 mono phase coherence in vocal range
   temporalConsistencyScore: number;   // 0-100 stability across verse/chorus blocks
+  vocalSectionsCount: number;         // Count of temporal blocks with active voice
+  instrumentalSectionsCount: number;  // Count of temporal blocks without voice
 }
 
 export interface VocalProtectionReport {
   original: VocalAnalysisProfile;
   final: VocalAnalysisProfile;
-  relativePresenceDeltaDb: number;    // e.g. -0.1 dB (rule: >= -0.3 dB)
+  vocalStatus: VocalProtectionStatus;
+  statusLabel: string;                // 'Protección aprobada', 'Protección aceptable', 'Advertencia de enmascaramiento', 'Protección fallida', 'Protección parcialmente alcanzada'
+  relativePresenceDeltaDb: number;    // Net relative vocal presence delta vs mix
   vocalDeltaDb: number;               // Delta in absolute vocal presence band (dB)
   lowEndDeltaDb: number;              // Delta in low-end energy 30-200Hz (dB)
   lowEndVsVocalDiffDb: number;        // lowEndDeltaDb - vocalDeltaDb (rule: <= 0.5 dB)
+  
+  // Multiband Relative Deltas: Delta = Masking Element Delta - Vocal Region Delta
+  subBassRelDeltaDb: number;          // Sub/Bass vs Vocal Body (dB)
+  lowMidRelDeltaDb: number;           // Low-Mid 250-400Hz vs Vocal Body (dB)
+  midInstRelDeltaDb: number;          // Guitars/Synths/Pads vs Intelligibility (dB)
+  highInstRelDeltaDb: number;         // Brightness/Percussion vs Vocal Presence (dB)
+  sideStereoRelDeltaDb: number;       // Side Width Growth vs Mid Vocal Growth (dB)
+  maxRelativeDeltaDb: number;         // Worst-case relative delta across dimensions
+
   vocalBodyPreserved: boolean;
   intelligibilityPreserved: boolean;
   maskingElementDetected: string;     // Identified masking obstacle or "Ninguno"
@@ -270,6 +293,9 @@ export interface VocalProtectionReport {
   midCompensationFreq: number;        // Frequency of Mid compensation (Hz)
   bassDuckingPrevented: boolean;
   monoCompatibilityPreserved: boolean;
+  safetyLimitReached: boolean;        // True if further correction would alter mix too heavily
+  recommendedMixAdjustment?: string;  // Guidance for the user's mix if not approved
+  sectionsSummary: string;            // Summary of sections evaluated
   verdict: 'EXCELLENT' | 'COMPENSATED' | 'OPTIMAL';
   summaryNote: string;
 }
