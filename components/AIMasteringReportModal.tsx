@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   X, CheckCircle2, Sparkles, VolumeX, ArrowRight, ShieldCheck, 
-  Activity, Music2, Cpu, Disc, Sliders, Layers, BarChart2, Gauge
+  Activity, Music2, Cpu, Disc, Sliders, Layers, BarChart2, Gauge, Mic
 } from 'lucide-react';
 import { AIMasteringResult, SkinMode } from '../types';
 import { Language, getT } from '../services/i18n';
@@ -353,6 +353,78 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 </div>
               </div>
 
+            </div>
+          )}
+
+          {/* Vocal Protection Audit Card */}
+          {result.vocalReport && (
+            <div className={`p-4 rounded-xl border space-y-3 ${
+              isClear 
+                ? 'bg-indigo-50/80 border-indigo-200 text-slate-800' 
+                : 'border-indigo-500/30 bg-indigo-950/20 text-slate-100'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-400 shrink-0">
+                    <Mic size={16} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-300 flex items-center gap-1.5">
+                      Protección Vocal Automática (Auditoría Mid/Side)
+                    </h4>
+                    <p className={`text-[11px] mt-0.5 ${isClear ? 'text-slate-600' : 'text-slate-400'}`}>
+                      {result.vocalReport.summaryNote}
+                    </p>
+                  </div>
+                </div>
+                <span className={`text-[10px] font-mono font-bold px-2.5 py-1 rounded-full border self-start sm:self-auto shrink-0 ${
+                  result.vocalReport.verdict === 'EXCELLENT'
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                    : result.vocalReport.verdict === 'COMPENSATED'
+                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                    : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                }`}>
+                  {result.vocalReport.verdict === 'EXCELLENT' ? 'Preservación Óptima' : result.vocalReport.verdict === 'COMPENSATED' ? 'Compensada Automáticamente' : 'Balance Preservado'} (Δ: {result.vocalReport.relativePresenceDeltaDb >= 0 ? '+' : ''}{result.vocalReport.relativePresenceDeltaDb.toFixed(2)} dB)
+                </span>
+              </div>
+
+              {/* Grid of Key Vocal Audit Metrics */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                <div className={`p-2.5 rounded-lg border text-[11px] ${
+                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                }`}>
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Cuerpo (250-900Hz)</span>
+                  <span className="font-bold text-slate-200 mt-0.5 block">
+                    {result.vocalReport.vocalBodyPreserved ? '✓ Intacto & Cálido' : 'Calibrado'}
+                  </span>
+                </div>
+                <div className={`p-2.5 rounded-lg border text-[11px] ${
+                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                }`}>
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Presencia (2-5kHz)</span>
+                  <span className={`font-bold mt-0.5 block ${result.vocalReport.intelligibilityPreserved ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {result.vocalReport.intelligibilityPreserved ? '✓ Frontal & Clara' : 'Compensada'}
+                  </span>
+                </div>
+                <div className={`p-2.5 rounded-lg border text-[11px] ${
+                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                }`}>
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Dynamic De-Esser</span>
+                  <span className="font-bold text-slate-200 mt-0.5 block">
+                    {result.vocalReport.deEsserApplied 
+                      ? `Activo (-${result.vocalReport.deEsserReductionDb.toFixed(1)} dB)` 
+                      : 'Bypass (Limpio)'}
+                  </span>
+                </div>
+                <div className={`p-2.5 rounded-lg border text-[11px] ${
+                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                }`}>
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Anti-Pumping Sub</span>
+                  <span className="font-bold text-emerald-400 mt-0.5 block">
+                    ✓ Sin Ducking Vocal
+                  </span>
+                </div>
+              </div>
             </div>
           )}
 

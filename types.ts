@@ -85,6 +85,7 @@ export interface DeEsserParams {
     enabled: boolean;
     threshold: number; // -60 to 0
     amount: number; // Ratio-like factor
+    frequency?: number; // Sibilance center frequency (5000 to 9000 Hz)
 }
 
 export interface MasteringChainParams {
@@ -101,6 +102,7 @@ export interface MasteringChainParams {
   limiter: LimiterParams;
   gain: number; // 0 to 2
   stereoWidth: number; // 0 to 2
+  midDensity750Gain?: number; // Dynamic 750 Hz density control
 }
 
 export interface Track {
@@ -229,6 +231,34 @@ export interface ReferenceMasteringReportData {
   bitDepth: string;
 }
 
+export interface VocalAnalysisProfile {
+  centerEnergyDb: number;             // 250 Hz - 5 kHz (Mid channel focus)
+  vocalBodyDb: number;                // 250 Hz - 900 Hz (Warmth & proximity)
+  intelligibilityDb: number;          // 1 kHz - 4 kHz (Clarity & consonants)
+  presenceDb: number;                 // 2 kHz - 5 kHz (Frontal placement)
+  sibilanceDb: number;                // 5 kHz - 9 kHz (Air & 's' sounds)
+  vocalToBassRatioDb: number;         // Vocal (800Hz-4kHz) vs Low-end (40Hz-200Hz)
+  vocalToInstrumentalRatioDb: number; // Mid vocal band vs Side & overall RMS
+  hasProminentVocals: boolean;        // True if vocal energy & mid coherence detected
+  sibilanceExcessDb: number;          // Sibilance above expected natural curve
+  lowMidBuildup750Db: number;         // Resonant buildup at 750 Hz
+  bassMaskingIndex: number;           // 0-100 masking risk caused by sub/kick
+}
+
+export interface VocalProtectionReport {
+  original: VocalAnalysisProfile;
+  final: VocalAnalysisProfile;
+  relativePresenceDeltaDb: number;    // e.g. -0.1 dB (rule: >= -0.3 dB)
+  vocalBodyPreserved: boolean;
+  intelligibilityPreserved: boolean;
+  deEsserApplied: boolean;
+  deEsserReductionDb: number;
+  density750ReductionDb: number;
+  bassDuckingPrevented: boolean;
+  verdict: 'EXCELLENT' | 'COMPENSATED' | 'OPTIMAL';
+  summaryNote: string;
+}
+
 export interface AIMasteringResult {
   before: AIMasteringStats;
   after: AIMasteringStats;
@@ -238,5 +268,6 @@ export interface AIMasteringResult {
   statusNote: string;
   timestamp: number;
   referenceReport?: ReferenceMasteringReportData;
+  vocalReport?: VocalProtectionReport;
 }
 
