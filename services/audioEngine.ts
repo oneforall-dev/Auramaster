@@ -899,9 +899,32 @@ export class AudioEngine {
     const newParams: MasteringChainParams = JSON.parse(JSON.stringify(currentParams));
     const decisions: string[] = [];
 
-    // Target specifications according to musical dynamics:
-    // Dynamic/Acoustic (Crest > 12.5): -14.0 LUFS | High Energy: -13.2 LUFS | Standard Balanced: -13.5 LUFS
-    const TARGET_LUFS = beforeStats.crestFactor > 12.5 ? -14.0 : (beforeStats.crestFactor < 9.0 ? -13.2 : -13.5);
+    // Contextual Loudness Strategy:
+    // If the mix is already sitting in the optimal streaming distribution window (-14.8 to -12.8 LUFS),
+    // do NOT push gain artificially. The mastering focus is strictly on tonal balance, stereo cohesion,
+    // analog tape harmonics, dynamic glue, and true peak safety.
+    const isAlreadyOptimalLoudness = beforeStats.integratedLUFS >= -14.8 && beforeStats.integratedLUFS <= -12.8;
+    const isAlreadyHotMix = beforeStats.integratedLUFS > -12.8;
+
+    let targetLUFS: number;
+    let initialGainDb = 0;
+
+    if (isAlreadyOptimalLoudness) {
+      targetLUFS = beforeStats.integratedLUFS;
+      initialGainDb = 0.0; // Transparent gain
+      decisions.push(`Loudness contextual óptimo (${beforeStats.integratedLUFS.toFixed(1)} LUFS-I): volumen natural respetado sin forzar ganancia innecesaria`);
+    } else if (isAlreadyHotMix) {
+      targetLUFS = beforeStats.integratedLUFS;
+      initialGainDb = 0.0;
+      decisions.push(`Mezcla con alta densidad (${beforeStats.integratedLUFS.toFixed(1)} LUFS-I): protegiendo transitorios sin compresión adicional`);
+    } else {
+      // Unmastered / low level mixdown (typically < -15.0 LUFS):
+      targetLUFS = beforeStats.crestFactor > 12.5 ? -14.0 : (beforeStats.crestFactor < 9.0 ? -13.2 : -13.5);
+      const lufsDeficit = targetLUFS - beforeStats.integratedLUFS;
+      initialGainDb = Math.max(-12, Math.min(18, lufsDeficit));
+      decisions.push(`Loudness normalizado a estándar de distribución: calibrando nivel desde ${beforeStats.integratedLUFS.toFixed(1)} hacia ${targetLUFS.toFixed(1)} LUFS-I`);
+    }
+
     const MAX_TRUE_PEAK = -1.0;
 
     // 1. Tonal Balance & 5-Band EQ Strategy (Subtle, non-destructive moves: 0.25 to 0.8 dB)
@@ -1006,10 +1029,7 @@ export class AudioEngine {
     newParams.transient.sustain = 0;
 
     // 5. Loudness Normalization & Adaptive True-Peak Limiting Stage
-    // Target: Adaptively calculated LUFS with True Peak Limiter (Lookahead + 8x Oversampling, ceiling -1.0 dBTP)
     const adaptiveCeiling = beforeStats.crestFactor < 10 ? -1.1 : -1.0;
-    const lufsDeficit = TARGET_LUFS - beforeStats.integratedLUFS;
-    const initialGainDb = Math.max(-18, Math.min(25, lufsDeficit));
     const startGain = Number.isFinite(currentParams.gain) && currentParams.gain > 0.1 ? currentParams.gain : 1.0;
     newParams.gain = Math.max(0.1, Math.min(15.0, startGain * Math.pow(10, initialGainDb / 20)));
 
@@ -1025,12 +1045,13 @@ export class AudioEngine {
       ? await this.calculateAccurateDSPMetrics(masteredBuffer)
       : null;
 
-    // Multi-iteration closed-loop convergence towards target LUFS (-13.5 LUFS)
+    // Closed-loop precision refinement: only adjust gain if error is significant
+    const toleranceDb = (isAlreadyOptimalLoudness || isAlreadyHotMix) ? 0.6 : 0.25;
     for (let iter = 0; iter < 4; iter++) {
       if (afterMetrics && Number.isFinite(afterMetrics.integratedLUFS) && afterMetrics.integratedLUFS > -60) {
         const currentLUFS = afterMetrics.integratedLUFS;
-        const errorDb = TARGET_LUFS - currentLUFS;
-        if (Math.abs(errorDb) > 0.15) {
+        const errorDb = targetLUFS - currentLUFS;
+        if (Math.abs(errorDb) > toleranceDb) {
           const adjustedGain = newParams.gain * Math.pow(10, errorDb / 20);
           newParams.gain = Math.max(0.1, Math.min(15.0, adjustedGain));
           masteredBuffer = await this.renderPreview(newParams, tracks);
@@ -1044,12 +1065,16 @@ export class AudioEngine {
     }
 
     // Final Metric Formulation directly from measured buffer
-    const finalLUFS = afterMetrics ? afterMetrics.integratedLUFS : TARGET_LUFS;
+    const finalLUFS = afterMetrics ? afterMetrics.integratedLUFS : targetLUFS;
     const finalTP = afterMetrics ? afterMetrics.truePeakDbTP : -1.0;
     const finalLRA = afterMetrics ? afterMetrics.dynamicRangeLRA : beforeStats.dynamicRangeLRA;
     const finalCrest = afterMetrics ? afterMetrics.crestFactor : 9.0;
 
-    decisions.push(`Loudness finalized at ${finalLUFS.toFixed(1)} LUFS-I with ${finalTP.toFixed(1)} dBTP True Peak limiter`);
+    decisions.push(
+      isAlreadyOptimalLoudness
+        ? `Loudness finalizado en ${finalLUFS.toFixed(1)} LUFS-I (dinámica original conservada) con limitador True Peak en ${finalTP.toFixed(1)} dBTP`
+        : `Loudness finalizado en ${finalLUFS.toFixed(1)} LUFS-I con limitador True Peak en ${finalTP.toFixed(1)} dBTP`
+    );
 
     const afterStats: AIMasteringStats = {
       integratedLUFS: parseFloat(finalLUFS.toFixed(1)),
@@ -1062,13 +1087,18 @@ export class AudioEngine {
     // Stage 5: Apply to live AudioEngine state
     this.setMasterParams(newParams);
 
+    const gainDelta = afterStats.integratedLUFS - beforeStats.integratedLUFS;
+    const gainDescription = Math.abs(gainDelta) <= 0.3 
+      ? 'Volumen natural preservado' 
+      : `Ganancia: ${gainDelta >= 0 ? '+' : ''}${gainDelta.toFixed(1)} LU`;
+
     const result: AIMasteringResult = {
       before: beforeStats,
       after: afterStats,
       decisions,
       appliedParams: newParams,
       targetMet: afterStats.truePeakDbTP <= -0.99,
-      statusNote: `Loudness Master: ${afterStats.integratedLUFS.toFixed(1)} LUFS-I | True Peak: ${afterStats.truePeakDbTP.toFixed(1)} dBTP (Ceiling ≤ -1.0 dBTP)`,
+      statusNote: `${gainDescription} | ${afterStats.integratedLUFS.toFixed(1)} LUFS-I · True Peak: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`,
       timestamp: Date.now()
     };
 

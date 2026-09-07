@@ -125,7 +125,9 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 </div>
               </div>
               <div className="text-[10px] opacity-70 font-mono text-center">
-                Ganancia: {(after.integratedLUFS - before.integratedLUFS >= 0 ? '+' : '') + (after.integratedLUFS - before.integratedLUFS).toFixed(1)} LU
+                {Math.abs(after.integratedLUFS - before.integratedLUFS) <= 0.3
+                  ? 'Volumen Preservado (0.0 LU delta)'
+                  : `Ganancia: ${(after.integratedLUFS - before.integratedLUFS >= 0 ? '+' : '') + (after.integratedLUFS - before.integratedLUFS).toFixed(1)} LU`}
               </div>
             </div>
 
