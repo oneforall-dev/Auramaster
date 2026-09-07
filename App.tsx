@@ -274,11 +274,14 @@ export default function App() {
         setIsBypassed(true); // HARD RESET: New audio is always auditioned as ORIGINAL raw first
         setMasteringReport(null); // Clear old report
         if (added.length > 0) {
-          const newActiveId = activeTrackId || added[0].id;
+          const newActiveId = (processingMode === 'bulk' || !activeTrackId || !allTracks.some(t => t.id === activeTrackId))
+            ? added[0].id 
+            : activeTrackId;
           setActiveTrackId(newActiveId);
           const activeBuf = audioEngine.getTrackBuffer(newActiveId);
           if (activeBuf) {
             setDuration(activeBuf.duration);
+            setProcessedBuffer(activeBuf);
             audioEngine.calculateAccurateDSPMetrics(activeBuf).then(m => {
               setFileStats({
                 peak: m.truePeakDbTP,
@@ -1052,27 +1055,37 @@ export default function App() {
                             })()}
                         </div>
                     </div>
-                    <div className="flex-1 relative">
-                        <Visualizer 
-                          audioBuffer={isBypassed 
-                            ? ((activeTrackId ? audioEngine.getTrackBuffer(activeTrackId) : tracks[0] ? audioEngine.getTrackBuffer(tracks[0].id) : null) || processedBuffer)
-                            : (processedBuffer || (activeTrackId ? audioEngine.getTrackBuffer(activeTrackId) : tracks[0] ? audioEngine.getTrackBuffer(tracks[0].id) : null))
-                          } 
-                          currentTime={currentTime} 
-                          duration={duration} 
-                          isPlaying={playbackState === PlaybackState.PLAYING} 
-                          isRendering={isPreviewRendering || loadingAudio || isBulkMastering || isSmartAdjusting} 
-                          mode={visualizerMode} 
-                          skin="modern" 
-                          selection={selection}
-                          onSelectionChange={setSelection}
-                          onApplySelectionEdit={handleApplySelectionEdit}
-                          canUndo={editHistory.length > 0}
-                          onUndo={handleUndoEdit}
-                          onSeek={handleSeek} 
-                          lang={lang}
-                        />
-                    </div>
+                    {(() => {
+                      const activeTrack = tracks.find(t => t.id === activeTrackId) || tracks[0];
+                      const activeTrackBuf = activeTrack ? audioEngine.getTrackBuffer(activeTrack.id) : null;
+                      const visBuffer = isBypassed 
+                        ? (activeTrackBuf || processedBuffer) 
+                        : (processedBuffer || activeTrackBuf);
+                      const visDuration = duration > 0 
+                        ? duration 
+                        : (visBuffer ? visBuffer.duration : (activeTrackBuf ? activeTrackBuf.duration : 0));
+
+                      return (
+                        <div className="flex-1 relative">
+                            <Visualizer 
+                              audioBuffer={visBuffer} 
+                              currentTime={currentTime} 
+                              duration={visDuration} 
+                              isPlaying={playbackState === PlaybackState.PLAYING} 
+                              isRendering={isPreviewRendering || loadingAudio || isBulkMastering || isSmartAdjusting} 
+                              mode={visualizerMode} 
+                              skin="modern" 
+                              selection={selection}
+                              onSelectionChange={setSelection}
+                              onApplySelectionEdit={handleApplySelectionEdit}
+                              canUndo={editHistory.length > 0}
+                              onUndo={handleUndoEdit}
+                              onSeek={handleSeek} 
+                              lang={lang}
+                            />
+                        </div>
+                      );
+                    })()}
                 </div>
                 {/* Dedicated Timeline adapted to real track duration */}
                 <TimelineBar 
@@ -1177,8 +1190,8 @@ export default function App() {
                   </button>
                 </div>
              </div>
-             <div className={`flex-1 min-h-[400px] ${isBypassed ? "opacity-30 pointer-events-none" : ""}`}>
-                <EffectRack 
+              <div className="flex-1 min-h-[400px]">
+                 <EffectRack 
                   params={params} 
                   onChange={setParams} 
                   tracks={tracks} 

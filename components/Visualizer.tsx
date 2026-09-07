@@ -73,13 +73,15 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }, []);
 
+  const effectiveDuration = duration > 0 ? duration : (audioBuffer ? audioBuffer.duration : 0);
+
   // Zoom handlers (focus around playhead/currentTime)
   const handleZoomIn = () => {
     setZoom(prev => {
       const next = Math.min(8.0, Math.round((prev * 1.5) * 10) / 10);
-      const newVisible = duration / next;
+      const newVisible = effectiveDuration / next;
       const targetTime = currentTime > 0 ? currentTime : scrollOffset;
-      const newOffset = Math.max(0, Math.min(targetTime - newVisible / 2, Math.max(0, duration - newVisible)));
+      const newOffset = Math.max(0, Math.min(targetTime - newVisible / 2, Math.max(0, effectiveDuration - newVisible)));
       setScrollOffset(newOffset);
       return next;
     });
@@ -91,8 +93,8 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
       if (next === 1.0) {
         setScrollOffset(0);
       } else {
-        const newVisible = duration / next;
-        const newOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, duration - newVisible)));
+        const newVisible = effectiveDuration / next;
+        const newOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, effectiveDuration - newVisible)));
         setScrollOffset(newOffset);
       }
       return next;
@@ -113,21 +115,21 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
   };
 
   // Keep scroll offset clamped within valid range
-  const visibleDuration = duration > 0 ? duration / zoom : 1;
-  const maxScroll = Math.max(0, duration - visibleDuration);
+  const visibleDuration = effectiveDuration > 0 ? effectiveDuration / zoom : 1;
+  const maxScroll = Math.max(0, effectiveDuration - visibleDuration);
   const clampedScrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
   const startTime = clampedScrollOffset;
   const endTime = startTime + visibleDuration;
 
   // Auto-follow playhead during playback when zoomed
   useEffect(() => {
-    if (isPlaying && zoom > 1.0 && duration > 0) {
+    if (isPlaying && zoom > 1.0 && effectiveDuration > 0) {
       if (currentTime < startTime || currentTime > endTime) {
         const newOffset = Math.max(0, Math.min(currentTime - visibleDuration * 0.2, maxScroll));
         setScrollOffset(newOffset);
       }
     }
-  }, [currentTime, isPlaying, zoom, duration, visibleDuration, maxScroll, startTime, endTime]);
+  }, [currentTime, isPlaying, zoom, effectiveDuration, visibleDuration, maxScroll, startTime, endTime]);
 
   // 1. High-precision vector peak extraction
   const peaksData = useMemo(() => {
@@ -193,6 +195,22 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
   // Fast ResizeObserver to eliminate getBoundingClientRect layout thrashing
   useEffect(() => {
     if (!containerRef.current) return;
+    try {
+      const initRect = containerRef.current.getBoundingClientRect();
+      if (initRect.width > 0 && initRect.height > 0) {
+        const dpr = window.devicePixelRatio || 1;
+        const width = Math.floor(initRect.width);
+        const height = Math.floor(initRect.height);
+        sizeRef.current = { width, height, dpr };
+        if (canvasRef.current) {
+          canvasRef.current.width = Math.floor(width * dpr);
+          canvasRef.current.height = Math.floor(height * dpr);
+        }
+      }
+    } catch {
+      // Ignored fallback
+    }
+
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const dpr = window.devicePixelRatio || 1;
@@ -221,8 +239,9 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
     let animationId: number;
 
     const render = () => {
-      const { width: drawWidth, height: drawHeight, dpr } = sizeRef.current;
-      if (drawWidth <= 0 || drawHeight <= 0) return;
+      try {
+        const { width: drawWidth, height: drawHeight, dpr } = sizeRef.current;
+        if (drawWidth <= 0 || drawHeight <= 0) return;
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
@@ -283,7 +302,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
       ctx.stroke();
 
       // 2. ZOOM-MAPPED WAVEFORM RENDERING
-      if (peaksData && duration > 0) {
+      if (peaksData && effectiveDuration > 0) {
         const { mins, maxs, scaleFactor, numPoints } = peaksData;
 
         // Gradient Fill
@@ -299,7 +318,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
         // Top lobe
         for (let x = 0; x <= drawWidth; x += 2) {
           const t = startTime + (x / drawWidth) * visibleDuration;
-          const fraction = Math.max(0, Math.min(0.9999, t / duration));
+          const fraction = Math.max(0, Math.min(0.9999, t / effectiveDuration));
           const idx = Math.floor(fraction * numPoints);
           const val = Math.max(0.002, maxs[idx]) * scaleFactor * amp;
           const y = Math.max(PADDING_Y, centerY - val);
@@ -310,7 +329,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
         // Bottom lobe
         for (let x = drawWidth; x >= 0; x -= 2) {
           const t = startTime + (x / drawWidth) * visibleDuration;
-          const fraction = Math.max(0, Math.min(0.9999, t / duration));
+          const fraction = Math.max(0, Math.min(0.9999, t / effectiveDuration));
           const idx = Math.floor(fraction * numPoints);
           const val = Math.max(0.002, -mins[idx]) * scaleFactor * amp;
           const y = Math.min(drawHeight - PADDING_Y, centerY + val);
@@ -324,7 +343,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
         ctx.fillStyle = "rgba(103, 232, 249, 0.35)";
         for (let x = 0; x <= drawWidth; x += 3) {
           const t = startTime + (x / drawWidth) * visibleDuration;
-          const fraction = Math.max(0, Math.min(0.9999, t / duration));
+          const fraction = Math.max(0, Math.min(0.9999, t / effectiveDuration));
           const idx = Math.floor(fraction * numPoints);
           const topH = Math.max(0.002, maxs[idx]) * scaleFactor * amp;
           const botH = Math.max(0.002, -mins[idx]) * scaleFactor * amp;
@@ -337,7 +356,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
         ctx.beginPath();
         for (let x = 0; x <= drawWidth; x += 2) {
           const t = startTime + (x / drawWidth) * visibleDuration;
-          const fraction = Math.max(0, Math.min(0.9999, t / duration));
+          const fraction = Math.max(0, Math.min(0.9999, t / effectiveDuration));
           const idx = Math.floor(fraction * numPoints);
           const val = Math.max(0.002, maxs[idx]) * scaleFactor * amp;
           const y = Math.max(PADDING_Y, centerY - val);
@@ -350,7 +369,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
         ctx.beginPath();
         for (let x = 0; x <= drawWidth; x += 2) {
           const t = startTime + (x / drawWidth) * visibleDuration;
-          const fraction = Math.max(0, Math.min(0.9999, t / duration));
+          const fraction = Math.max(0, Math.min(0.9999, t / effectiveDuration));
           const idx = Math.floor(fraction * numPoints);
           const val = Math.max(0.002, -mins[idx]) * scaleFactor * amp;
           const y = Math.min(drawHeight - PADDING_Y, centerY + val);
@@ -361,7 +380,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
       }
 
       // 3. PLAYHEAD (Direct AudioEngine Time Reading for 60-120fps smooth motion)
-      if (duration > 0 && mode === 'waveform') {
+      if (effectiveDuration > 0 && mode === 'waveform') {
         const liveTime = isPlaying ? audioEngine.getCurrentTime() : currentTime;
         const x = ((liveTime - startTime) / visibleDuration) * drawWidth;
         if (x >= 0 && x <= drawWidth) {
@@ -374,7 +393,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
       }
 
       // 4. SELECTION OVERLAY (Zoomed Coordinates)
-      if (activeSelection && duration > 0 && mode === 'waveform') {
+      if (activeSelection && effectiveDuration > 0 && mode === 'waveform') {
         const startX = ((activeSelection.start - startTime) / visibleDuration) * drawWidth;
         const endX = ((activeSelection.end - startTime) / visibleDuration) * drawWidth;
         const leftX = Math.max(0, Math.min(drawWidth, startX));
@@ -406,7 +425,11 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
 
         ctx.fillStyle = bg;
         ctx.beginPath();
-        ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+        if (typeof (ctx as any).roundRect === 'function') {
+          (ctx as any).roundRect(badgeX, badgeY, badgeW, badgeH, 4);
+        } else {
+          ctx.rect(badgeX, badgeY, badgeW, badgeH);
+        }
         ctx.fill();
 
         ctx.strokeStyle = border;
@@ -433,6 +456,9 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
       drawBadge("-3 dB", centerY + getYPos(-3), "rgba(148, 163, 184, 0.8)", "rgba(15, 23, 42, 0.75)", "rgba(148, 163, 184, 0.2)");
       drawBadge("-1 dB", yCeilBot, "rgba(244, 63, 94, 0.95)", "rgba(15, 23, 42, 0.85)", "rgba(244, 63, 94, 0.4)");
       drawBadge("0 dB", y0Bot, "rgba(226, 232, 240, 0.9)", "rgba(15, 23, 42, 0.85)", "rgba(148, 163, 184, 0.3)");
+      } catch (err) {
+        console.warn("Visualizer render error:", err);
+      }
     };
 
     render();
@@ -442,11 +468,11 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
     };
     loop();
     return () => cancelAnimationFrame(animationId);
-  }, [peaksData, currentTime, mode, isPlaying, duration, activeSelection, zoom, startTime, visibleDuration]);
+  }, [peaksData, currentTime, mode, isPlaying, effectiveDuration, activeSelection, zoom, startTime, visibleDuration]);
 
   // Convert mouse X to absolute song time
   const getTimelineTime = (e: React.MouseEvent) => {
-    if (!containerRef.current || duration <= 0) return 0;
+    if (!containerRef.current || effectiveDuration <= 0) return 0;
     const { width: drawWidth } = sizeRef.current;
     if (drawWidth <= 0) return 0;
     const rect = containerRef.current.getBoundingClientRect();
@@ -457,7 +483,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
 
   // Main Waveform Mouse Down
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (duration <= 0) return;
+    if (effectiveDuration <= 0) return;
     
     const t = getTimelineTime(e);
     setDragStart(t);
@@ -473,7 +499,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
 
   // Main Waveform Mouse Move
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (duration <= 0) return;
+    if (effectiveDuration <= 0) return;
 
     if (isScrubbing) {
       const t = getTimelineTime(e);
@@ -492,7 +518,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
       setIsScrubbing(false);
     }
 
-    if (isSelecting && dragStart !== null && duration > 0) {
+    if (isSelecting && dragStart !== null && effectiveDuration > 0) {
       setIsSelecting(false);
       const t = getTimelineTime(e);
       const start = Math.min(dragStart, t);
@@ -512,7 +538,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
   // Scrollbar Track Mouse Down / Drag
   const handleScrollbarMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
-    if (!scrollbarTrackRef.current || duration <= 0 || zoom <= 1.0) return;
+    if (!scrollbarTrackRef.current || effectiveDuration <= 0 || zoom <= 1.0) return;
     
     const rect = scrollbarTrackRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
@@ -520,7 +546,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
     const fraction = Math.max(0, Math.min(1, clickX / trackWidth));
     
     // Jump viewport to clicked region
-    const targetOffset = Math.max(0, Math.min(fraction * duration - visibleDuration / 2, maxScroll));
+    const targetOffset = Math.max(0, Math.min(fraction * effectiveDuration - visibleDuration / 2, maxScroll));
     setScrollOffset(targetOffset);
 
     setIsDraggingScrollbar(true);
@@ -529,10 +555,10 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
 
   useEffect(() => {
     const handleGlobalMouseMove = (e: MouseEvent) => {
-      if (isDraggingScrollbar && scrollDragStartRef.current && scrollbarTrackRef.current && duration > 0) {
+      if (isDraggingScrollbar && scrollDragStartRef.current && scrollbarTrackRef.current && effectiveDuration > 0) {
         const dx = e.clientX - scrollDragStartRef.current.startX;
         const trackWidth = scrollbarTrackRef.current.getBoundingClientRect().width;
-        const dt = (dx / trackWidth) * duration;
+        const dt = (dx / trackWidth) * effectiveDuration;
         const newOffset = Math.max(0, Math.min(scrollDragStartRef.current.startOffset + dt, maxScroll));
         setScrollOffset(newOffset);
       }
@@ -553,11 +579,11 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
         window.removeEventListener('mouseup', handleGlobalMouseUp);
       };
     }
-  }, [isDraggingScrollbar, duration, maxScroll]);
+  }, [isDraggingScrollbar, effectiveDuration, maxScroll]);
 
   // Mouse wheel pan & pinch-to-zoom
   const handleWheel = (e: React.WheelEvent) => {
-    if (duration <= 0) return;
+    if (effectiveDuration <= 0) return;
     
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
