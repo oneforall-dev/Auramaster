@@ -24,17 +24,17 @@ const DEFAULT_COMP = { threshold: -18, ratio: 3.5, attack: 0.03, release: 0.15 }
 const DEFAULT_PARAMS: MasteringChainParams = {
   eq: { 
       enabled: true,
-      low: { frequency: 100, gain: 1.5, q: 0.7 },
-      lowMid: { frequency: 320, gain: -0.8, q: 1 },
+      low: { frequency: 100, gain: 1.0, q: 0.7 },
+      lowMid: { frequency: 320, gain: -0.6, q: 1 },
       mid: { frequency: 1000, gain: 0, q: 1 },
-      highMid: { frequency: 3200, gain: 1.2, q: 1 },
-      high: { frequency: 10000, gain: 2.0, q: 0.7 }
+      highMid: { frequency: 3200, gain: 0.8, q: 1 },
+      high: { frequency: 10000, gain: 0.8, q: 0.7 }
   },
   multiband: {
      enabled: true,
-     low: { ...DEFAULT_COMP, threshold: -16, ratio: 2.5, attack: 0.03, release: 0.2 },
-     mid: { ...DEFAULT_COMP, threshold: -18, ratio: 2.0, attack: 0.025, release: 0.15 },
-     high: { ...DEFAULT_COMP, threshold: -20, ratio: 1.8, attack: 0.015, release: 0.10 }
+     low: { ...DEFAULT_COMP, threshold: -16, ratio: 1.8, attack: 0.03, release: 0.2 },
+     mid: { ...DEFAULT_COMP, threshold: -18, ratio: 1.5, attack: 0.025, release: 0.15 },
+     high: { ...DEFAULT_COMP, threshold: -20, ratio: 1.4, attack: 0.015, release: 0.10 }
   },
   gate: { 
       enabled: false, 
@@ -52,8 +52,8 @@ const DEFAULT_PARAMS: MasteringChainParams = {
   modulation: { enabled: false, type: 'chorus', mix: 0, rate: 1.5, depth: 50, feedback: 0 },
   delay: { enabled: false, mix: 0, time: 0.3, feedback: 0.3 },
   reverb: { enabled: false, mix: 0, decay: 2.0 },
-  gain: 1.45, // +3.2dB clean mastering gain
-  stereoWidth: 1.15, // +15% enhanced stereo air
+  gain: 1.35, // Balanced clean mastering gain
+  stereoWidth: 1.12, // +12% enhanced stereo width with mono-centered bass
   limiter: { enabled: true, threshold: -1.0, breathe: 0 } // Strict -1.0dB true-peak ceiling with soft knee
 };
 

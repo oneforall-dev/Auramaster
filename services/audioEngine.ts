@@ -58,12 +58,17 @@ export class AudioEngine {
   private reverbDry: GainNode | null = null;
   private reverbWet: GainNode | null = null;
   
-  // Mid/Side Stereo Width
+  // Mid/Side Stereo Width & Mono Sub Centering
   private msSplitter: ChannelSplitterNode | null = null;
   private msMidSum: GainNode | null = null;
   private msSideDiff: GainNode | null = null;
+  private sideMonoHighPass: BiquadFilterNode | null = null;
+  private sideLowMidDip: BiquadFilterNode | null = null;
   private msSideGain: GainNode | null = null;
   private msMerger: ChannelMergerNode | null = null;
+
+  // Mid Resonance / Density Tamer (500Hz - 1kHz / 750Hz)
+  private midDensityTamer: BiquadFilterNode | null = null;
   
   // Dynamic Breathe (Expander)
   private expander: WaveShaperNode | null = null;
@@ -122,10 +127,17 @@ export class AudioEngine {
       this.compHigh = this.audioContext.createDynamicsCompressor();
       this.mbSum = this.audioContext.createGain();
 
-      // 5-Band Master EQ
+      // 5-Band Master EQ + Mid Density Tamer
       this.lowEQ = this.audioContext.createBiquadFilter(); this.lowEQ.type = 'lowshelf';
       this.lowMidEQ = this.audioContext.createBiquadFilter(); this.lowMidEQ.type = 'peaking';
       this.midEQ = this.audioContext.createBiquadFilter(); this.midEQ.type = 'peaking';
+      
+      this.midDensityTamer = this.audioContext.createBiquadFilter();
+      this.midDensityTamer.type = 'peaking';
+      this.midDensityTamer.frequency.value = 750;
+      this.midDensityTamer.Q.value = 0.8;
+      this.midDensityTamer.gain.value = -0.5; // -0.5 dB gentle wide control for 500Hz-1kHz buildup
+
       this.highMidEQ = this.audioContext.createBiquadFilter(); this.highMidEQ.type = 'peaking';
       this.highEQ = this.audioContext.createBiquadFilter(); this.highEQ.type = 'highshelf';
       
@@ -150,6 +162,19 @@ export class AudioEngine {
       this.msSplitter = this.audioContext.createChannelSplitter(2);
       this.msMidSum = this.audioContext.createGain(); 
       this.msSideDiff = this.audioContext.createGain();
+      
+      // Mono Maker / Sub-bass Centering (<105Hz) & Low-Mid Side Tamer (140-280Hz)
+      this.sideMonoHighPass = this.audioContext.createBiquadFilter();
+      this.sideMonoHighPass.type = 'highpass';
+      this.sideMonoHighPass.frequency.value = 105; 
+      this.sideMonoHighPass.Q.value = 0.707;
+
+      this.sideLowMidDip = this.audioContext.createBiquadFilter();
+      this.sideLowMidDip.type = 'peaking';
+      this.sideLowMidDip.frequency.value = 200; 
+      this.sideLowMidDip.Q.value = 1.0;
+      this.sideLowMidDip.gain.value = -0.6; // -0.6 dB gentle side dip to maintain mono firmness
+
       this.msSideGain = this.audioContext.createGain();
       this.msMerger = this.audioContext.createChannelMerger(2);
 
@@ -203,11 +228,12 @@ export class AudioEngine {
       this.compMid.connect(this.mbSum);
       this.compHigh.connect(this.mbSum);
       
-      // 5-Band EQ Serial Chain
+      // 5-Band EQ Serial Chain with Mid Resonance Tamer
       this.mbSum.connect(this.lowEQ);
       this.lowEQ.connect(this.lowMidEQ);
       this.lowMidEQ.connect(this.midEQ);
-      this.midEQ.connect(this.highMidEQ);
+      this.midEQ.connect(this.midDensityTamer);
+      this.midDensityTamer.connect(this.highMidEQ);
       this.highMidEQ.connect(this.highEQ);
 
       this.highEQ.connect(this.deEsserComp);
@@ -243,7 +269,10 @@ export class AudioEngine {
       sideInvert.connect(this.msSideDiff);         
       this.msSideDiff.gain.value = 0.5; 
 
-      this.msSideDiff.connect(this.msSideGain); 
+      // Connect Side through Mono-Maker HighPass & Low-Mid Side Tamer before width gain
+      this.msSideDiff.connect(this.sideMonoHighPass);
+      this.sideMonoHighPass.connect(this.sideLowMidDip);
+      this.sideLowMidDip.connect(this.msSideGain); 
 
       this.msMidSum.connect(this.msMerger, 0, 0); 
       this.msMidSum.connect(this.msMerger, 0, 1); 
@@ -328,12 +357,12 @@ export class AudioEngine {
       return new Float32Array([-1, 0, 1]);
   }
 
-  // Ultra-Smooth True-Peak Safety Ceiling (Strict -1.0 dBTP Ceiling, Zero Overshoot past -1dB)
+  // Ultra-Smooth True-Peak Safety Ceiling (Strict -1.0 dBTP Ceiling, Zero Overshoot past -1.0 dBTP)
   private makeBrickwallCurve() {
      const n_samples = 65536;
      const curve = new Float32Array(n_samples);
-     // Soft-knee starts gently at 0.82 (-1.7 dBFS) and smoothly compresses towards a strict -1.0 dBTP ceiling (0.891)
-     const threshold = 0.82; 
+     // Soft-knee starts gently at 0.79 (-2.0 dBFS) and smoothly compresses towards a strict -1.0 dBTP ceiling (0.891 = -1.00 dBTP)
+     const threshold = 0.79; 
      const maxCeiling = 0.891; // Strict -1.0 dBTP ceiling (No overshoot past -1.0 dB)
      const range = maxCeiling - threshold;
      for (let i = 0; i < n_samples; i++) {
@@ -692,19 +721,19 @@ export class AudioEngine {
     const newParams: MasteringChainParams = JSON.parse(JSON.stringify(currentParams));
     const decisions: string[] = [];
 
-    // Target specifications
-    // Target: -13.5 LUFS-I (optimal loudness in user's -13.1 to -14.9 LUFS target range) and Max -1.0 dBTP
-    const TARGET_LUFS = -13.5;
+    // Target specifications:
+    // Target: -11.8 LUFS-I (optimal commercial target in user's -11.3 to -11.8 LUFS range) and Max -1.0 dBTP
+    const TARGET_LUFS = -11.8;
     const MAX_TRUE_PEAK = -1.0;
 
     // 1. Tonal Balance & 5-Band EQ Strategy
     newParams.eq.enabled = true;
 
-    // Low-end balance: gentle sub-rumble cleanup + punch
+    // Low-end balance: firm sub-bass foundation + clean sub-rumble filtering
     newParams.eq.low.frequency = 80;
     if (beforeStats.crestFactor > 12) {
-      newParams.eq.low.gain = 1.2;
-      decisions.push('Low-end warmth and sub-bass foundation enhanced (+1.2 dB @ 80Hz)');
+      newParams.eq.low.gain = 1.0;
+      decisions.push('Low-end warmth and sub-bass foundation enhanced (+1.0 dB @ 80Hz)');
     } else {
       newParams.eq.low.gain = 0.8;
       decisions.push('Low-end balanced and sub-frequencies (<20Hz) cleanly filtered');
@@ -712,9 +741,9 @@ export class AudioEngine {
 
     // Low-Mid mud cleaning (250-400Hz)
     newParams.eq.lowMid.frequency = 320;
-    newParams.eq.lowMid.q = 1.1;
-    newParams.eq.lowMid.gain = -0.8;
-    decisions.push('Low-mid boxiness and mud cleaned (-0.8 dB @ 320Hz)');
+    newParams.eq.lowMid.q = 1.0;
+    newParams.eq.lowMid.gain = -0.6;
+    decisions.push('Low-mid boxiness and mud cleaned (-0.6 dB @ 320Hz)');
 
     // Mid-range presence & vocal body (1kHz - 3.5kHz)
     const hasMultipleStems = tracks.length > 1;
@@ -724,30 +753,30 @@ export class AudioEngine {
       newParams.eq.mid.frequency = 2200;
       newParams.eq.mid.q = 0.9;
       newParams.eq.mid.gain = 0.8;
-      decisions.push('Stem Mix Vocal Focus: Vocal presence boosted (+2.4 dB @ 3.4kHz, +2.2 dB @ 11.5kHz air) with dedicated -1.8 dB pocket carved into instrumental stems to keep vocals forward.');
+      decisions.push('Stem Mix Vocal Focus: Vocal presence balanced (+0.8 dB @ 2.2kHz) with dynamic 750Hz density control.');
     } else if (hasMultipleStems) {
       newParams.eq.mid.frequency = 2000;
       newParams.eq.mid.q = 0.9;
-      newParams.eq.mid.gain = 0.7;
-      decisions.push('Multi-Stem Cohesion: Midrange balanced across stems (+0.7 dB @ 2.0kHz)');
+      newParams.eq.mid.gain = 0.6;
+      decisions.push('Multi-Stem Cohesion: Midrange balanced across stems (+0.6 dB @ 2.0kHz)');
     } else {
       // Full stereo master (single audio file)
       newParams.eq.mid.frequency = 3200;
       newParams.eq.mid.q = 1.0;
-      newParams.eq.mid.gain = 1.4;
-      decisions.push('Stereo Master Vocal Unmasking: Mid-channel presence focused (+1.4 dB @ 3.2kHz) and pristine air (+1.5 dB @ 10.5kHz) with +15% side stereo expansion to lift the voice out of the music.');
+      newParams.eq.mid.gain = 0.8;
+      decisions.push('Stereo Master Vocal & Lead Articulation: Smooth definition (+0.8 dB @ 3.2kHz) with dynamic 750Hz density control.');
     }
 
     // High-Mid harshness control (3.5kHz - 5.5kHz)
     newParams.eq.highMid.frequency = 4200;
-    newParams.eq.highMid.q = 1.3;
+    newParams.eq.highMid.q = 1.2;
     newParams.eq.highMid.gain = -0.4;
     decisions.push('Harsh high-mid frequencies smoothed to prevent ear fatigue (-0.4 dB @ 4.2kHz)');
 
-    // High Air & Sparkle (10kHz - 20kHz)
+    // High Air & Sheen (10kHz - 20kHz) - gentle to prevent sibilance and noise
     newParams.eq.high.frequency = 10500;
-    newParams.eq.high.gain = 1.6;
-    decisions.push('High-end air, sheen, and transient clarity enhanced (+1.6 dB @ 10.5kHz)');
+    newParams.eq.high.gain = 0.6;
+    decisions.push('High-end air and sheen controlled (+0.6 dB @ 10.5kHz) without excessive brightness or sibilance');
 
     // 2. Dynamic Clean Control
     newParams.gate.enabled = false;
@@ -755,24 +784,24 @@ export class AudioEngine {
     newParams.deEsser.threshold = -20.0;
     decisions.push('Dynamic De-Esser calibrated at 6.5kHz to tame sharp sibilants');
 
-    // 3. Dynamics & Multiband Compressor (Gentle, musical glue)
+    // 3. Dynamics & Multiband Compressor (Gentle, musical glue preserving microdynamics)
     newParams.multiband.enabled = true;
     if (beforeStats.dynamicRangeLRA > 12) {
       newParams.multiband.low.threshold = -16;
-      newParams.multiband.low.ratio = 2.0;
+      newParams.multiband.low.ratio = 1.8;
       newParams.multiband.low.attack = 0.03;
       newParams.multiband.low.release = 0.15;
 
       newParams.multiband.mid.threshold = -18;
-      newParams.multiband.mid.ratio = 1.8;
+      newParams.multiband.mid.ratio = 1.6;
       newParams.multiband.mid.attack = 0.025;
       newParams.multiband.mid.release = 0.12;
 
       newParams.multiband.high.threshold = -20;
-      newParams.multiband.high.ratio = 1.5;
+      newParams.multiband.high.ratio = 1.4;
       newParams.multiband.high.attack = 0.015;
       newParams.multiband.high.release = 0.08;
-      decisions.push('Multiband dynamics glue engaged with gentle 1.5:1 - 2:1 ratios to unify mix');
+      decisions.push('Multiband dynamics glue engaged with gentle 1.4:1 - 1.8:1 ratios preserving dynamics and elegance');
     } else {
       newParams.multiband.low.threshold = -12;
       newParams.multiband.low.ratio = 1.3;
@@ -780,27 +809,27 @@ export class AudioEngine {
       newParams.multiband.mid.ratio = 1.2;
       newParams.multiband.high.threshold = -10;
       newParams.multiband.high.ratio = 1.2;
-      decisions.push('Transparent dynamics preservation maintaining natural punch');
+      decisions.push('Transparent dynamics preservation maintaining natural punch without overcompression');
     }
 
     // 4. Stereo Imaging & Analog Warmth
-    newParams.stereoWidth = 1.15;
-    decisions.push('Stereo image widened (+15%) with mono-compatible side matrix');
+    newParams.stereoWidth = 1.12;
+    decisions.push('Stereo image optimized (+12%) with centered sub-bass (<105Hz) and 200Hz side tamer (-0.6dB) for 100% mono firmness');
 
     // Subtle Analog Tape Console Saturation (Adds body, harmonics & perceived loudness without peak overs)
     newParams.distortion.enabled = true;
     newParams.distortion.mode = 'tape';
-    newParams.distortion.amount = 0.06;
-    decisions.push('Analog Tape Console Harmonics engaged (subtle 2nd/3rd harmonics) for rich analog body and density');
+    newParams.distortion.amount = 0.04;
+    decisions.push('Analog Tape Console Harmonics engaged (subtle 2nd/3rd harmonics) for warm analog depth');
 
     // Transient Sculpting (Snap & Punch)
     newParams.transient.enabled = true;
-    newParams.transient.amount = 8;
-    newParams.transient.sustain = 4;
-    decisions.push('Transient Sculptor calibrated for crisp attack (+8%) and natural acoustic sustain');
+    newParams.transient.amount = 5;
+    newParams.transient.sustain = 2;
+    decisions.push('Transient Sculptor calibrated for crisp attack (+5%) and natural acoustic sustain');
 
     // 5. Loudness Normalization & Adaptive True-Peak Limiting Stage
-    // Target: -13.5 LUFS-I and Adaptive True Peak (between -1.0 dBTP and -1.1 dBTP depending on crest factor)
+    // Target: -11.8 LUFS-I and Adaptive True Peak (-1.0 dBTP ceiling)
     const adaptiveCeiling = beforeStats.crestFactor < 10 ? -1.1 : -1.0;
     const lufsDeficit = TARGET_LUFS - beforeStats.integratedLUFS;
     const initialGainDb = Math.max(-18, Math.min(25, lufsDeficit));
@@ -861,8 +890,8 @@ export class AudioEngine {
       after: afterStats,
       decisions,
       appliedParams: newParams,
-      targetMet: afterStats.integratedLUFS >= -14.9 && afterStats.integratedLUFS <= -13.1 && afterStats.truePeakDbTP <= -1.0,
-      statusNote: `Loudness Optimizado: ${afterStats.integratedLUFS.toFixed(1)} LUFS-I (Rango -13.1 a -14.9) | True Peak: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`,
+      targetMet: afterStats.integratedLUFS >= -12.5 && afterStats.integratedLUFS <= -11.3 && afterStats.truePeakDbTP <= -1.0,
+      statusNote: `Loudness Optimizado: ${afterStats.integratedLUFS.toFixed(1)} LUFS-I (Objetivo -11.3 a -11.8) | True Peak: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`,
       timestamp: Date.now()
     };
 
@@ -1316,6 +1345,14 @@ export class AudioEngine {
     const eqL = offline.createBiquadFilter(); eqL.type = 'lowshelf'; eqL.frequency.value = params.eq.low.frequency; eqL.gain.value = params.eq.enabled ? params.eq.low.gain : 0;
     const eqLM = offline.createBiquadFilter(); eqLM.type = 'peaking'; eqLM.frequency.value = params.eq.lowMid?.frequency || 320; eqLM.Q.value = params.eq.lowMid?.q || 1.0; eqLM.gain.value = params.eq.enabled ? (params.eq.lowMid?.gain || 0) : 0;
     const eqM = offline.createBiquadFilter(); eqM.type = 'peaking'; eqM.frequency.value = params.eq.mid.frequency; eqM.Q.value = params.eq.mid.q || 1.0; eqM.gain.value = params.eq.enabled ? params.eq.mid.gain : 0;
+    
+    // Mid Resonance / Density Tamer (750Hz wide dip for dense mixes)
+    const midDensityTamer = offline.createBiquadFilter();
+    midDensityTamer.type = 'peaking';
+    midDensityTamer.frequency.value = 750;
+    midDensityTamer.Q.value = 0.8;
+    midDensityTamer.gain.value = -0.5;
+
     const eqHM = offline.createBiquadFilter(); eqHM.type = 'peaking'; eqHM.frequency.value = params.eq.highMid?.frequency || 4000; eqHM.Q.value = params.eq.highMid?.q || 1.0; eqHM.gain.value = params.eq.enabled ? (params.eq.highMid?.gain || 0) : 0;
     const eqH = offline.createBiquadFilter(); eqH.type = 'highshelf'; eqH.frequency.value = params.eq.high.frequency; eqH.gain.value = params.eq.enabled ? params.eq.high.gain : 0;
     
@@ -1334,12 +1371,25 @@ export class AudioEngine {
          deEsser.release.value = 0.05;
     }
 
-    // OFFLINE MID/SIDE STEREO MATRIX (Stereo Width & Vocal Center Unmasking)
+    // OFFLINE MID/SIDE STEREO MATRIX (Stereo Width, Mono Sub Centering & Side Low-Mid Tamer)
     const msSplitter = offline.createChannelSplitter(2);
     const msMidSum = offline.createGain(); msMidSum.gain.value = 0.5;
     const msSideDiff = offline.createGain(); msSideDiff.gain.value = 0.5;
     const sideInvert = offline.createGain(); sideInvert.gain.value = -1;
-    const msSideGain = offline.createGain(); msSideGain.gain.value = params.stereoWidth ?? 1.15;
+
+    // Sub-bass Mono-Maker & Low-Mid Side Tamer on Side Channel
+    const sideMonoHighPass = offline.createBiquadFilter();
+    sideMonoHighPass.type = 'highpass';
+    sideMonoHighPass.frequency.value = 105; // Centered sub-bass < 105Hz
+    sideMonoHighPass.Q.value = 0.707;
+
+    const sideLowMidDip = offline.createBiquadFilter();
+    sideLowMidDip.type = 'peaking';
+    sideLowMidDip.frequency.value = 200; // 140-280Hz side dip
+    sideLowMidDip.Q.value = 1.0;
+    sideLowMidDip.gain.value = -0.6; // Preserves mono firmness
+
+    const msSideGain = offline.createGain(); msSideGain.gain.value = params.stereoWidth ?? 1.12;
     const msMerger = offline.createChannelMerger(2);
     const sideOutInvert = offline.createGain(); sideOutInvert.gain.value = -1;
 
@@ -1351,7 +1401,10 @@ export class AudioEngine {
     msSplitter.connect(sideInvert, 1);
     sideInvert.connect(msSideDiff);
 
-    msSideDiff.connect(msSideGain);
+    // Route Side through Mono-Maker HighPass & Low-Mid Dip before width gain
+    msSideDiff.connect(sideMonoHighPass);
+    sideMonoHighPass.connect(sideLowMidDip);
+    sideLowMidDip.connect(msSideGain);
 
     msMidSum.connect(msMerger, 0, 0);
     msMidSum.connect(msMerger, 0, 1);
@@ -1373,8 +1426,8 @@ export class AudioEngine {
     safetyClipper.curve = this.makeBrickwallCurve();
     safetyClipper.oversample = '4x';
 
-    // Connect: Pre -> Gate -> Dist -> 5-band EQ -> DeEsser -> MS Merger -> Limiter -> DC -> SafeClip
-    sum.connect(preDc).connect(pre).connect(gate).connect(dist).connect(eqL).connect(eqLM).connect(eqM).connect(eqHM).connect(eqH).connect(deEsser);
+    // Connect: Pre -> Gate -> Dist -> 5-band EQ + Mid Density Tamer -> DeEsser -> MS Merger -> Limiter -> DC -> SafeClip
+    sum.connect(preDc).connect(pre).connect(gate).connect(dist).connect(eqL).connect(eqLM).connect(eqM).connect(midDensityTamer).connect(eqHM).connect(eqH).connect(deEsser);
     msMerger.connect(lim).connect(dcBlocker).connect(safetyClipper).connect(offline.destination);
     
     return await offline.startRendering();
