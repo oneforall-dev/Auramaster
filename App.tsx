@@ -579,34 +579,49 @@ export default function App() {
       const vocalCount = results.filter(r => r.vocalReport && r.vocalReport.original.vocalSectionsCount > 0).length;
       const instCount = results.length - vocalCount;
 
-      const summaryItems = tracks.map(t => {
+      const summaryTracks = tracks.map(t => {
         const info = updatedMap[t.id];
+        const res = info?.result;
+        const vocStatus = res?.vocalReport?.statusLabel || (res?.vocalReport ? 'Protegida' : 'Instrumental');
         return {
           trackId: t.id,
           trackName: t.name,
           sourceId: t.sourceId || t.id,
-          status: (info?.isMastered ? 'completed' : info?.currentPhase === 'error' ? 'failed' : 'skipped') as 'completed' | 'failed' | 'skipped',
-          originalLUFS: info?.result?.before?.integratedLUFS,
-          masterLUFS: info?.result?.after?.integratedLUFS,
-          truePeakDbTP: info?.result?.after?.truePeakDbTP,
-          dynamicRangeLRA: info?.result?.after?.dynamicRangeLRA,
-          vocalProtected: Boolean(info?.result?.vocalReport && info.result.vocalReport.original.vocalSectionsCount > 0),
-          isInstrumental: Boolean(info?.result?.vocalReport && info.result.vocalReport.original.vocalSectionsCount === 0),
-          result: info?.result
+          status: (info?.isMastered ? 'completed' : info?.currentPhase === 'error' ? 'failed' : 'skipped') as 'completed' | 'warning' | 'failed' | 'skipped',
+          originalLUFS: res?.before?.integratedLUFS ?? 0,
+          masterLUFS: res?.after?.integratedLUFS ?? 0,
+          truePeakDbTP: res?.after?.truePeakDbTP ?? -1.0,
+          dynamicRangeLRA: res?.after?.dynamicRangeLRA ?? 0,
+          vocalStatus: vocStatus,
+          result: res,
+          errorMessage: info?.errorMessage
         };
       });
 
       const summary: BulkMasteringSummary = {
+        bulkSessionId: `bulk_${Date.now().toString(36)}`,
         totalTracks,
+        completedCount: completedTracks,
+        warningCount: 0,
+        failedCount,
+        originalAvgLUFS: parseFloat(avgOrigLUFS.toFixed(1)),
+        masterAvgLUFS: parseFloat(avgMasterLUFS.toFixed(1)),
+        maxTruePeakDbTP: parseFloat(maxTP.toFixed(1)),
+        avgLRA: parseFloat(avgLRA.toFixed(1)),
+        vocalApprovedCount: vocalCount,
+        vocalPartialCount: 0,
+        vocalWarningCount: 0,
+        instrumentalCount: instCount,
+        tracks: summaryTracks,
+
+        // Backwards compatibility aliases
         completedTracks,
         failedTracks: failedCount,
         averageOriginalLUFS: parseFloat(avgOrigLUFS.toFixed(1)),
         averageMasterLUFS: parseFloat(avgMasterLUFS.toFixed(1)),
-        maxTruePeakDbTP: parseFloat(maxTP.toFixed(1)),
         averageLRA: parseFloat(avgLRA.toFixed(1)),
         vocalProtectedCount: vocalCount,
-        instrumentalCount: instCount,
-        items: summaryItems
+        items: summaryTracks
       };
 
       setBulkSummary(summary);
@@ -1211,16 +1226,21 @@ export default function App() {
         isOpen={isBulkSummaryOpen}
         onClose={() => setIsBulkSummaryOpen(false)}
         summary={bulkSummary}
-        onViewReport={(result) => {
-          setMasteringReport(result);
-          setIsReportOpen(true);
+        trackMasterMap={trackMasterMap}
+        onOpenTrackReport={(trackId) => {
+          const res = trackMasterMap[trackId]?.result;
+          if (res) {
+            setMasteringReport(res);
+            setIsReportOpen(true);
+          }
         }}
-        onDownloadSingle={(trackId) => {
+        onDownloadSingleTrack={(trackId) => {
           const t = tracks.find(trk => trk.id === trackId);
           if (t) handleDownloadSingleTrack(t);
         }}
         onDownloadAllZip={handleDownloadAllMasteredZip}
         isExportingZip={isExportingZip}
+        skin={skin}
         lang={lang}
       />
 

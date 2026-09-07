@@ -18,21 +18,26 @@ interface BulkMasteringSummaryModalProps {
   isOpen: boolean;
   onClose: () => void;
   summary: BulkMasteringSummary | null;
-  trackMasterMap: Record<string, TrackMasterInfo>;
-  onOpenTrackReport: (trackId: string) => void;
-  onDownloadSingleTrack: (trackId: string) => void;
+  trackMasterMap?: Record<string, TrackMasterInfo>;
+  onOpenTrackReport?: (trackId: string) => void;
+  onViewReport?: (result: any) => void;
+  onDownloadSingleTrack?: (trackId: string) => void;
+  onDownloadSingle?: (trackId: string) => void;
   onDownloadAllZip: () => void;
   isExportingZip: boolean;
   skin?: 'modern' | 'clear';
+  lang?: string;
 }
 
 export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps> = ({
   isOpen,
   onClose,
   summary,
-  trackMasterMap,
+  trackMasterMap = {},
   onOpenTrackReport,
+  onViewReport,
   onDownloadSingleTrack,
+  onDownloadSingle,
   onDownloadAllZip,
   isExportingZip,
   skin = 'modern'
@@ -40,6 +45,37 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
   if (!isOpen || !summary) return null;
 
   const isClear = skin === 'clear';
+
+  // Defensive extraction of numbers: guarantees .toFixed will NEVER throw
+  const masterLUFS = Number(summary.masterAvgLUFS ?? (summary as any).averageMasterLUFS ?? -14.0);
+  const origLUFS = Number(summary.originalAvgLUFS ?? (summary as any).averageOriginalLUFS ?? -14.0);
+  const maxTP = Number(summary.maxTruePeakDbTP ?? -1.0);
+  const avgLRA = Number(summary.avgLRA ?? (summary as any).averageLRA ?? 8.0);
+  const completedCount = Number(summary.completedCount ?? (summary as any).completedTracks ?? 0);
+  const totalCount = Number(summary.totalTracks ?? 0);
+  const vocalApproved = Number((summary.vocalApprovedCount ?? (summary as any).vocalProtectedCount ?? 0) + (summary.vocalPartialCount ?? 0));
+  const instCount = Number(summary.instrumentalCount ?? 0);
+
+  const rawTracks = Array.isArray(summary.tracks) 
+    ? summary.tracks 
+    : (Array.isArray((summary as any).items) ? (summary as any).items : []);
+
+  const handleOpenReport = (trackId: string) => {
+    if (onOpenTrackReport) {
+      onOpenTrackReport(trackId);
+    } else if (onViewReport) {
+      const res = trackMasterMap[trackId]?.result;
+      if (res) onViewReport(res);
+    }
+  };
+
+  const handleDownloadTrack = (trackId: string) => {
+    if (onDownloadSingleTrack) {
+      onDownloadSingleTrack(trackId);
+    } else if (onDownloadSingle) {
+      onDownloadSingle(trackId);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
@@ -62,7 +98,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
               <div className="flex items-center gap-2">
                 <h3 className="text-base sm:text-lg font-bold">Resumen Global de Bulk Mixer Fixer</h3>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                  {summary.completedCount} / {summary.totalTracks} Procesadas
+                  {completedCount} / {totalCount} Procesadas
                 </span>
               </div>
               <p className={`text-xs ${isClear ? 'text-slate-500' : 'text-slate-400'}`}>
@@ -92,12 +128,12 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Loudness Promedio</span>
               <div className="my-1.5 flex items-baseline gap-1.5">
                 <span className="text-base sm:text-lg font-mono font-bold text-emerald-400">
-                  {summary.masterAvgLUFS.toFixed(1)}
+                  {masterLUFS.toFixed(1)}
                 </span>
                 <span className="text-xs font-mono text-slate-400">LUFS-I</span>
               </div>
               <span className="text-[10px] text-slate-500">
-                Original: {summary.originalAvgLUFS.toFixed(1)} LUFS-I
+                Original: {origLUFS.toFixed(1)} LUFS-I
               </span>
             </div>
 
@@ -108,7 +144,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">True Peak Máximo</span>
               <div className="my-1.5 flex items-baseline gap-1.5">
                 <span className="text-base sm:text-lg font-mono font-bold text-cyan-400">
-                  {summary.maxTruePeakDbTP.toFixed(1)}
+                  {maxTP.toFixed(1)}
                 </span>
                 <span className="text-xs font-mono text-slate-400">dBTP</span>
               </div>
@@ -124,7 +160,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Rango Dinámico (LRA)</span>
               <div className="my-1.5 flex items-baseline gap-1.5">
                 <span className="text-base sm:text-lg font-mono font-bold text-indigo-300">
-                  {summary.avgLRA.toFixed(1)}
+                  {avgLRA.toFixed(1)}
                 </span>
                 <span className="text-xs font-mono text-slate-400">LU</span>
               </div>
@@ -140,12 +176,12 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Protección Vocal</span>
               <div className="my-1.5 flex items-baseline gap-1.5">
                 <span className="text-base sm:text-lg font-mono font-bold text-emerald-400">
-                  {summary.vocalApprovedCount + summary.vocalPartialCount}
+                  {vocalApproved}
                 </span>
                 <span className="text-xs font-mono text-slate-400">validadas</span>
               </div>
               <span className="text-[10px] text-slate-400">
-                {summary.instrumentalCount > 0 ? `${summary.instrumentalCount} instrumental(es)` : '0 enmascaramientos'}
+                {instCount > 0 ? `${instCount} instrumental(es)` : '0 enmascaramientos'}
               </span>
             </div>
           </div>
@@ -176,43 +212,51 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/40">
-                    {summary.tracks.map((t, idx) => {
-                      const hasResult = Boolean(trackMasterMap[t.trackId]?.result);
+                    {rawTracks.map((t: any, idx: number) => {
+                      const trackId = t.trackId || t.id || `track_${idx}`;
+                      const trackName = t.trackName || t.name || `Pista ${idx + 1}`;
+                      const hasResult = Boolean(t.result || trackMasterMap[trackId]?.result);
+                      const origLufsNum = Number(t.originalLUFS ?? 0);
+                      const masterLufsNum = Number(t.masterLUFS ?? 0);
+                      const tpNum = Number(t.truePeakDbTP ?? -1.0);
+                      const lraNum = Number(t.dynamicRangeLRA ?? 0);
+                      const vocState = t.vocalStatus || (t.vocalProtected ? 'Protegida' : t.isInstrumental ? 'Instrumental' : 'Verificada');
+
                       return (
-                        <tr key={t.trackId || idx} className="hover:bg-white/5 transition-colors">
-                          <td className="p-3 font-sans font-semibold text-slate-200 truncate max-w-[180px]" title={t.trackName}>
-                            {t.trackName}
+                        <tr key={trackId} className="hover:bg-white/5 transition-colors">
+                          <td className="p-3 font-sans font-semibold text-slate-200 truncate max-w-[180px]" title={trackName}>
+                            {trackName}
                           </td>
                           <td className="p-3 text-center text-slate-400">
-                            {t.originalLUFS !== 0 ? `${t.originalLUFS.toFixed(1)} LUFS` : '—'}
+                            {origLufsNum !== 0 ? `${origLufsNum.toFixed(1)} LUFS` : '—'}
                           </td>
                           <td className="p-3 text-center text-emerald-400 font-bold">
-                            {t.masterLUFS !== 0 ? `${t.masterLUFS.toFixed(1)} LUFS` : '—'}
+                            {masterLufsNum !== 0 ? `${masterLufsNum.toFixed(1)} LUFS` : '—'}
                           </td>
                           <td className="p-3 text-center text-slate-300">
-                            {t.truePeakDbTP !== 0 ? `${t.truePeakDbTP.toFixed(1)} dBTP` : '—'}
+                            {!isNaN(tpNum) ? `${tpNum.toFixed(1)} dBTP` : '—'}
                           </td>
                           <td className="p-3 text-center text-indigo-300">
-                            {t.dynamicRangeLRA !== 0 ? `${t.dynamicRangeLRA.toFixed(1)} LU` : '—'}
+                            {lraNum !== 0 ? `${lraNum.toFixed(1)} LU` : '—'}
                           </td>
                           <td className="p-3 text-center">
                             <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
                               t.status === 'failed'
                                 ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                                : t.vocalStatus === 'Instrumental'
+                                : vocState === 'Instrumental'
                                 ? 'bg-slate-800 text-slate-300 border-slate-700'
                                 : t.status === 'warning'
                                 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
                                 : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                             }`}>
-                              {t.vocalStatus}
+                              {vocState}
                             </span>
                           </td>
                           <td className="p-3 text-right">
                             <div className="flex items-center justify-end gap-1.5">
                               {hasResult && (
                                 <button
-                                  onClick={() => onOpenTrackReport(t.trackId)}
+                                  onClick={() => handleOpenReport(trackId)}
                                   className="p-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 transition-all text-[10px] font-bold flex items-center gap-1"
                                   title="Ver informe individual detallado"
                                 >
@@ -222,7 +266,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
                               )}
                               {hasResult && (
                                 <button
-                                  onClick={() => onDownloadSingleTrack(t.trackId)}
+                                  onClick={() => handleDownloadTrack(trackId)}
                                   className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition-all text-[10px] font-bold flex items-center gap-1"
                                   title="Descargar master WAV individual"
                                 >
@@ -249,13 +293,13 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
         }`}>
           <div className="flex items-center gap-2 text-xs opacity-70 font-mono">
             <CheckCircle2 size={15} className="text-emerald-400" />
-            <span>{summary.completedCount} canciones listas para distribución streaming</span>
+            <span>{completedCount} canciones listas para distribución streaming</span>
           </div>
 
           <div className="flex items-center gap-2.5 w-full sm:w-auto">
             <button
               onClick={onDownloadAllZip}
-              disabled={isExportingZip || summary.completedCount === 0}
+              disabled={isExportingZip || completedCount === 0}
               className="flex-1 sm:flex-initial px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
             >
               <FileArchive size={14} />

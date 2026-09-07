@@ -346,30 +346,39 @@ export interface AIMasteringResult {
 }
 
 export interface BulkMasteringSummary {
-  bulkSessionId: string;
+  bulkSessionId?: string;
   totalTracks: number;
   completedCount: number;
-  warningCount: number;
+  warningCount?: number;
   failedCount: number;
   originalAvgLUFS: number;
   masterAvgLUFS: number;
   maxTruePeakDbTP: number;
   avgLRA: number;
   vocalApprovedCount: number;
-  vocalPartialCount: number;
-  vocalWarningCount: number;
+  vocalPartialCount?: number;
+  vocalWarningCount?: number;
   instrumentalCount: number;
   tracks: {
     trackId: string;
     trackName: string;
     sourceId?: string;
-    status: 'completed' | 'warning' | 'failed';
+    status: 'completed' | 'warning' | 'failed' | 'skipped';
     originalLUFS: number;
     masterLUFS: number;
     truePeakDbTP: number;
     dynamicRangeLRA: number;
     vocalStatus: string;
     errorMessage?: string;
+    result?: AIMasteringResult;
   }[];
+  // Compatibility aliases
+  completedTracks?: number;
+  failedTracks?: number;
+  averageOriginalLUFS?: number;
+  averageMasterLUFS?: number;
+  averageLRA?: number;
+  vocalProtectedCount?: number;
+  items?: any[];
 }
 
