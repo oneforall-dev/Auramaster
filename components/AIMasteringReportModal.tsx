@@ -56,7 +56,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 </span>
               </div>
               <p className={`text-xs mt-0.5 ${isClear ? 'text-slate-600' : 'text-slate-400'}`}>
-                {statusNote || 'Normalización de loudness a -14 LUFS-I y True Peak ≤ -1.0 dBTP'}
+                {statusNote || `Masterización completada: ${after.integratedLUFS.toFixed(1)} LUFS-I | True Peak: ${after.truePeakDbTP.toFixed(1)} dBTP`}
               </p>
             </div>
           </div>
@@ -82,9 +82,9 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
             <div className="flex items-center gap-3">
               <ShieldCheck size={26} className="text-emerald-500 shrink-0" />
               <div>
-                <div className="font-bold text-sm">Estándar de Streaming Alcanzado</div>
+                <div className="font-bold text-sm">Estándar de Distribución & Streaming Calibrado</div>
                 <div className="text-xs opacity-90 font-mono mt-0.5">
-                  LUFS-I: ≤ -14.0 LUFS &nbsp;|&nbsp; True Peak: ≤ -1.0 dBTP
+                  LUFS-I: {after.integratedLUFS.toFixed(1)} LUFS &nbsp;|&nbsp; True Peak: {after.truePeakDbTP.toFixed(1)} dBTP (Ceiling ≤ -1.0 dBTP)
                 </div>
               </div>
             </div>
@@ -125,7 +125,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 </div>
               </div>
               <div className="text-[10px] opacity-70 font-mono text-center">
-                Target: -14.0 LUFS
+                Ganancia: {(after.integratedLUFS - before.integratedLUFS >= 0 ? '+' : '') + (after.integratedLUFS - before.integratedLUFS).toFixed(1)} LU
               </div>
             </div>
 
@@ -150,7 +150,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 </div>
               </div>
               <div className="text-[10px] opacity-70 font-mono text-center">
-                Ceiling: -1.0 dBTP
+                Ceiling: ≤ -1.0 dBTP (Seguro)
               </div>
             </div>
 
