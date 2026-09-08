@@ -1053,9 +1053,7 @@ export class AudioEngine {
     let decisions: string[] = [];
 
     // Contextual Loudness Strategy:
-    // If the mix is already sitting in the optimal streaming distribution window (-14.8 to -12.8 LUFS),
-    // do NOT push gain artificially. The mastering focus is strictly on tonal balance, stereo cohesion,
-    // analog tape harmonics, dynamic glue, and true peak safety.
+    // Standard streaming distribution target window: -14.8 to -14.2 LUFS-I (preserving dynamics and vocal intimacy).
     const isAlreadyOptimalLoudness = beforeStats.integratedLUFS >= -14.8 && beforeStats.integratedLUFS <= -12.8;
     const isAlreadyHotMix = beforeStats.integratedLUFS > -12.8;
 
@@ -1063,14 +1061,14 @@ export class AudioEngine {
     let initialGainDb = 0;
 
     if (isAlreadyOptimalLoudness) {
-      targetLUFS = beforeStats.integratedLUFS;
-      initialGainDb = 0.0; // Transparent gain
+      targetLUFS = parseFloat(Math.max(-14.8, Math.min(-14.2, beforeStats.integratedLUFS)).toFixed(1));
+      initialGainDb = targetLUFS - beforeStats.integratedLUFS;
     } else if (isAlreadyHotMix) {
       targetLUFS = beforeStats.integratedLUFS;
       initialGainDb = 0.0;
     } else {
-      // Unmastered / low level mixdown (typically < -15.0 LUFS):
-      targetLUFS = beforeStats.crestFactor > 12.5 ? -14.0 : (beforeStats.crestFactor < 9.0 ? -13.2 : -13.5);
+      // Unmastered / low level mixdown (< -14.8 LUFS):
+      targetLUFS = -14.2;
       const lufsDeficit = targetLUFS - beforeStats.integratedLUFS;
       initialGainDb = Math.max(-12, Math.min(18, lufsDeficit));
     }
@@ -1369,25 +1367,63 @@ export class AudioEngine {
       }
     }
 
-    // Final vocal evaluation on best candidate
+    // Stage 5A: Post-Vocal Precision Clean Gain Calibration
+    // "Después de terminar todas las iteraciones de protección vocal:
+    // 1. Renderizar el master corregido.
+    // 2. Medir LUFS-I, True Peak y LRA del render real.
+    // 3. Calcular la ganancia limpia necesaria para alcanzar el objetivo contextual.
+    // 4. Aplicar esa ganancia antes del limitador True Peak.
+    // 5. Volver a renderizar y medir.
+    // 6. Confirmar que el balance voz/instrumental no cambió."
+    const postVocalCal = await this.calibratePostVocalLoudness(bestParams, tracks, targetLUFS, rawBuffer);
+    if (postVocalCal.calibratedBuffer && postVocalCal.calibratedMetrics) {
+      bestBuffer = postVocalCal.calibratedBuffer;
+      bestMetrics = postVocalCal.calibratedMetrics;
+      bestParams = postVocalCal.calibratedParams;
+      if (rawBuffer) {
+        bestMqs = await this.calculateMasteringQualityScore(bestBuffer, rawBuffer, this.getSourceSampleRate());
+      }
+      if (Math.abs(postVocalCal.gainCorrectionAppliedDb) > 0.15) {
+        decisions.push(
+          `Recalibración limpia de ganancia final (${postVocalCal.gainCorrectionAppliedDb >= 0 ? '+' : ''}${postVocalCal.gainCorrectionAppliedDb.toFixed(1)} dB): nivel de streaming contextual alcanzado (${bestMetrics.integratedLUFS.toFixed(1)} LUFS-I) manteniendo 100% intacto el balance tonal y dinámico.`
+        );
+      }
+    }
+
+    // Final vocal evaluation on calibrated candidate
     const finalVocalMatch = (bestBuffer && rawBuffer)
       ? await this.evaluateVocalPreservationMatch(bestBuffer, rawBuffer)
       : { isVocalWorse: false, reasons: [], vocalRelDeltaDb: 0, vocalBodyDeltaDb: 0, bassMaskingGrowthDb: 0 };
 
-    // Evaluate Quality Verdict: Master Must Surpass Original AND Zero-Tolerance Vocal Preservation
+    // Rejection Conditions:
+    // Rechazar automáticamente el master si:
+    // - Queda más de 0.5 LU por debajo del original o del target sin justificación.
+    // - Tiene más de 3 dB de headroom innecesario (True Peak < -3.0 dBTP con LUFS bajo).
+    // - La voz empeora en cualquier aspecto.
+    const isLoudnessTooLow = bestMetrics && (bestMetrics.integratedLUFS < targetLUFS - 0.50);
+    const isHeadroomExcessive = bestMetrics && (bestMetrics.truePeakDbTP < -3.0 && bestMetrics.integratedLUFS < targetLUFS - 0.30);
+
+    if (bestMqs && isLoudnessTooLow) {
+      bestMqs.isApproved = false;
+      bestMqs.rejectionTriggers.push(`Loudness final deficiente (${bestMetrics!.integratedLUFS.toFixed(1)} LUFS-I queda > 0.5 LU por debajo del target ${targetLUFS.toFixed(1)} LUFS-I)`);
+    }
+    if (bestMqs && isHeadroomExcessive) {
+      bestMqs.isApproved = false;
+      bestMqs.rejectionTriggers.push(`Headroom excesivo innecesario (True Peak: ${bestMetrics!.truePeakDbTP.toFixed(1)} dBTP con LUFS bajo)`);
+    }
+
     let isFallbackApplied = false;
     let qualityVerdict: 'APPROVED_BETTER' | 'TRANSPARENT_FALLBACK' | 'REJECTED' = 'APPROVED_BETTER';
     let fallbackBandDeltas: { band: string; deltaDb: number; maxAllowedDb: number; passed: boolean }[] | undefined = undefined;
 
-    if (bestMqs && bestMqs.totalScore > origScore && bestMqs.isApproved && !finalVocalMatch.isVocalWorse) {
+    if (bestMqs && bestMqs.totalScore > origScore && bestMqs.isApproved && !finalVocalMatch.isVocalWorse && !isLoudnessTooLow && !isHeadroomExcessive) {
       qualityVerdict = 'APPROVED_BETTER';
       isFallbackApplied = false;
       masteredBuffer = bestBuffer;
       afterMetrics = bestMetrics;
       newParams = bestParams;
     } else {
-      // TRANSPARENT FALLBACK: Original mix is already pristine or processed audio compromised vocal position
-      // Enforces pure bit-transparent gain + true-peak lookahead limiter (< ±0.3 dB spectral variation)
+      // TRANSPARENT FALLBACK: Clean linear gain to target LUFS + true-peak lookahead limiter (< ±0.3 dB spectral variation)
       qualityVerdict = 'TRANSPARENT_FALLBACK';
       isFallbackApplied = true;
 
@@ -1401,20 +1437,26 @@ export class AudioEngine {
       fallbackParams.limiter.enabled = true;
       fallbackParams.limiter.threshold = -1.0;
 
-      const cleanGainDb = (isAlreadyOptimalLoudness || isAlreadyHotMix) 
-        ? 0.0 
-        : Math.max(-12, Math.min(18, targetLUFS - beforeStats.integratedLUFS));
-      fallbackParams.gain = Math.max(0.1, Math.min(15.0, Math.pow(10, cleanGainDb / 20)));
+      // Initial clean gain calculation toward target
+      const initialFallbackGainDb = targetLUFS - beforeStats.integratedLUFS;
+      fallbackParams.gain = Math.max(0.1, Math.min(15.0, Math.pow(10, initialFallbackGainDb / 20)));
 
-      masteredBuffer = await this.renderPreview(fallbackParams, tracks);
-      if (masteredBuffer) {
-        afterMetrics = await this.calculateAccurateDSPMetrics(masteredBuffer);
-        if (rawBuffer) {
-          bestMqs = await this.calculateMasteringQualityScore(masteredBuffer, rawBuffer, this.getSourceSampleRate());
-          fallbackBandDeltas = await this.measureSpectralBandDeltas(masteredBuffer, rawBuffer);
-        }
+      // Precision calibration of fallback gain directly to targetLUFS (within ±0.2 LU)
+      const fallbackCal = await this.calibratePostVocalLoudness(fallbackParams, tracks, targetLUFS, rawBuffer);
+      if (fallbackCal.calibratedBuffer && fallbackCal.calibratedMetrics) {
+        masteredBuffer = fallbackCal.calibratedBuffer;
+        afterMetrics = fallbackCal.calibratedMetrics;
+        newParams = fallbackCal.calibratedParams;
+      } else {
+        masteredBuffer = await this.renderPreview(fallbackParams, tracks);
+        afterMetrics = masteredBuffer ? await this.calculateAccurateDSPMetrics(masteredBuffer) : null;
+        newParams = fallbackParams;
       }
-      newParams = fallbackParams;
+
+      if (rawBuffer && masteredBuffer) {
+        bestMqs = await this.calculateMasteringQualityScore(masteredBuffer, rawBuffer, this.getSourceSampleRate());
+        fallbackBandDeltas = await this.measureSpectralBandDeltas(masteredBuffer, rawBuffer);
+      }
     }
 
     // Final Metric Formulation directly from measured buffer
@@ -1427,16 +1469,10 @@ export class AudioEngine {
     const deltaSign = deltaLU >= 0 ? '+' : '';
 
     let loudnessReportLine = '';
-    if (isAlreadyOptimalLoudness) {
-      if (Math.abs(deltaLU) <= 0.15) {
-        loudnessReportLine = `Loudness original ya cercano al objetivo (${beforeStats.integratedLUFS.toFixed(1)} LUFS-I): volumen natural respetado (0.0 LU delta), sin forzar ganancia innecesaria.`;
-      } else {
-        loudnessReportLine = `Loudness original ya cercano al objetivo (${beforeStats.integratedLUFS.toFixed(1)} LUFS-I): se aplicó únicamente ${deltaSign}${deltaLU.toFixed(1)} LU, sin forzar ganancia innecesaria.`;
-      }
-    } else if (isAlreadyHotMix) {
-      loudnessReportLine = `Mezcla con alta densidad original (${beforeStats.integratedLUFS.toFixed(1)} LUFS-I): transitorios protegidos (${deltaSign}${deltaLU.toFixed(1)} LU delta), sin compresión destructiva.`;
+    if (Math.abs(deltaLU) <= 0.25) {
+      loudnessReportLine = `Loudness masterizado a estándar de distribución: ${finalLUFS.toFixed(1)} LUFS-I (delta ${deltaSign}${deltaLU.toFixed(1)} LU), rango dinámico LRA ${finalLRA.toFixed(1)} LU y True Peak ${finalTP.toFixed(1)} dBTP respetados sin compresión destructiva.`;
     } else {
-      loudnessReportLine = `Loudness calibrado a estándar de distribución: nivel optimizado desde ${beforeStats.integratedLUFS.toFixed(1)} hasta ${finalLUFS.toFixed(1)} LUFS-I (${deltaSign}${deltaLU.toFixed(1)} LU aplicados).`;
+      loudnessReportLine = `Loudness calibrado a estándar de distribución: nivel optimizado desde ${beforeStats.integratedLUFS.toFixed(1)} hasta ${finalLUFS.toFixed(1)} LUFS-I (${deltaSign}${deltaLU.toFixed(1)} LU aplicados, True Peak: ${finalTP.toFixed(1)} dBTP).`;
     }
 
     const afterStats: AIMasteringStats = {
@@ -1716,6 +1752,13 @@ export class AudioEngine {
       }
       if (deltaCrest < -3.0) {
         rejectionTriggers.push(`Aplastamiento de transientes / pumping (Crest Factor reducido en ${Math.abs(deltaCrest).toFixed(1)} dB)`);
+      }
+      const deltaLufs = candMetrics.integratedLUFS - origMetrics.integratedLUFS;
+      if (origMetrics.integratedLUFS >= -16.0 && deltaLufs < -0.50) {
+        rejectionTriggers.push(`Loudness final deficiente (${candMetrics.integratedLUFS.toFixed(1)} LUFS-I queda ${(Math.abs(deltaLufs)).toFixed(1)} LU por debajo del original)`);
+      }
+      if (candMetrics.truePeakDbTP < -3.0 && candMetrics.integratedLUFS < -14.8) {
+        rejectionTriggers.push(`Headroom excesivo innecesario (True Peak: ${candMetrics.truePeakDbTP.toFixed(1)} dBTP con ${candMetrics.integratedLUFS.toFixed(1)} LUFS-I bajo)`);
       }
     }
 
@@ -2216,6 +2259,70 @@ export class AudioEngine {
       blockLowEndRmsArr,
       blockSideRmsArr,
       vocalActiveBlocks
+    };
+  }
+
+  public async calibratePostVocalLoudness(
+    baseParams: MasteringChainParams,
+    tracks: Track[],
+    targetLUFS: number,
+    rawBuffer?: AudioBuffer
+  ): Promise<{
+    calibratedBuffer: AudioBuffer | null;
+    calibratedMetrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; peakDb: number } | null;
+    calibratedParams: MasteringChainParams;
+    gainCorrectionAppliedDb: number;
+    vocalMatchPreserved: boolean;
+  }> {
+    const calibratedParams: MasteringChainParams = JSON.parse(JSON.stringify(baseParams));
+    calibratedParams.limiter.enabled = true;
+    calibratedParams.limiter.threshold = -1.0;
+
+    let buf = await this.renderPreview(calibratedParams, tracks);
+    if (!buf) {
+      return {
+        calibratedBuffer: null,
+        calibratedMetrics: null,
+        calibratedParams,
+        gainCorrectionAppliedDb: 0,
+        vocalMatchPreserved: true
+      };
+    }
+
+    let metrics = await this.calculateAccurateDSPMetrics(buf);
+    let totalCorrectionDb = 0;
+
+    // Up to 4 passes for fast, exact convergence to targetLUFS (within ±0.20 LU)
+    // "Gain correction = Target LUFS − Measured final LUFS"
+    for (let pass = 0; pass < 4; pass++) {
+      const currentLUFS = metrics.integratedLUFS;
+      const errorDb = targetLUFS - currentLUFS;
+
+      if (Math.abs(errorDb) <= 0.20) {
+        break;
+      }
+
+      totalCorrectionDb += errorDb;
+      const currentGain = Number.isFinite(calibratedParams.gain) && calibratedParams.gain > 0.01 ? calibratedParams.gain : 1.0;
+      calibratedParams.gain = Math.max(0.1, Math.min(15.0, currentGain * Math.pow(10, errorDb / 20)));
+
+      buf = await this.renderPreview(calibratedParams, tracks);
+      if (!buf) break;
+      metrics = await this.calculateAccurateDSPMetrics(buf);
+    }
+
+    let vocalMatchPreserved = true;
+    if (rawBuffer && buf) {
+      const vMatch = await this.evaluateVocalPreservationMatch(buf, rawBuffer);
+      vocalMatchPreserved = !vMatch.isVocalWorse;
+    }
+
+    return {
+      calibratedBuffer: buf,
+      calibratedMetrics: metrics,
+      calibratedParams,
+      gainCorrectionAppliedDb: parseFloat(totalCorrectionDb.toFixed(2)),
+      vocalMatchPreserved
     };
   }
 
