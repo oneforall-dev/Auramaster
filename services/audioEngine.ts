@@ -1991,12 +1991,8 @@ export class AudioEngine {
     candB.eq.high.frequency = 12000;
     candB.eq.high.gain = 0.45;
 
-    // Gentle glue compressor (0.5 - 0.9 dB GR)
-    candB.compressor.enabled = true;
-    candB.compressor.threshold = -16.0;
-    candB.compressor.ratio = 1.4;
-    candB.compressor.attack = 35;
-    candB.compressor.release = 120;
+    // Bus Cohesion (linear phase bypass to protect vocal clarity)
+    candB.multiband.enabled = false;
 
     // Low-end resonance control
     if (diagnosis.some(d => (d.aspect === 'subgrave' || d.aspect === 'bajo') && d.status === 'mejorable')) {
@@ -2034,15 +2030,23 @@ export class AudioEngine {
 
     // Subtle Harmonic Tape Warmth (imperceptible, cohesive)
     candC.distortion.enabled = true;
-    candC.distortion.drive = 0.05;
-    candC.distortion.mix = 0.10;
+    candC.distortion.amount = 4;
+    candC.distortion.mode = 'tape';
 
-    // Bus Glue
-    candC.compressor.enabled = true;
-    candC.compressor.threshold = -15.0;
-    candC.compressor.ratio = 1.5;
-    candC.compressor.attack = 40;
-    candC.compressor.release = 100;
+    // Bus Glue via Gentle Multiband
+    candC.multiband.enabled = true;
+    candC.multiband.low.threshold = -15.0;
+    candC.multiband.low.ratio = 1.3;
+    candC.multiband.low.attack = 0.04;
+    candC.multiband.low.release = 0.15;
+    candC.multiband.mid.threshold = -18.0;
+    candC.multiband.mid.ratio = 1.2;
+    candC.multiband.mid.attack = 0.03;
+    candC.multiband.mid.release = 0.12;
+    candC.multiband.high.threshold = -20.0;
+    candC.multiband.high.ratio = 1.15;
+    candC.multiband.high.attack = 0.02;
+    candC.multiband.high.release = 0.10;
 
     candC.stereoWidth = 1.05;
     candC.limiter.enabled = true;
