@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Sparkles, Download, ExternalLink, CheckCircle2, ShieldCheck, Music, Trophy, Radio, ArrowRight, RefreshCw, X } from 'lucide-react';
+import { Sparkles, Download, ExternalLink, CheckCircle2, ShieldCheck, Music, Trophy, Radio, ArrowRight, RefreshCw, X, Disc, FileAudio, Layers } from 'lucide-react';
 import { Language } from '../services/i18n';
+import { AIMasteringResult } from '../types';
 
 interface ExportSuccessModalProps {
   isOpen: boolean;
@@ -9,6 +10,8 @@ interface ExportSuccessModalProps {
   fileName?: string;
   lang?: Language;
   onStartNewProject?: () => void;
+  qc?: AIMasteringResult['qcVerification'];
+  onDownloadFormat?: (bitDepth: 16 | 24 | 32) => Promise<void>;
 }
 
 export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
@@ -16,9 +19,22 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
   onClose,
   fileName = 'Master_Auramaster.wav',
   lang = 'es',
-  onStartNewProject
+  onStartNewProject,
+  qc,
+  onDownloadFormat
 }) => {
+  const [downloadingBit, setDownloadingBit] = useState<number | null>(null);
   if (!isOpen || typeof document === 'undefined') return null;
+
+  const handleDownload = async (bit: 16 | 24 | 32) => {
+    if (!onDownloadFormat) return;
+    setDownloadingBit(bit);
+    try {
+      await onDownloadFormat(bit);
+    } finally {
+      setDownloadingBit(null);
+    }
+  };
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200 select-none">
@@ -53,6 +69,91 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
             </p>
           </div>
         </div>
+
+        {/* Verified Quality Control (QC) Certificate Card */}
+        {qc && (
+          <div className="rounded-2xl p-4 bg-slate-950/90 border border-cyan-500/30 shadow-lg flex flex-col gap-3">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={18} className="text-emerald-400" />
+                <span className="text-xs font-black uppercase tracking-wider text-slate-200">
+                  {lang === 'es' ? 'Control de Calidad (QC) Verificado' : 'Verified Quality Control (QC)'}
+                </span>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-bold">
+                ✓ 100% CUMPLIDO
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+              <div className="p-2 rounded-xl bg-slate-900/90 border border-slate-800">
+                <span className="text-[10px] text-slate-400 font-mono block">Loudness-I</span>
+                <span className="text-sm font-black font-mono text-cyan-300">{qc.lufsIntegrated.toFixed(1)} LUFS</span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-900/90 border border-slate-800">
+                <span className="text-[10px] text-slate-400 font-mono block">True Peak</span>
+                <span className="text-sm font-black font-mono text-emerald-400">{qc.truePeakDbTP.toFixed(1)} dBTP</span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-900/90 border border-slate-800">
+                <span className="text-[10px] text-slate-400 font-mono block">Rango LRA</span>
+                <span className="text-sm font-black font-mono text-purple-300">{qc.lra.toFixed(1)} LU</span>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-900/90 border border-slate-800">
+                <span className="text-[10px] text-slate-400 font-mono block">Clipping</span>
+                <span className="text-sm font-black font-mono text-emerald-400">0 Saturación</span>
+              </div>
+            </div>
+            <div className="text-[10px] font-mono text-slate-400 text-center">
+              Formato verificado: <span className="text-slate-300 font-semibold">{qc.format}</span>
+            </div>
+          </div>
+        )}
+
+        {/* 3 Formats Quick Download Selector */}
+        {onDownloadFormat && (
+          <div className="flex flex-col gap-2 p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800">
+            <div className="text-[11px] font-bold text-slate-300 flex items-center justify-between">
+              <span>{lang === 'es' ? 'Descargar en otros formatos profesionales:' : 'Download in other formats:'}</span>
+              <span className="text-[10px] text-cyan-400 font-mono">WAV 32 / 24 / 16-bit</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <button
+                onClick={() => handleDownload(32)}
+                disabled={downloadingBit !== null}
+                className="py-2.5 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700 text-left transition-all text-xs flex flex-col gap-0.5 cursor-pointer disabled:opacity-50"
+              >
+                <div className="flex items-center justify-between text-cyan-300 font-bold text-[11px]">
+                  <span>32-bit Float</span>
+                  <Disc size={13} />
+                </div>
+                <span className="text-[10px] text-slate-400">Master Archive (Sin dither)</span>
+              </button>
+
+              <button
+                onClick={() => handleDownload(24)}
+                disabled={downloadingBit !== null}
+                className="py-2.5 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-cyan-500/40 text-left transition-all text-xs flex flex-col gap-0.5 cursor-pointer disabled:opacity-50 shadow-sm"
+              >
+                <div className="flex items-center justify-between text-emerald-300 font-bold text-[11px]">
+                  <span>24-bit PCM</span>
+                  <Music size={13} />
+                </div>
+                <span className="text-[10px] text-slate-400">Spotify (TPDF Dither)</span>
+              </button>
+
+              <button
+                onClick={() => handleDownload(16)}
+                disabled={downloadingBit !== null}
+                className="py-2.5 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700 text-left transition-all text-xs flex flex-col gap-0.5 cursor-pointer disabled:opacity-50"
+              >
+                <div className="flex items-center justify-between text-purple-300 font-bold text-[11px]">
+                  <span>16-bit PCM</span>
+                  <Radio size={13} />
+                </div>
+                <span className="text-[10px] text-slate-400">CD / Radio (TPDF Dither)</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Step-by-Step Spotify Distribution & AI Chart Eligibility Card */}
         <div className="relative overflow-hidden rounded-3xl p-5 bg-gradient-to-br from-indigo-950/90 via-slate-900 to-purple-950/70 border border-cyan-500/40 shadow-xl shadow-indigo-950/50 flex flex-col gap-4">

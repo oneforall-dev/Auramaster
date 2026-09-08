@@ -106,6 +106,9 @@ export interface MasteringChainParams {
   dynamicSubCutDb?: number; // Selective 30-75 Hz dynamic sub/kick attenuation
   vocalBodyMidRecoveryDb?: number; // Selective 300-900 Hz mid recovery in vocal sections
   isTransparentFallback?: boolean; // When active, strictly enforces pure linear passthrough & true peak safety
+  stemAssisted?: boolean; // Tier 3 stem-assisted mastering
+  stemMicroDuckingDb?: number; // 0.2 to 0.5 dB dynamic spectral instrumental ducking during active vocal
+  stemVocalFocusDb?: number; // Focused vocal presence/body reinforcement
 }
 
 export interface Track {
@@ -377,6 +380,23 @@ export interface AIMasteringResult {
   isFallbackApplied?: boolean;
   qualityVerdict?: 'APPROVED_BETTER' | 'TRANSPARENT_FALLBACK' | 'REJECTED';
   fallbackBandDeltas?: { band: string; deltaDb: number; maxAllowedDb: number; passed: boolean }[];
+  masteringTierApplied?: 'stereo_direct' | 'stereo_microscopic_guided' | 'stem_assisted';
+  reconstructionTestPassed?: boolean;
+  reconstructionCorrelation?: number;
+  microscopicMasking?: {
+    activeVocalBlocks: number;
+    competingInstrumentalBands: { band: string; maskingDeltaDb: number; suggestedDipDb: number }[];
+    reconstructionFidelityPercent: number;
+  };
+  qcVerification?: {
+    lufsIntegrated: number;
+    truePeakDbTP: number;
+    samplePeakDb: number;
+    lra: number;
+    clippingDetected: boolean;
+    format: string;
+    passed: boolean;
+  };
 }
 
 export interface BulkMasteringSummary {

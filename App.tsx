@@ -105,6 +105,7 @@ export default function App() {
   const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
   const [isExportSuccessOpen, setIsExportSuccessOpen] = useState(false);
   const [exportedFileName, setExportedFileName] = useState('');
+  const [exportedQC, setExportedQC] = useState<AIMasteringResult['qcVerification'] | null>(null);
   const [editHistory, setEditHistory] = useState<{ trackId: string; buffer: AudioBuffer; description: string }[]>([]);
 
   // Multi-Reference AI Mastering State
@@ -128,6 +129,12 @@ export default function App() {
   const [bulkSummary, setBulkSummary] = useState<BulkMasteringSummary | null>(null);
   const [isBulkSummaryOpen, setIsBulkSummaryOpen] = useState(false);
 
+  const [currentSessionId, setCurrentSessionId] = useState<string>(
+    typeof audioEngine?.getCurrentSessionId === 'function' 
+      ? audioEngine.getCurrentSessionId() 
+      : (audioEngine?.currentSessionId || `sess_${Date.now().toString(36)}`)
+  );
+
   const currentSessionIdRef = useRef<string>(
     typeof audioEngine?.getCurrentSessionId === 'function' 
       ? audioEngine.getCurrentSessionId() 
@@ -148,6 +155,9 @@ export default function App() {
     setMasteringReport(null);
     setSelection(null);
     setEditHistory([]);
+    setTrackMasterMap({});
+    setExportedQC(null);
+    setFileStats({ peak: -90, integrated: -90, shortTerm: -90 });
   }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -229,15 +239,19 @@ export default function App() {
       setLoadingAudio(true); 
       try { 
         const newFiles = Array.from(e.target.files) as File[];
-        const added: Track[] = [];
-        for (const file of newFiles) added.push(await audioEngine.addTrack(file)); 
-        
-        // HARD RESET: If loading a new project or tracks, reset session state completely
-        if (tracks.length === 0 || processingMode === 'bulk') {
+
+        // HARD RESET: If loading a new song or replacing in single-track mastering,
+        // clear previous tracks, buffers, presets and state completely
+        const isStemsAdding = processingMode === 'stems' && tracks.length > 0;
+        if (!isStemsAdding) {
+          audioEngine.clearAllTracks();
           resetMixerFixerSession();
         }
 
-        let allTracks = [...tracks, ...added];
+        const added: Track[] = [];
+        for (const file of newFiles) added.push(await audioEngine.addTrack(file)); 
+
+        let allTracks = isStemsAdding ? [...tracks, ...added] : added;
         let newParams = getNeutralMasteringParams();
         
         // Stems auto-balance logic if in stems mode
@@ -877,6 +891,33 @@ export default function App() {
     setDuration(0);
   };
 
+  const handleDownloadFormat = async (bitDepth: 16 | 24 | 32) => {
+    if (tracks.length === 0) return;
+    try {
+      const activeTrack = (processingMode === 'bulk' && activeTrackId) ? tracks.find(t => t.id === activeTrackId) : undefined;
+      const exportTracks = activeTrack ? [activeTrack] : tracks;
+      const exportParams = activeTrack ? (trackMasterMap[activeTrack.id]?.params || params) : params;
+
+      const blob = await audioEngine.exportAudio(exportParams, exportTracks, bitDepth);
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const originalName = exportTracks[0].name.replace(/\.[^/.]+$/, "");
+        const suffix = bitDepth === 32 ? 'MasterArchive_32bitFloat' : bitDepth === 24 ? 'Spotify_24bit' : 'CD_16bit';
+        const downloadName = `${originalName}_Auramaster_${suffix}.wav`;
+        a.download = downloadName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      console.error("Format download error:", err);
+      alert("Error descargando formato.");
+    }
+  };
+
   const handleExport = async () => {
     if (tracks.length === 0) return;
     setIsExporting(true);
@@ -901,6 +942,14 @@ export default function App() {
               document.body.removeChild(a);
               URL.revokeObjectURL(url);
               setExportedFileName(downloadName);
+
+              if (masteringReport?.qcVerification) {
+                setExportedQC(masteringReport.qcVerification);
+              } else if (processedBuffer) {
+                const qc = await audioEngine.performExportQC(processedBuffer, 24);
+                setExportedQC(qc);
+              }
+
               setIsExportSuccessOpen(true);
             }
           }
@@ -1271,6 +1320,8 @@ export default function App() {
         fileName={exportedFileName}
         lang={lang}
         onStartNewProject={handleStartNewProject}
+        qc={exportedQC || masteringReport?.qcVerification}
+        onDownloadFormat={handleDownloadFormat}
       />
 
       {/* Global Apple Pro Loading Overlay */}
