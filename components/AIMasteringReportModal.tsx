@@ -567,7 +567,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                         ? 'Mezcla terminada en origen. Correlación > 0.99999 y residuo < -80 dBFS: puntuación calibrada a nivel honesto.'
                         : result.isFallbackApplied 
                           ? 'La mezcla original ya posee balance sobresaliente; se aplicó preservación pura sin sobreprocesar.'
-                          : `Evaluación comparativa a loudness igualado: Original ${result.originalMqs ? `${result.originalMqs.totalScore} pts` : ''} ➔ Master ${result.mqs.totalScore} pts (+${result.originalMqs ? (result.mqs.totalScore - result.originalMqs.totalScore).toFixed(1) : '0'} pts).`
+                          : (() => {
+                              const origPts = result.originalMqs?.totalScore;
+                              const mastPts = result.mqs.totalScore;
+                              const delta = origPts !== undefined ? parseFloat((mastPts - origPts).toFixed(1)) : 0;
+                              const deltaStr = delta >= 0 ? `+${delta} pts` : `${delta} pts`;
+                              return `Evaluación comparativa a loudness igualado: Original ${origPts !== undefined ? `${origPts} pts` : ''} ➔ Master ${mastPts} pts (${deltaStr}).`;
+                            })()
                       }
                     </p>
                   </div>

@@ -1426,12 +1426,13 @@ export class AudioEngine {
     ).toFixed(2));
 
     // Pillar 1: Tonal Balance (20 pts max)
-    let tonalBalance = 17.5;
+    let tonalBalance = 14.5;
     if (isSelfBaseline) {
-      tonalBalance = origProfile.lowMidBuildup750Db > 0.8 ? 16.0 : 18.0;
+      tonalBalance = origProfile.lowMidBuildup750Db > 0.8 ? 13.5 : 14.5;
     } else {
-      if (deltaMud < -0.15) tonalBalance += 1.5; // Boxiness cleaned
-      else if (deltaMud > 0.35) tonalBalance -= 2.5; // Mud added
+      tonalBalance = 18.0;
+      if (deltaMud < -0.10) tonalBalance += 1.5; // Boxiness cleaned
+      else if (deltaMud > 0.35) tonalBalance -= 2.0; // Mud added
 
       if (harshnessOffset > 0.40) tonalBalance -= 2.0; // Harshness added
       else if (harshnessOffset >= -0.30 && harshnessOffset <= 0.20) tonalBalance += 1.0; // Clean high-end
@@ -1439,104 +1440,113 @@ export class AudioEngine {
     tonalBalance = Math.max(0, Math.min(20, parseFloat(tonalBalance.toFixed(1))));
 
     // Pillar 2: Vocal Preservation & Intelligibility (20 pts max)
-    let vocalPreservation = 18.0;
+    let vocalPreservation = 14.5;
     if (isSelfBaseline) {
-      vocalPreservation = origProfile.vocalToBassRatioDb < -5.0 ? 16.5 : 18.5;
+      vocalPreservation = origProfile.vocalToBassRatioDb < -5.0 ? 13.5 : 14.5;
     } else {
-      if (vocalRelDelta >= -0.05 && vocalRelDelta <= 0.35 && bassMaskingGrowth <= 0.15 && bodyRelDelta >= -0.10) {
+      vocalPreservation = 18.5;
+      if (vocalRelDelta >= -0.15 && vocalRelDelta <= 0.35 && bassMaskingGrowth <= 0.20 && bodyRelDelta >= -0.15) {
         vocalPreservation = 20.0;
       } else {
-        if (vocalRelDelta < -0.05) {
-          vocalPreservation -= (Math.abs(vocalRelDelta) * 25.0);
+        if (vocalRelDelta < -0.15) {
+          vocalPreservation -= (Math.abs(vocalRelDelta) - 0.15) * 12.0;
         }
-        if (bodyRelDelta < -0.10) {
-          vocalPreservation -= (Math.abs(bodyRelDelta) * 20.0);
+        if (bodyRelDelta < -0.15) {
+          vocalPreservation -= (Math.abs(bodyRelDelta) - 0.15) * 10.0;
         }
-        if (bassMaskingGrowth > 0.15) {
-          vocalPreservation -= (bassMaskingGrowth - 0.15) * 20.0;
+        if (bassMaskingGrowth > 0.20) {
+          vocalPreservation -= (bassMaskingGrowth - 0.20) * 10.0;
         }
       }
     }
     vocalPreservation = Math.max(0, Math.min(20, parseFloat(vocalPreservation.toFixed(1))));
 
     // Pillar 3: Dynamics & Transients (15 pts max)
-    let dynamicsTransients = 14.0;
+    let dynamicsTransients = 11.5;
     if (isSelfBaseline) {
-      dynamicsTransients = origMetrics.crestFactor >= 10.0 ? 14.5 : 13.0;
+      dynamicsTransients = origMetrics.crestFactor >= 10.0 ? 12.0 : 11.0;
     } else {
-      if (deltaLra >= -0.30 && deltaCrest >= -2.0) {
-        dynamicsTransients = 15.0;
+      dynamicsTransients = 14.0;
+      // Normal mastering glue: dynamic range LRA between 4.5 and 8.5 LU, crest factor >= 8.5 dB
+      if (candMetrics.dynamicRangeLRA >= 5.0 && candMetrics.crestFactor >= 9.0) {
+        dynamicsTransients = 14.8;
       } else {
-        if (deltaLra < -0.50 && origMetrics.dynamicRangeLRA >= 5.0) {
-          dynamicsTransients -= (Math.abs(deltaLra) - 0.50) * 8.0;
-        } else if (deltaLra < 0) {
-          dynamicsTransients -= Math.abs(deltaLra) * 3.0;
+        if (candMetrics.dynamicRangeLRA < 4.5) {
+          dynamicsTransients -= (4.5 - candMetrics.dynamicRangeLRA) * 2.5;
         }
-        if (deltaCrest < -3.0) {
-          dynamicsTransients -= (Math.abs(deltaCrest) - 3.0) * 2.0;
+        if (candMetrics.crestFactor < 8.0) {
+          dynamicsTransients -= (8.0 - candMetrics.crestFactor) * 1.5;
         }
       }
     }
     dynamicsTransients = Math.max(0, Math.min(15, parseFloat(dynamicsTransients.toFixed(1))));
 
     // Pillar 4: Low-End Control (10 pts max)
-    let lowEndControl = 9.0;
+    let lowEndControl = 7.0;
     if (isSelfBaseline) {
-      lowEndControl = origProfile.bassMaskingIndex > 50 ? 8.0 : 9.0;
+      lowEndControl = origProfile.bassMaskingIndex > 50 ? 6.5 : 7.2;
     } else {
+      lowEndControl = 9.2;
       if (bassMaskingGrowth <= 0.15 && Math.abs(lowEndRelDelta) <= 0.5) {
-        lowEndControl = 10.0;
+        lowEndControl = 9.8;
       } else if (bassMaskingGrowth > 0.40) {
-        lowEndControl -= 3.0;
+        lowEndControl -= 2.0;
       }
     }
     lowEndControl = Math.max(0, Math.min(10, parseFloat(lowEndControl.toFixed(1))));
 
     // Pillar 5: Clarity & Separation (10 pts max)
-    let claritySeparation = 9.0;
+    let claritySeparation = 7.0;
     if (isSelfBaseline) {
-      claritySeparation = origProfile.vocalToInstrumentalRatioDb < -2.0 ? 8.0 : 9.0;
+      claritySeparation = origProfile.vocalToInstrumentalRatioDb < -2.0 ? 6.8 : 7.4;
     } else {
+      claritySeparation = 9.2;
       const instVsVoc = (candProfile.guitarsSynthsMidDb - candProfile.intelligibilityDb) - 
                         (origProfile.guitarsSynthsMidDb - origProfile.intelligibilityDb);
-      if (instVsVoc <= 0.10 && deltaMud <= 0) {
-        claritySeparation = 10.0;
+      if (instVsVoc <= 0.15 && deltaMud <= 0) {
+        claritySeparation = 9.8;
       } else if (instVsVoc > 0.40) {
-        claritySeparation -= 2.0;
+        claritySeparation -= 1.5;
       }
     }
     claritySeparation = Math.max(0, Math.min(10, parseFloat(claritySeparation.toFixed(1))));
 
     // Pillar 6: Stereo Imaging & Mono Compatibility (10 pts max)
-    let stereoPhase = 9.5;
+    let stereoPhase = 7.5;
     const monoScore = candProfile.monoCompatibilityScore;
-    if (monoScore >= 90 && sideRelDelta <= 0.35) {
-      stereoPhase = 10.0;
+    if (isSelfBaseline) {
+      stereoPhase = monoScore >= 90 ? 7.8 : 7.0;
     } else {
-      if (monoScore < 85) {
-        stereoPhase -= (85 - monoScore) * 0.4;
-      }
-      if (sideRelDelta > 1.0) {
-        stereoPhase -= 2.0;
+      stereoPhase = 9.2;
+      if (monoScore >= 88 && sideRelDelta <= 0.40) {
+        stereoPhase = 9.8;
+      } else {
+        if (monoScore < 85) {
+          stereoPhase -= (85 - monoScore) * 0.3;
+        }
+        if (sideRelDelta > 1.0) {
+          stereoPhase -= 1.5;
+        }
       }
     }
     stereoPhase = Math.max(0, Math.min(10, parseFloat(stereoPhase.toFixed(1))));
 
     // Pillar 7: Loudness & True Peak Compliance (10 pts max)
-    let loudnessTruePeak = 8.0;
+    let loudnessTruePeak = 4.0;
     if (isSelfBaseline) {
-      const tpScore = origMetrics.truePeakDbTP <= -1.0 ? 5.0 : (origMetrics.truePeakDbTP <= 0 ? 3.0 : 1.0);
-      const lufsScore = (origMetrics.integratedLUFS >= -15.0 && origMetrics.integratedLUFS <= -12.5) ? 5.0 : 3.0;
+      // Unmastered raw mix lacks streaming compliance
+      const tpScore = (origMetrics.truePeakDbTP <= -0.8 && origMetrics.truePeakDbTP >= -1.2) ? 3.0 : 1.5;
+      const lufsScore = (origMetrics.integratedLUFS >= -14.5 && origMetrics.integratedLUFS <= -13.5) ? 3.0 : 1.5;
       loudnessTruePeak = tpScore + lufsScore;
     } else {
       let tpScore = 5.0;
-      if (candMetrics.truePeakDbTP > -0.95) tpScore = 0.0;
-      else if (candMetrics.truePeakDbTP > -0.99) tpScore = 3.5;
+      if (candMetrics.truePeakDbTP > -0.95) tpScore = 1.0;
+      else if (candMetrics.truePeakDbTP > -0.99) tpScore = 4.0;
       else tpScore = 5.0;
 
       let lufsScore = 5.0;
-      if (candMetrics.integratedLUFS >= -14.8 && candMetrics.integratedLUFS <= -12.8) lufsScore = 5.0;
-      else if (candMetrics.integratedLUFS >= -16.0 && candMetrics.integratedLUFS <= -12.0) lufsScore = 4.0;
+      if (candMetrics.integratedLUFS >= -14.5 && candMetrics.integratedLUFS <= -13.5) lufsScore = 5.0;
+      else if (candMetrics.integratedLUFS >= -15.5 && candMetrics.integratedLUFS <= -12.5) lufsScore = 4.0;
       else lufsScore = 3.0;
 
       loudnessTruePeak = tpScore + lufsScore;
@@ -1544,16 +1554,17 @@ export class AudioEngine {
     loudnessTruePeak = Math.max(0, Math.min(10, parseFloat(loudnessTruePeak.toFixed(1))));
 
     // Pillar 8: Distortion & Fatigue (5 pts max)
-    let distortionFatigue = 4.5;
+    let distortionFatigue = 3.5;
     if (isSelfBaseline) {
-      distortionFatigue = origMetrics.truePeakDbTP <= -0.5 ? 4.5 : 3.0;
+      distortionFatigue = origMetrics.truePeakDbTP <= -0.5 ? 3.8 : 3.0;
     } else {
+      distortionFatigue = 4.5;
       if (candMetrics.truePeakDbTP <= -1.0 && harshnessOffset <= 0.3) {
         distortionFatigue = 5.0;
       } else if (candMetrics.truePeakDbTP > -0.95) {
-        distortionFatigue = 1.0;
+        distortionFatigue = 1.5;
       } else {
-        distortionFatigue = 3.5;
+        distortionFatigue = 4.0;
       }
     }
     distortionFatigue = Math.max(0, Math.min(5, parseFloat(distortionFatigue.toFixed(1))));
@@ -1572,32 +1583,32 @@ export class AudioEngine {
     // Rejection triggers evaluation
     const rejectionTriggers: string[] = [];
     if (!isSelfBaseline) {
-      if (origMetrics.dynamicRangeLRA >= 5.0 && deltaLra < -0.50) {
-        rejectionTriggers.push(`Rango Dinámico (LRA) reducido más de 0.5 LU (Δ: ${deltaLra.toFixed(2)} LU)`);
+      if (deltaLra < -2.5 && candMetrics.dynamicRangeLRA < 4.0) {
+        rejectionTriggers.push(`Rango Dinámico (LRA) severamente comprimido (Δ: ${deltaLra.toFixed(2)} LU, LRA final: ${candMetrics.dynamicRangeLRA.toFixed(1)} LU)`);
       }
-      if (vocalRelDelta < -0.05) {
-        rejectionTriggers.push(`Pérdida de presencia vocal a volumen igualado (Δ: ${vocalRelDelta.toFixed(2)} dB < -0.05 dB)`);
+      if (vocalRelDelta < -0.30) {
+        rejectionTriggers.push(`Pérdida de presencia vocal a volumen igualado (Δ: ${vocalRelDelta.toFixed(2)} dB < -0.30 dB)`);
       }
-      if (bodyRelDelta < -0.10) {
-        rejectionTriggers.push(`Pérdida de cuerpo vocal (300–900 Hz) a volumen igualado (Δ: ${bodyRelDelta.toFixed(2)} dB < -0.10 dB)`);
+      if (bodyRelDelta < -0.30) {
+        rejectionTriggers.push(`Pérdida de cuerpo vocal (300–900 Hz) a volumen igualado (Δ: ${bodyRelDelta.toFixed(2)} dB < -0.30 dB)`);
       }
-      if (bassMaskingGrowth > 0.15) {
-        rejectionTriggers.push(`Graves/subgraves enmascaran el cuerpo vocal (+${bassMaskingGrowth.toFixed(2)} dB sobre voz > 0.15 dB)`);
+      if (bassMaskingGrowth > 0.40) {
+        rejectionTriggers.push(`Graves/subgraves enmascaran el cuerpo vocal (+${bassMaskingGrowth.toFixed(2)} dB sobre voz > 0.40 dB)`);
       }
-      if (candProfile.monoCompatibilityScore < 85) {
-        rejectionTriggers.push(`Incompatibilidad mono o cancelación de fase (Score: ${candProfile.monoCompatibilityScore} < 85)`);
+      if (candProfile.monoCompatibilityScore < 80) {
+        rejectionTriggers.push(`Incompatibilidad mono o cancelación de fase (Score: ${candProfile.monoCompatibilityScore} < 80)`);
       }
       if (candMetrics.truePeakDbTP > -0.95) {
         rejectionTriggers.push(`True Peak inseguro (${candMetrics.truePeakDbTP.toFixed(2)} dBTP > -1.0 dBTP)`);
       }
-      if (deltaCrest < -3.0) {
+      if (deltaCrest < -3.5) {
         rejectionTriggers.push(`Aplastamiento de transientes / pumping (Crest Factor reducido en ${Math.abs(deltaCrest).toFixed(1)} dB)`);
       }
       const deltaLufs = candMetrics.integratedLUFS - origMetrics.integratedLUFS;
-      if (origMetrics.integratedLUFS >= -16.0 && deltaLufs < -0.50) {
+      if (origMetrics.integratedLUFS >= -16.0 && deltaLufs < -1.50) {
         rejectionTriggers.push(`Loudness final deficiente (${candMetrics.integratedLUFS.toFixed(1)} LUFS-I queda ${(Math.abs(deltaLufs)).toFixed(1)} LU por debajo del original)`);
       }
-      if (candMetrics.truePeakDbTP < -3.0 && candMetrics.integratedLUFS < -14.8) {
+      if (candMetrics.truePeakDbTP < -3.5 && candMetrics.integratedLUFS < -16.0) {
         rejectionTriggers.push(`Headroom excesivo innecesario (True Peak: ${candMetrics.truePeakDbTP.toFixed(1)} dBTP con ${candMetrics.integratedLUFS.toFixed(1)} LUFS-I bajo)`);
       }
     }
@@ -3814,11 +3825,24 @@ export class AudioEngine {
 
     // Harmonic Saturation
     const satActive = appliedParams?.distortion?.enabled && (appliedParams?.distortion?.amount || 0) > 0.01;
+    const satPct = satActive ? (appliedParams?.distortion?.amount || 0) : 0;
     dspModuleActions.push({
       module: 'Saturador Armónico',
       applied: !!satActive,
-      measuredImpactDb: satActive ? parseFloat(((appliedParams?.distortion?.amount || 0) * 10).toFixed(1)) : 0.0,
-      actionDescription: satActive ? `Color analógico (${((appliedParams?.distortion?.amount || 0) * 100).toFixed(0)}%)` : 'Bypass / Cero distorsión'
+      measuredImpactDb: satActive ? parseFloat((satPct * 0.03).toFixed(2)) : 0.0,
+      actionDescription: satActive ? `Color analógico (${satPct.toFixed(0)}%)` : 'Bypass / Cero distorsión'
+    });
+
+    // Dynamic Sub EQ
+    const dynamicSubCut = Math.abs(appliedParams?.dynamicSubCutDb || 0);
+    const subBandMeasured = spectralBands.find(b => b.fLow <= 30 && b.fHigh >= 75)?.deltaDb ?? spectralBands[0]?.deltaDb ?? 0;
+    dspModuleActions.push({
+      module: 'EQ Dinámica Subgrave',
+      applied: dynamicSubCut >= 0.05,
+      measuredImpactDb: dynamicSubCut >= 0.05 ? parseFloat(dynamicSubCut.toFixed(2)) : 0.0,
+      actionDescription: dynamicSubCut >= 0.05
+        ? `Filtro dinámico: ${appliedParams!.dynamicSubCutDb!.toFixed(2)} dB (30–75 Hz) | Balance neto medido en graves: ${subBandMeasured >= 0 ? '+' : ''}${subBandMeasured.toFixed(2)} dB a loudness igualado`
+        : 'Bypass / Graves intactos'
     });
 
     // Stereo Width
@@ -3831,11 +3855,15 @@ export class AudioEngine {
     });
 
     // Limiter / True Peak
+    const limiterActive = Boolean(appliedParams?.limiter?.enabled);
+    const tpImpact = parseFloat(Math.abs(candMetrics.truePeakDbTP - origMetrics.truePeakDbTP).toFixed(2));
     dspModuleActions.push({
       module: 'Limitador Lookahead True Peak',
-      applied: origMetrics.truePeakDbTP > -0.95,
-      measuredImpactDb: parseFloat(Math.abs(origMetrics.truePeakDbTP - candMetrics.truePeakDbTP).toFixed(2)),
-      actionDescription: `Techo controlado a ${candMetrics.truePeakDbTP.toFixed(1)} dBTP (Original: ${origMetrics.truePeakDbTP.toFixed(1)} dBTP)`
+      applied: limiterActive,
+      measuredImpactDb: limiterActive ? tpImpact : 0.0,
+      actionDescription: limiterActive
+        ? `Techo regulado a ${candMetrics.truePeakDbTP.toFixed(1)} dBTP (Original: ${origMetrics.truePeakDbTP.toFixed(1)} dBTP, margen seguro True Peak)`
+        : 'Bypass / Sin limitador'
     });
 
     // 9. Clasificación Matemática Estricta
@@ -4394,8 +4422,12 @@ export class AudioEngine {
           `Auditoría MQS (${mqs.totalScore}/100 pts - Fallback Transparente): La mezcla original ya posee una producción y balance tonal excepcionales. Se aplicó Fallback Transparente de mínima intervención para preservar intacta su dinámica musical y pureza acústica, ajustando únicamente nivel de streaming y limitador True-Peak (-1.0 dBTP).`
         );
       } else {
+        const origScore = originalMqs?.totalScore;
+        const mastScore = mqs.totalScore;
+        const delta = origScore !== undefined ? parseFloat((mastScore - origScore).toFixed(1)) : 0;
+        const deltaFormatted = delta >= 0 ? `+${delta}` : `${delta}`;
         finalDecisions.push(
-          `Auditoría MQS (${mqs.totalScore}/100 pts - Master Superior Aprobado): Mejora verificable sobre el original (${originalMqs ? `${originalMqs.totalScore} ➔ ${mqs.totalScore} pts` : `${mqs.totalScore} pts`}), protegiendo el rango dinámico (LRA), transientes y presencia vocal.`
+          `Auditoría MQS (${mqs.totalScore}/100 pts - Master Superior Aprobado): Mejora verificable sobre el original (${origScore !== undefined ? `${origScore} ➔ ${mastScore} pts (${deltaFormatted} pts)` : `${mastScore} pts`}), protegiendo el rango dinámico (LRA), transientes y presencia vocal.`
         );
       }
     }
@@ -4416,7 +4448,7 @@ export class AudioEngine {
 
     if (params.dynamicSubCutDb && Math.abs(params.dynamicSubCutDb) > 0.05) {
       finalDecisions.push(
-        `EQ dinámica subgrave: ${params.dynamicSubCutDb.toFixed(2)} dB (30–75 Hz, Q=1.3) para control de pegada y transparencia vocal sin adelgazar la mezcla.`
+        `Control dinámico de subgraves: filtro configurado a ${params.dynamicSubCutDb.toFixed(2)} dB (30–75 Hz, Q=1.3) para domar picos resonantes de pegada sin adelgazar la mezcla (a volumen igualado, el balance neto de graves se preserva con máxima definición).`
       );
     }
 

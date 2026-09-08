@@ -1049,8 +1049,8 @@ export default function App() {
            lang={lang}
          />
 
-         <div className="flex flex-col md:flex-row gap-5 shrink-0 h-[340px]">
-            <div className="flex-1 flex flex-col gap-3">
+         <div className="flex flex-col md:flex-row gap-5 shrink-0 min-h-[440px] md:h-[440px]">
+            <div className="flex-1 flex flex-col gap-3 min-h-0">
                 <div className={`flex-1 overflow-hidden relative min-h-0 flex flex-col ${glassClass}`}>
                     <div className="h-10 flex items-center justify-between px-4 border-b border-slate-800/80">
                         <div className="flex items-center gap-4 text-[10px] font-mono">
@@ -1158,7 +1158,7 @@ export default function App() {
                         : (visBuffer ? visBuffer.duration : (activeTrackBuf ? activeTrackBuf.duration : 0));
 
                       return (
-                        <div className="flex-1 relative">
+                        <div className="flex-1 min-h-0 relative flex flex-col w-full h-full">
                             <Visualizer 
                               audioBuffer={visBuffer} 
                               currentTime={currentTime} 

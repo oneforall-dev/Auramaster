@@ -604,7 +604,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
       {/* Canvas Waveform Area */}
       <div 
         ref={containerRef}
-        className="flex-1 w-full relative cursor-crosshair overflow-hidden min-h-[140px]"
+        className="flex-1 min-h-0 w-full relative cursor-crosshair overflow-hidden min-h-[220px]"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
