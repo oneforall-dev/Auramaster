@@ -1257,7 +1257,6 @@ export class AudioEngine {
     const finalReopenedBuffer = reopenedData.reopenedBuffer;
 
     // Recalcular métricas de telemetría DIRECTAMENTE sobre el archivo exportado y reabierto
-    // Recalcular métricas de telemetría DIRECTAMENTE sobre el archivo exportado y reabierto
     const afterMetrics = await this.calculateAccurateDSPMetrics(finalReopenedBuffer);
     const finalMeasuredLUFS = afterMetrics ? parseFloat(afterMetrics.integratedLUFS.toFixed(1)) : targetLUFS;
     const finalTP = afterMetrics ? parseFloat(afterMetrics.truePeakDbTP.toFixed(1)) : -1.0;
