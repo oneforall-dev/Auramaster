@@ -105,6 +105,7 @@ export interface MasteringChainParams {
   midDensity750Gain?: number; // Dynamic 750 Hz density control
   dynamicSubCutDb?: number; // Selective 30-75 Hz dynamic sub/kick attenuation
   vocalBodyMidRecoveryDb?: number; // Selective 300-900 Hz mid recovery in vocal sections
+  isTransparentFallback?: boolean; // When active, strictly enforces pure linear passthrough & true peak safety
 }
 
 export interface Track {
@@ -375,6 +376,7 @@ export interface AIMasteringResult {
   iterationHistory?: MasteringIterationRecord[];
   isFallbackApplied?: boolean;
   qualityVerdict?: 'APPROVED_BETTER' | 'TRANSPARENT_FALLBACK' | 'REJECTED';
+  fallbackBandDeltas?: { band: string; deltaDb: number; maxAllowedDb: number; passed: boolean }[];
 }
 
 export interface BulkMasteringSummary {

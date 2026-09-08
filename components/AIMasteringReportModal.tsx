@@ -312,6 +312,53 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
             </div>
           )}
 
+          {/* Transparent Fallback Acoustic Verification Table */}
+          {result.isFallbackApplied && result.fallbackBandDeltas && result.fallbackBandDeltas.length > 0 && (
+            <div className={`p-4 rounded-xl border space-y-3 ${
+              isClear 
+                ? 'bg-cyan-50/60 border-cyan-200 text-slate-800' 
+                : 'bg-cyan-950/20 border-cyan-500/30 text-slate-200'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2.5 border-slate-700/50">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={18} className="text-cyan-400 shrink-0" />
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-cyan-300">
+                      Verificación de Fallback Transparente (Medición Acústica en Render)
+                    </h4>
+                    <p className="text-[11px] opacity-75 font-mono">
+                      Tolerancia estricta: desviación máxima permitida ≤ ±0.30 dB (≤ +0.50 dB en 20-150 Hz) a loudness igualado.
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 shrink-0">
+                  Bit-Transparent + True Peak Safe
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 font-mono text-[11px]">
+                {result.fallbackBandDeltas.map((band, idx) => (
+                  <div key={idx} className={`p-2.5 rounded-lg border flex flex-col justify-between gap-1.5 ${
+                    isClear ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                  }`}>
+                    <span className="text-[10px] text-slate-400 font-sans truncate">{band.band}</span>
+                    <div className="flex items-baseline justify-between">
+                      <span className={`font-bold ${band.passed ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        {band.deltaDb >= 0 ? `+${band.deltaDb.toFixed(2)}` : band.deltaDb.toFixed(2)} dB
+                      </span>
+                      <span className="text-[9px] text-slate-500">límite: ±{band.maxAllowedDb.toFixed(2)} dB</span>
+                    </div>
+                    <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded text-center ${
+                      band.passed ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'
+                    }`}>
+                      {band.passed ? '✓ Verificado' : '⚠ Desviación'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* If Reference Report exists: 4-Way Comparison Table */}
           {referenceReport ? (
             <div className="space-y-4">

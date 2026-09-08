@@ -64,7 +64,7 @@ export async function generateAudioSourceId(file?: File, buffer?: AudioBuffer): 
 export function getNeutralMasteringParams(): MasteringChainParams {
   return {
     eq: {
-      enabled: true,
+      enabled: false,
       low: { frequency: 80, gain: 0.0, q: 0.7 },
       lowMid: { frequency: 320, gain: 0.0, q: 1.0 },
       mid: { frequency: 1000, gain: 0.0, q: 1.0 },
@@ -72,7 +72,7 @@ export function getNeutralMasteringParams(): MasteringChainParams {
       high: { frequency: 10000, gain: 0.0, q: 0.7 }
     },
     multiband: {
-      enabled: true,
+      enabled: false,
       low: { threshold: -16, ratio: 1.4, attack: 0.03, release: 0.2 },
       mid: { threshold: -18, ratio: 1.3, attack: 0.025, release: 0.15 },
       high: { threshold: -20, ratio: 1.2, attack: 0.015, release: 0.10 }
@@ -90,6 +90,7 @@ export function getNeutralMasteringParams(): MasteringChainParams {
     midDensity750Gain: 0.0,
     dynamicSubCutDb: 0.0,
     vocalBodyMidRecoveryDb: 0.0,
+    isTransparentFallback: false,
     limiter: { enabled: true, threshold: -1.0, breathe: 0 }
   };
 }
@@ -1091,33 +1092,31 @@ export class AudioEngine {
       maskingElementDetected = "Sibilancias y aspereza en agudos (5-9 kHz)";
     }
 
-    // 1. Tonal Balance & 5-Band EQ Strategy
+    // 1. Tonal Balance & 5-Band EQ Strategy: Prioritize Lead Vocal Preservation
     newParams.eq.enabled = true;
 
-    // Step 1: Low-end balance with anti-masking control
+    // Step 1: Low-end balance with anti-masking control (NEUTRAL BASELINE: 0.0 dB)
+    // Avoid blind low-shelf boosting that overpowers and buries vocals
     newParams.eq.low.frequency = 80;
-    if (origVocal.bassMaskingIndex > 50 || origVocal.vocalToBassRatioDb < -5.0) {
-      newParams.eq.low.gain = 0.15; // Controlled low-end to protect vocal intimacy
-      decisions.push('Protección vocal frente al grave: low-shelf restringido (+0.15 dB @ 80Hz) por enmascaramiento detectado');
-    } else if (beforeStats.crestFactor > 12) {
-      newParams.eq.low.gain = 0.45;
-      decisions.push('Low-end warmth and sub-bass foundation enhanced (+0.45 dB @ 80Hz)');
-    } else {
-      newParams.eq.low.gain = 0.25;
-      decisions.push('Low-end balanced and sub-frequencies cleanly filtered');
-    }
+    newParams.eq.low.gain = 0.0;
+    decisions.push('Low-end balance: 0.0 dB @ 80Hz (graves naturales conservados sin desbalance para no desplazar la voz)');
 
-    // Low-Mid mud cleaning (250-400Hz)
+    // Low-Mid mud cleaning (250-400Hz): do NOT blindly cut vocal chest body!
     newParams.eq.lowMid.frequency = 320;
     newParams.eq.lowMid.q = 1.0;
-    newParams.eq.lowMid.gain = -0.35;
-    decisions.push('Low-mid boxiness cleaned with gentle precision (-0.35 dB @ 320Hz)');
+    if (origVocal.lowMidBuildup750Db > 1.2) {
+      newParams.eq.lowMid.gain = -0.15;
+      decisions.push('Low-mid boxiness cleaned with gentle precision (-0.15 dB @ 320Hz)');
+    } else {
+      newParams.eq.lowMid.gain = 0.0;
+      decisions.push('Cuerpo en medios-bajos preservado intacto (0.0 dB @ 320Hz) para conservar plenitud vocal');
+    }
 
     // Smart 750 Hz Density Tamer: only active when real congestion is detected
     if (origVocal.lowMidBuildup750Db > 0) {
       const target750Reduction = origVocal.hasProminentVocals
-        ? Math.min(0.4, Math.max(0.2, origVocal.lowMidBuildup750Db * 0.15))
-        : Math.min(0.6, Math.max(0.2, origVocal.lowMidBuildup750Db * 0.25));
+        ? Math.min(0.3, Math.max(0.15, origVocal.lowMidBuildup750Db * 0.15))
+        : Math.min(0.5, Math.max(0.2, origVocal.lowMidBuildup750Db * 0.25));
       newParams.midDensity750Gain = -parseFloat(target750Reduction.toFixed(2));
       decisions.push(`Dynamic 750Hz density tamer activo (${newParams.midDensity750Gain.toFixed(1)} dB): atenuación suave por resonancia detectada, preservando cuerpo vocal.`);
     } else {
@@ -1125,93 +1124,53 @@ export class AudioEngine {
       decisions.push('Zona de 750 Hz transparente (0.0 dB): cuerpo y proximidad vocal intactos sin atenuación innecesaria.');
     }
 
-    // Mid-range presence & vocal body: tuned to detected presence frequency
-    const hasMultipleStems = tracks.length > 1;
-    const hasVocalStem = tracks.some(t => this.detectStemType(t.name) === 'vocals');
-
-    if (hasMultipleStems && hasVocalStem) {
-      newParams.eq.mid.frequency = origVocal.exactPresenceFreq;
-      newParams.eq.mid.q = 0.9;
-      newParams.eq.mid.gain = 0.35;
-      decisions.push(`Stem Mix Vocal Focus: Presencia vocal calibrada suavemente (+0.35 dB @ ${origVocal.exactPresenceFreq}Hz)`);
-    } else if (hasMultipleStems) {
-      newParams.eq.mid.frequency = origVocal.exactPresenceFreq;
-      newParams.eq.mid.q = 0.9;
-      newParams.eq.mid.gain = 0.25;
-      decisions.push(`Multi-Stem Cohesion: Medios cohesionados entre pistas (+0.25 dB @ ${origVocal.exactPresenceFreq}Hz)`);
-    } else {
-      newParams.eq.mid.frequency = origVocal.exactPresenceFreq;
-      newParams.eq.mid.q = 1.0;
-      newParams.eq.mid.gain = 0.0; // 100% natural, no artificial push initially
-      decisions.push(`Stereo Master: Presencia media en su centro espectral natural (0.0 dB @ ${origVocal.exactPresenceFreq}Hz)`);
-    }
+    // Mid-range presence & vocal focus: tuned directly to detected vocal presence center
+    newParams.eq.mid.frequency = origVocal.exactPresenceFreq;
+    newParams.eq.mid.q = 0.95;
+    newParams.eq.mid.gain = 0.35; // Crystal focal boost directly in the vocal presence core
+    decisions.push(`Foco Vocal Frontal: Presencia media calibrada (+0.35 dB @ ${origVocal.exactPresenceFreq}Hz) para protagonismo nítido`);
 
     // High-Mid harshness control (3.5kHz - 5.5kHz): only applied if real harshness is detected
     newParams.eq.highMid.frequency = 4200;
     newParams.eq.highMid.q = 1.2;
     if (origVocal.sibilanceExcessDb > 2.0 && origVocal.presenceDb > -30) {
-      newParams.eq.highMid.gain = -0.25;
-      decisions.push('Dureza acústica en medios-altos atenuada con suavidad (-0.25 dB @ 4.2kHz) por exceso comprobado de sibilancia/estridencia.');
+      newParams.eq.highMid.gain = -0.20;
+      decisions.push('Dureza acústica en medios-altos atenuada con suavidad (-0.20 dB @ 4.2kHz) por exceso comprobado de sibilancia/estridencia.');
     } else {
       newParams.eq.highMid.gain = 0.0; // Conservar intacta la presencia vocal si no hay dureza
     }
 
     // High Air & Sheen (10kHz - 20kHz)
     newParams.eq.high.frequency = 10500;
-    newParams.eq.high.gain = 0.35;
-    decisions.push('High-end air and sheen controlled (+0.35 dB @ 10.5kHz) without sibilance or harshness');
+    newParams.eq.high.gain = 0.25;
+    decisions.push('High-end air and sheen controlled (+0.25 dB @ 10.5kHz) without sibilance or harshness');
 
     // 2. Dynamic De-Esser: Adaptive frequency detection in 5.5k - 8.5k
     newParams.gate.enabled = false;
-    if (origVocal.sibilanceExcessDb > 0.4) {
+    if (origVocal.sibilanceExcessDb > 0.8) {
       newParams.deEsser.enabled = true;
       newParams.deEsser.frequency = origVocal.exactSibilanceFreq;
       newParams.deEsser.threshold = -18.0;
-      newParams.deEsser.amount = 2.5;
-      const deEssReductionEst = Math.min(1.5, Math.max(0.5, origVocal.sibilanceExcessDb));
-      decisions.push(`Dynamic De-Esser adaptativo calibrado en ${origVocal.exactSibilanceFreq} Hz: sibilancias controladas con suavidad (${deEssReductionEst.toFixed(1)} dB máx) en consonantes problemáticas.`);
+      newParams.deEsser.amount = 2.0;
+      const deEssReductionEst = Math.min(1.0, Math.max(0.4, origVocal.sibilanceExcessDb));
+      decisions.push(`Dynamic De-Esser adaptativo calibrado en ${origVocal.exactSibilanceFreq} Hz: sibilancias controladas (${deEssReductionEst.toFixed(1)} dB máx).`);
     } else {
       newParams.deEsser.enabled = false;
       decisions.push('Dynamic De-Esser en bypass: agudos y respiración vocal limpios y naturales sin sibilancia problemática.');
     }
 
-    // 3. Dynamics & Multiband Compressor (Gentle, musical glue preserving microdynamics)
-    newParams.multiband.enabled = true;
-    if (beforeStats.dynamicRangeLRA > 12) {
-      newParams.multiband.low.threshold = -16;
-      newParams.multiband.low.ratio = 1.6;
-      newParams.multiband.low.attack = 0.03;
-      newParams.multiband.low.release = 0.15;
+    // 3. Dynamics & Multiband Compressor (Disabled by default to prevent wideband vocal squashing)
+    newParams.multiband.enabled = false;
+    decisions.push('Compresión multibanda en bypass: microdinámica vocal y pegada natural preservadas sin bombeo');
 
-      newParams.multiband.mid.threshold = -18;
-      newParams.multiband.mid.ratio = 1.4;
-      newParams.multiband.mid.attack = 0.025;
-      newParams.multiband.mid.release = 0.12;
+    // 4. Stereo Imaging & Analog Warmth (Preserving 100% natural stereo image)
+    newParams.stereoWidth = 1.0; // 100% natural soundstage preserved
+    decisions.push('Stereo width preservado (1.00x) para mantener la voz firme y centrada en el mix');
 
-      newParams.multiband.high.threshold = -20;
-      newParams.multiband.high.ratio = 1.3;
-      newParams.multiband.high.attack = 0.015;
-      newParams.multiband.high.release = 0.08;
-      decisions.push('Multiband dynamics glue engaged with subtle 1.3:1 - 1.6:1 ratios preserving dynamics and elegance');
-    } else {
-      newParams.multiband.low.threshold = -12;
-      newParams.multiband.low.ratio = 1.3;
-      newParams.multiband.mid.threshold = -10;
-      newParams.multiband.mid.ratio = 1.2;
-      newParams.multiband.high.threshold = -10;
-      newParams.multiband.high.ratio = 1.2;
-      decisions.push('Transparent dynamics preservation maintaining natural punch without overcompression');
-    }
-
-    // 4. Stereo Imaging & Analog Warmth (Preserving full natural width, stabilizing only sub & low-mids)
-    newParams.stereoWidth = 1.0; // 100% natural wide soundstage preserved
-    decisions.push('Stereo width preserved (100% natural soundstage) with centered sub-bass (<105Hz) and 200Hz side tamer (-0.6dB) for mono firmness');
-
-    // Subtle Analog Tape Console Saturation (Adds body & cohesion without peak overs)
-    newParams.distortion.enabled = true;
+    // Analog Tape Saturation: subtle & clean
+    newParams.distortion.enabled = false;
     newParams.distortion.mode = 'tape';
-    newParams.distortion.amount = 0.03;
-    decisions.push('Analog Tape Console Harmonics engaged (subtle 2nd/3rd harmonics) for warm analog depth');
+    newParams.distortion.amount = 0.0;
 
     // Transient Sculpting (Snap & Punch)
     newParams.transient.enabled = false;
@@ -1278,6 +1237,19 @@ export class AudioEngine {
       ? await this.calculateMasteringQualityScore(masteredBuffer, rawBuffer, this.getSourceSampleRate())
       : null;
 
+    const initialVocalMatch = (masteredBuffer && rawBuffer)
+      ? await this.evaluateVocalPreservationMatch(masteredBuffer, rawBuffer)
+      : { isVocalWorse: false, reasons: [], vocalRelDeltaDb: 0, vocalBodyDeltaDb: 0, bassMaskingGrowthDb: 0 };
+
+    if (initialMqs && initialVocalMatch.isVocalWorse) {
+      initialMqs.isApproved = false;
+      for (const r of initialVocalMatch.reasons) {
+        if (!initialMqs.rejectionTriggers.includes(r)) {
+          initialMqs.rejectionTriggers.push(r);
+        }
+      }
+    }
+
     iterationHistory.push({
       iterationIndex: 1,
       mqs: initialMqs || {
@@ -1308,74 +1280,120 @@ export class AudioEngine {
 
     const origScore = originalMqs?.totalScore ?? 85;
 
-    // Iteration 2: If Iteration 1 had rejection triggers or failed to improve upon original
-    if (initialMqs && (!initialMqs.isApproved || initialMqs.totalScore <= origScore)) {
-      const pass2Tweaks: string[] = [];
-      const pass2Params: MasteringChainParams = JSON.parse(JSON.stringify(newParams));
+    // Multi-pass Closed-Loop Iterative Refinement (up to 3 corrective passes, 4 total)
+    let currentIterationParams = JSON.parse(JSON.stringify(newParams));
+    let currentCandidateMqs = initialMqs;
+    let currentVocalMatch = initialVocalMatch;
 
-      if (initialMqs.rejectionTriggers.some(r => r.includes('Dinámico') || r.includes('LRA') || r.includes('transientes'))) {
-        pass2Params.multiband.low.ratio = 1.15;
-        pass2Params.multiband.mid.ratio = 1.15;
-        pass2Params.multiband.high.ratio = 1.15;
-        pass2Params.multiband.low.threshold += 2.0;
-        pass2Params.multiband.mid.threshold += 2.0;
-        pass2Params.multiband.high.threshold += 2.0;
-        pass2Tweaks.push('Compresión multibanda relajada (ratio 1.15:1) para proteger transientes');
+    for (let iter = 2; iter <= 4; iter++) {
+      if (!currentCandidateMqs || (currentCandidateMqs.isApproved && currentCandidateMqs.totalScore > origScore && !currentVocalMatch.isVocalWorse)) {
+        break;
       }
 
-      if (initialMqs.rejectionTriggers.some(r => r.includes('vocal') || r.includes('Graves'))) {
-        pass2Params.eq.mid.frequency = origVocal.exactPresenceFreq;
-        pass2Params.eq.mid.gain = Math.min(0.45, (pass2Params.eq.mid.gain || 0) + 0.30);
-        pass2Params.eq.low.gain = Math.max(-0.40, (pass2Params.eq.low.gain || 0) - 0.20);
-        pass2Params.dynamicSubCutDb = -0.30;
-        pass2Tweaks.push(`Mid EQ vocal calibrado (+${pass2Params.eq.mid.gain.toFixed(2)} dB @ ${origVocal.exactPresenceFreq}Hz) y subgraves atenuados`);
+      const passTweaks: string[] = [];
+      const nextParams: MasteringChainParams = JSON.parse(JSON.stringify(currentIterationParams));
+
+      // 1. Vocal recession or presence loss correction
+      if (currentVocalMatch.isVocalWorse || currentCandidateMqs.rejectionTriggers.some(r => r.toLowerCase().includes('vocal') || r.toLowerCase().includes('presencia'))) {
+        nextParams.eq.mid.frequency = origVocal.exactPresenceFreq;
+        nextParams.eq.mid.gain = Math.min(0.65, (nextParams.eq.mid.gain || 0) + 0.20);
+        nextParams.eq.highMid.gain = 0.0;
+        nextParams.deEsser.enabled = false;
+        passTweaks.push(`Mid EQ vocal reforzado a +${nextParams.eq.mid.gain.toFixed(2)} dB @ ${origVocal.exactPresenceFreq}Hz`);
       }
 
-      if (initialMqs.rejectionTriggers.some(r => r.includes('True Peak') || r.includes('inseguro'))) {
-        pass2Params.limiter.threshold = -1.15;
-        pass2Tweaks.push('Ceiling de limitador ajustado a -1.15 dBTP');
+      // 2. Vocal body loss (300-900 Hz)
+      if (currentVocalMatch.vocalBodyDeltaDb < -0.05 || currentCandidateMqs.rejectionTriggers.some(r => r.includes('cuerpo'))) {
+        nextParams.vocalBodyMidRecoveryDb = Math.min(0.40, (nextParams.vocalBodyMidRecoveryDb || 0) + 0.20);
+        nextParams.eq.lowMid.gain = Math.max(0.0, nextParams.eq.lowMid.gain || 0);
+        passTweaks.push(`Cuerpo vocal Mid +${nextParams.vocalBodyMidRecoveryDb.toFixed(2)} dB (300-900 Hz) en centro`);
       }
 
-      const pass2Buffer = await this.renderPreview(pass2Params, tracks);
-      if (pass2Buffer && rawBuffer) {
-        const pass2Metrics = await this.calculateAccurateDSPMetrics(pass2Buffer);
-        const pass2Mqs = await this.calculateMasteringQualityScore(pass2Buffer, rawBuffer, this.getSourceSampleRate());
+      // 3. Bass masking control (sub-bass / kick overpowering vocal)
+      if (currentVocalMatch.bassMaskingGrowthDb > 0.10 || currentCandidateMqs.rejectionTriggers.some(r => r.toLowerCase().includes('grave') || r.toLowerCase().includes('masking'))) {
+        nextParams.eq.low.gain = Math.max(-0.45, (nextParams.eq.low.gain || 0) - 0.20);
+        nextParams.dynamicSubCutDb = Math.min(-0.25, (nextParams.dynamicSubCutDb || 0) - 0.15);
+        if (nextParams.gain > 1.05) {
+          nextParams.gain = parseFloat((nextParams.gain * 0.97).toFixed(3));
+        }
+        passTweaks.push(`Low-shelf ${nextParams.eq.low.gain.toFixed(2)} dB @ 80Hz y EQ dinámica subgrave ${nextParams.dynamicSubCutDb.toFixed(2)} dB`);
+      }
+
+      // 4. Dynamics / Transients preservation
+      if (currentCandidateMqs.rejectionTriggers.some(r => r.includes('Dinámico') || r.includes('LRA') || r.includes('transientes'))) {
+        nextParams.multiband.enabled = false;
+        passTweaks.push('Compresión multibanda en bypass total para restaurar rango dinámico');
+      }
+
+      // 5. True peak safety
+      if (currentCandidateMqs.rejectionTriggers.some(r => r.includes('True Peak') || r.includes('inseguro'))) {
+        nextParams.limiter.threshold = -1.15;
+        passTweaks.push('Ceiling de limitador ajustado a -1.15 dBTP');
+      }
+
+      const passBuffer = await this.renderPreview(nextParams, tracks);
+      if (passBuffer && rawBuffer) {
+        const passMetrics = await this.calculateAccurateDSPMetrics(passBuffer);
+        const passMqs = await this.calculateMasteringQualityScore(passBuffer, rawBuffer, this.getSourceSampleRate());
+        const passVocalMatch = await this.evaluateVocalPreservationMatch(passBuffer, rawBuffer);
+
+        if (passVocalMatch.isVocalWorse) {
+          passMqs.isApproved = false;
+          for (const r of passVocalMatch.reasons) {
+            if (!passMqs.rejectionTriggers.includes(r)) {
+              passMqs.rejectionTriggers.push(r);
+            }
+          }
+        }
+
         iterationHistory.push({
-          iterationIndex: 2,
-          mqs: pass2Mqs,
-          appliedTweaks: pass2Tweaks,
-          renderedLufs: pass2Metrics.integratedLUFS,
-          renderedPeak: pass2Metrics.truePeakDbTP,
-          isRejected: !pass2Mqs.isApproved,
-          rejectedReasons: pass2Mqs.rejectionTriggers
+          iterationIndex: iter,
+          mqs: passMqs,
+          appliedTweaks: passTweaks,
+          renderedLufs: passMetrics.integratedLUFS,
+          renderedPeak: passMetrics.truePeakDbTP,
+          isRejected: !passMqs.isApproved,
+          rejectedReasons: passMqs.rejectionTriggers
         });
 
-        if (bestMqs === null || pass2Mqs.totalScore > bestMqs.totalScore) {
-          bestBuffer = pass2Buffer;
-          bestMetrics = pass2Metrics;
-          bestParams = pass2Params;
-          bestMqs = pass2Mqs;
+        currentIterationParams = nextParams;
+        currentCandidateMqs = passMqs;
+        currentVocalMatch = passVocalMatch;
+
+        if (passMqs.isApproved && !passVocalMatch.isVocalWorse && passMqs.totalScore > (bestMqs?.totalScore ?? 0)) {
+          bestBuffer = passBuffer;
+          bestMetrics = passMetrics;
+          bestParams = nextParams;
+          bestMqs = passMqs;
         }
       }
     }
 
-    // Evaluate Quality Verdict: Master Must Surpass Original
+    // Final vocal evaluation on best candidate
+    const finalVocalMatch = (bestBuffer && rawBuffer)
+      ? await this.evaluateVocalPreservationMatch(bestBuffer, rawBuffer)
+      : { isVocalWorse: false, reasons: [], vocalRelDeltaDb: 0, vocalBodyDeltaDb: 0, bassMaskingGrowthDb: 0 };
+
+    // Evaluate Quality Verdict: Master Must Surpass Original AND Zero-Tolerance Vocal Preservation
     let isFallbackApplied = false;
     let qualityVerdict: 'APPROVED_BETTER' | 'TRANSPARENT_FALLBACK' | 'REJECTED' = 'APPROVED_BETTER';
+    let fallbackBandDeltas: { band: string; deltaDb: number; maxAllowedDb: number; passed: boolean }[] | undefined = undefined;
 
-    if (bestMqs && bestMqs.totalScore > origScore && bestMqs.isApproved) {
+    if (bestMqs && bestMqs.totalScore > origScore && bestMqs.isApproved && !finalVocalMatch.isVocalWorse) {
       qualityVerdict = 'APPROVED_BETTER';
       isFallbackApplied = false;
       masteredBuffer = bestBuffer;
       afterMetrics = bestMetrics;
       newParams = bestParams;
     } else {
-      // TRANSPARENT FALLBACK: Original mix is already pristine, avoid damaging overprocessing
+      // TRANSPARENT FALLBACK: Original mix is already pristine or processed audio compromised vocal position
+      // Enforces pure bit-transparent gain + true-peak lookahead limiter (< ±0.3 dB spectral variation)
       qualityVerdict = 'TRANSPARENT_FALLBACK';
       isFallbackApplied = true;
 
       const fallbackParams = getNeutralMasteringParams();
-      fallbackParams.eq.enabled = true;
+      fallbackParams.isTransparentFallback = true;
+      fallbackParams.eq.enabled = false;
       fallbackParams.multiband.enabled = false;
       fallbackParams.distortion.enabled = false;
       fallbackParams.deEsser.enabled = false;
@@ -1393,6 +1411,7 @@ export class AudioEngine {
         afterMetrics = await this.calculateAccurateDSPMetrics(masteredBuffer);
         if (rawBuffer) {
           bestMqs = await this.calculateMasteringQualityScore(masteredBuffer, rawBuffer, this.getSourceSampleRate());
+          fallbackBandDeltas = await this.measureSpectralBandDeltas(masteredBuffer, rawBuffer);
         }
       }
       newParams = fallbackParams;
@@ -1471,7 +1490,8 @@ export class AudioEngine {
       totalIterationsRun: iterationHistory.length,
       iterationHistory,
       isFallbackApplied,
-      qualityVerdict
+      qualityVerdict,
+      fallbackBandDeltas
     };
 
     onPhaseChange?.('complete');
@@ -1547,16 +1567,17 @@ export class AudioEngine {
     if (isSelfBaseline) {
       vocalPreservation = origProfile.vocalToBassRatioDb < -5.0 ? 16.5 : 18.5;
     } else {
-      if (vocalRelDelta >= -0.15 && vocalRelDelta <= 0.35 && bassMaskingGrowth <= 0.20) {
+      if (vocalRelDelta >= -0.05 && vocalRelDelta <= 0.35 && bassMaskingGrowth <= 0.15 && bodyRelDelta >= -0.10) {
         vocalPreservation = 20.0;
       } else {
-        if (vocalRelDelta < -0.30) {
-          vocalPreservation -= (Math.abs(vocalRelDelta) - 0.30) * 15.0;
-        } else if (vocalRelDelta < 0) {
-          vocalPreservation -= Math.abs(vocalRelDelta) * 5.0;
+        if (vocalRelDelta < -0.05) {
+          vocalPreservation -= (Math.abs(vocalRelDelta) * 25.0);
         }
-        if (bassMaskingGrowth > 0.30) {
-          vocalPreservation -= (bassMaskingGrowth - 0.30) * 8.0;
+        if (bodyRelDelta < -0.10) {
+          vocalPreservation -= (Math.abs(bodyRelDelta) * 20.0);
+        }
+        if (bassMaskingGrowth > 0.15) {
+          vocalPreservation -= (bassMaskingGrowth - 0.15) * 20.0;
         }
       }
     }
@@ -1678,11 +1699,14 @@ export class AudioEngine {
       if (origMetrics.dynamicRangeLRA >= 5.0 && deltaLra < -0.50) {
         rejectionTriggers.push(`Rango Dinámico (LRA) reducido más de 0.5 LU (Δ: ${deltaLra.toFixed(2)} LU)`);
       }
-      if (vocalRelDelta < -0.30) {
-        rejectionTriggers.push(`Pérdida de presencia vocal superior a 0.3 dB (Δ: ${vocalRelDelta.toFixed(2)} dB)`);
+      if (vocalRelDelta < -0.05) {
+        rejectionTriggers.push(`Pérdida de presencia vocal a volumen igualado (Δ: ${vocalRelDelta.toFixed(2)} dB < -0.05 dB)`);
       }
-      if (bassMaskingGrowth > 0.35) {
-        rejectionTriggers.push(`Graves enmascaran el cuerpo vocal (+${bassMaskingGrowth.toFixed(2)} dB sobre voz)`);
+      if (bodyRelDelta < -0.10) {
+        rejectionTriggers.push(`Pérdida de cuerpo vocal (300–900 Hz) a volumen igualado (Δ: ${bodyRelDelta.toFixed(2)} dB < -0.10 dB)`);
+      }
+      if (bassMaskingGrowth > 0.15) {
+        rejectionTriggers.push(`Graves/subgraves enmascaran el cuerpo vocal (+${bassMaskingGrowth.toFixed(2)} dB sobre voz > 0.15 dB)`);
       }
       if (candProfile.monoCompatibilityScore < 85) {
         rejectionTriggers.push(`Incompatibilidad mono o cancelación de fase (Score: ${candProfile.monoCompatibilityScore} < 85)`);
@@ -2192,6 +2216,144 @@ export class AudioEngine {
       blockLowEndRmsArr,
       blockSideRmsArr,
       vocalActiveBlocks
+    };
+  }
+
+  public async measureSpectralBandDeltas(
+    candidateBuffer: AudioBuffer,
+    originalBuffer: AudioBuffer
+  ): Promise<{ band: string; deltaDb: number; maxAllowedDb: number; passed: boolean }[]> {
+    const numChannels = Math.min(candidateBuffer.numberOfChannels, originalBuffer.numberOfChannels);
+    const len = Math.min(candidateBuffer.length, originalBuffer.length);
+    const sampleRate = candidateBuffer.sampleRate;
+
+    const origMetrics = await this.calculateAccurateDSPMetrics(originalBuffer);
+    const candMetrics = await this.calculateAccurateDSPMetrics(candidateBuffer);
+    const loudnessOffset = candMetrics.integratedLUFS - origMetrics.integratedLUFS;
+
+    const bands = [
+      { name: 'Sub & Graves (20–150 Hz)', fLow: 20, fHigh: 150, maxAllowedDb: 0.50 },
+      { name: 'Medios-Bajos / Cuerpo (150–500 Hz)', fLow: 150, fHigh: 500, maxAllowedDb: 0.30 },
+      { name: 'Medios / Voz (500–2000 Hz)', fLow: 500, fHigh: 2000, maxAllowedDb: 0.30 },
+      { name: 'Medios-Altos / Presencia (2–6 kHz)', fLow: 2000, fHigh: 6000, maxAllowedDb: 0.30 },
+      { name: 'Agudos & Aire (6–20 kHz)', fLow: 6000, fHigh: 20000, maxAllowedDb: 0.30 }
+    ];
+
+    const makeCoeffs = (f0: number, Q: number) => {
+      const w0 = (2 * Math.PI * f0) / sampleRate;
+      const alpha = Math.sin(w0) / (2 * Q);
+      const cosw0 = Math.cos(w0);
+      const b0 = alpha;
+      const b1 = 0;
+      const b2 = -alpha;
+      const a0 = 1 + alpha;
+      const a1 = -2 * cosw0;
+      const a2 = 1 - alpha;
+      return {
+        b0: b0 / a0,
+        b1: b1 / a0,
+        b2: b2 / a0,
+        a1: a1 / a0,
+        a2: a2 / a0
+      };
+    };
+
+    const results: { band: string; deltaDb: number; maxAllowedDb: number; passed: boolean }[] = [];
+
+    for (const b of bands) {
+      const fCenter = Math.sqrt(b.fLow * b.fHigh);
+      const bandwidth = b.fHigh - b.fLow;
+      const Q = Math.max(0.4, fCenter / bandwidth);
+      const coeffs = makeCoeffs(fCenter, Q);
+
+      let origSumSq = 0;
+      let candSumSq = 0;
+      let count = 0;
+
+      for (let c = 0; c < numChannels; c++) {
+        const origData = originalBuffer.getChannelData(c);
+        const candData = candidateBuffer.getChannelData(c);
+
+        let ox1 = 0, ox2 = 0, oy1 = 0, oy2 = 0;
+        let cx1 = 0, cx2 = 0, cy1 = 0, cy2 = 0;
+
+        const step = 2;
+        for (let i = 0; i < len; i += step) {
+          const osamp = origData[i];
+          const oy0 = coeffs.b0 * osamp + coeffs.b1 * ox1 + coeffs.b2 * ox2 - coeffs.a1 * oy1 - coeffs.a2 * oy2;
+          ox2 = ox1; ox1 = osamp; oy2 = oy1; oy1 = oy0;
+          origSumSq += oy0 * oy0;
+
+          const csamp = candData[i];
+          const cy0 = coeffs.b0 * csamp + coeffs.b1 * cx1 + coeffs.b2 * cx2 - coeffs.a1 * cy1 - coeffs.a2 * cy2;
+          cx2 = cx1; cx1 = csamp; cy2 = cy1; cy1 = cy0;
+          candSumSq += cy0 * cy0;
+
+          count++;
+        }
+      }
+
+      const origRms = Math.sqrt(origSumSq / Math.max(1, count));
+      const candRms = Math.sqrt(candSumSq / Math.max(1, count));
+
+      const rawDeltaDb = 20 * Math.log10(Math.max(1e-6, candRms) / Math.max(1e-6, origRms));
+      const normalizedDeltaDb = parseFloat((rawDeltaDb - loudnessOffset).toFixed(2));
+      const passed = Math.abs(normalizedDeltaDb) <= b.maxAllowedDb;
+
+      results.push({
+        band: b.name,
+        deltaDb: normalizedDeltaDb,
+        maxAllowedDb: b.maxAllowedDb,
+        passed
+      });
+    }
+
+    return results;
+  }
+
+  public async evaluateVocalPreservationMatch(
+    candidateBuffer: AudioBuffer,
+    originalBuffer: AudioBuffer
+  ): Promise<{
+    isVocalWorse: boolean;
+    reasons: string[];
+    vocalRelDeltaDb: number;
+    vocalBodyDeltaDb: number;
+    bassMaskingGrowthDb: number;
+  }> {
+    const origMetrics = await this.calculateAccurateDSPMetrics(originalBuffer);
+    const candMetrics = await this.calculateAccurateDSPMetrics(candidateBuffer);
+    const loudnessOffset = candMetrics.integratedLUFS - origMetrics.integratedLUFS;
+
+    const origProfile = await this.analyzeVocalProfile(originalBuffer);
+    const candProfile = await this.analyzeVocalProfile(candidateBuffer);
+
+    const origRelPres = origProfile.presenceDb - origMetrics.integratedLUFS;
+    const candRelPres = candProfile.presenceDb - candMetrics.integratedLUFS;
+    const vocalRelDeltaDb = parseFloat((candRelPres - origRelPres).toFixed(2));
+
+    const lowEndRelDelta = (candProfile.lowEndEnergyDb - origProfile.lowEndEnergyDb) - loudnessOffset;
+    const bodyRelDelta = (candProfile.vocalBodyDb - origProfile.vocalBodyDb) - loudnessOffset;
+    const bassMaskingGrowthDb = parseFloat((lowEndRelDelta - bodyRelDelta).toFixed(2));
+    const vocalBodyDeltaDb = parseFloat(bodyRelDelta.toFixed(2));
+
+    const reasons: string[] = [];
+    if (vocalRelDeltaDb < -0.05) {
+      reasons.push(`Pérdida de presencia vocal a volumen igualado (Δ: ${vocalRelDeltaDb.toFixed(2)} dB < -0.05 dB)`);
+    }
+    if (vocalBodyDeltaDb < -0.10) {
+      reasons.push(`Pérdida de cuerpo vocal en medios (Δ: ${vocalBodyDeltaDb.toFixed(2)} dB < -0.10 dB)`);
+    }
+    if (bassMaskingGrowthDb > 0.15) {
+      reasons.push(`Graves/subgraves enmascaran la voz (+${bassMaskingGrowthDb.toFixed(2)} dB sobre cuerpo vocal > 0.15 dB)`);
+    }
+
+    return {
+      isVocalWorse: reasons.length > 0,
+      reasons,
+      vocalRelDeltaDb,
+      vocalBodyDeltaDb,
+      bassMaskingGrowthDb
     };
   }
 
@@ -3793,6 +3955,15 @@ export class AudioEngine {
         s.start(0);
     }
     
+    // PURE BIT-TRANSPARENT FALLBACK: Clean linear gain to target LUFS + true-peak lookahead limiter
+    if (params.isTransparentFallback) {
+      const pre = offline.createGain();
+      pre.gain.value = Math.max(0, params.gain);
+      sum.connect(pre).connect(offline.destination);
+      const rendered = await offline.startRendering();
+      return this.applyTruePeakLookaheadLimiter(rendered, params.limiter?.threshold ?? -1.0);
+    }
+
     // OFFLINE CHAIN - MASTER BUS
     const preDc = offline.createBiquadFilter(); preDc.type = 'highpass'; preDc.frequency.value = 20;
     const pre = offline.createGain(); pre.gain.value = Math.max(0, params.gain);
@@ -3856,7 +4027,7 @@ export class AudioEngine {
     sideLowMidDip.Q.value = 1.0;
     sideLowMidDip.gain.value = -0.6; // Preserves mono firmness
 
-    const msSideGain = offline.createGain(); msSideGain.gain.value = params.stereoWidth ?? 1.12;
+    const msSideGain = offline.createGain(); msSideGain.gain.value = params.stereoWidth ?? 1.0;
     const msMerger = offline.createChannelMerger(2);
     const sideOutInvert = offline.createGain(); sideOutInvert.gain.value = -1;
 
@@ -3875,10 +4046,14 @@ export class AudioEngine {
     msSplitter.connect(sideInvert, 1);
     sideInvert.connect(msSideDiff);
 
-    // Route Side through Mono-Maker HighPass & Low-Mid Dip before width gain
-    msSideDiff.connect(sideMonoHighPass);
-    sideMonoHighPass.connect(sideLowMidDip);
-    sideLowMidDip.connect(msSideGain);
+    // Route Side: only apply highpass/dip if stereoWidth is specifically altered
+    if (params.stereoWidth !== undefined && Math.abs(params.stereoWidth - 1.0) > 0.02) {
+      msSideDiff.connect(sideMonoHighPass);
+      sideMonoHighPass.connect(sideLowMidDip);
+      sideLowMidDip.connect(msSideGain);
+    } else {
+      msSideDiff.connect(msSideGain);
+    }
 
     // Route Mid through Vocal Body Recovery Filter
     msMidSum.connect(vocalBodyRecovery);
@@ -3889,22 +4064,13 @@ export class AudioEngine {
     msSideGain.connect(sideOutInvert);
     sideOutInvert.connect(msMerger, 0, 1);
 
-    const lim = offline.createDynamicsCompressor(); 
-    lim.threshold.value = params.limiter.threshold; 
-    lim.ratio.value = 20;
-    lim.knee.value = 8.0; // Smooth 8dB knee to eliminate -1dB hard-clip clicking
-    lim.attack.value = 0.0015; 
-    lim.release.value = 0.05;
-    
-    const dcBlocker = offline.createBiquadFilter(); dcBlocker.type = 'highpass'; dcBlocker.frequency.value = 20; dcBlocker.Q.value = 0.71;
-
-    const safetyClipper = offline.createWaveShaper();
-    safetyClipper.curve = this.makeBrickwallCurve();
-    safetyClipper.oversample = '4x';
-
-    // Connect: Pre -> Gate -> Dist -> Dynamic Sub Cut -> 5-band EQ + Mid Density Tamer -> DeEsser -> MS Merger -> Limiter -> DC -> SafeClip
+    // Connect: Pre -> Gate -> Dist -> Dynamic Sub Cut -> 5-band EQ + Mid Density Tamer -> DeEsser -> MS Splitter
     sum.connect(preDc).connect(pre).connect(gate).connect(dist).connect(dynamicSubCut).connect(eqL).connect(eqLM).connect(eqM).connect(midDensityTamer).connect(eqHM).connect(eqH).connect(deEsser);
-    msMerger.connect(lim).connect(dcBlocker).connect(safetyClipper).connect(offline.destination);
+
+    // Output Stage: Ultra-clean DC protection (15 Hz) directly to destination
+    // (Eliminates wideband 20:1 DynamicsCompressorNode that was ducking vocals on kick transients)
+    const dcBlocker = offline.createBiquadFilter(); dcBlocker.type = 'highpass'; dcBlocker.frequency.value = 15; dcBlocker.Q.value = 0.707;
+    msMerger.connect(dcBlocker).connect(offline.destination);
 
     const rendered = await offline.startRendering();
     return this.applyTruePeakLookaheadLimiter(rendered, params.limiter?.threshold ?? -1.0);
