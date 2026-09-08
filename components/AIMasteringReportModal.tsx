@@ -35,6 +35,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
   const t = getT(lang);
   const isClear = false;
   const { before, after, decisions, targetMet, statusNote, referenceReport } = result;
+  const finalMeasuredLUFS = result.finalMeasuredLUFS ?? after.integratedLUFS;
 
   const formatMode = (m: string) => {
     switch(m) {
@@ -92,7 +93,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 </span>
               </div>
               <p className={`text-xs mt-0.5 ${isClear ? 'text-slate-600' : 'text-slate-400'}`}>
-                {statusNote || `Masterización completada: ${after.integratedLUFS.toFixed(1)} LUFS-I | True Peak: ${after.truePeakDbTP.toFixed(1)} dBTP`}
+                {statusNote || `Masterización completada: ${finalMeasuredLUFS.toFixed(1)} LUFS-I | True Peak: ${after.truePeakDbTP.toFixed(1)} dBTP`}
               </p>
             </div>
           </div>
@@ -124,7 +125,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     : 'Estándar de Distribución & Streaming Calibrado'}
                 </div>
                 <div className="text-xs opacity-90 font-mono mt-0.5">
-                  LUFS-I: {after.integratedLUFS.toFixed(1)} LUFS &nbsp;|&nbsp; True Peak medido: {after.truePeakDbTP.toFixed(1)} dBTP (Ceiling configurado: ≤ -1.0 dBTP)
+                  LUFS-I: {finalMeasuredLUFS.toFixed(1)} LUFS &nbsp;|&nbsp; True Peak medido: {after.truePeakDbTP.toFixed(1)} dBTP (Ceiling configurado: ≤ -1.0 dBTP)
                 </div>
               </div>
             </div>
@@ -850,7 +851,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                   </div>
                 </div>
 
-                {/* 3. Residual Peak */}
+                {/* 3. Residual Peak & Real Max Error */}
                 <div className={`p-2.5 rounded-lg border text-xs flex flex-col justify-between ${
                   isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
                 }`}>
@@ -861,8 +862,12 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     </span>
                   </div>
                   <div className="mt-1.5 pt-1 border-t border-slate-800 text-[10px] font-mono flex items-center justify-between">
-                    <span className="text-slate-500">Pico Máx Error</span>
-                    <span className="text-slate-400 font-bold">Error pico</span>
+                    <span className="text-slate-500">Error Máx Real</span>
+                    <span className="text-slate-300 font-bold">
+                      {result.mathematicalComparison.residualMaxErrorDb !== undefined 
+                        ? `${result.mathematicalComparison.residualMaxErrorDb.toFixed(1)} dBFS` 
+                        : `${result.mathematicalComparison.residualPeakDb.toFixed(1)} dBFS`}
+                    </span>
                   </div>
                 </div>
 
@@ -1012,11 +1017,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-slate-200 text-[11px]">{dsp.module}</span>
                         <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
-                          dsp.applied
-                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                            : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                          dsp.statusLabel?.includes('ARMADO')
+                            ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                            : dsp.applied
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                              : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
                         }`}>
-                          {dsp.applied ? 'Activo' : 'Bypass / Neutro'}
+                          {dsp.statusLabel || (dsp.applied ? 'Activo' : 'Bypass / Neutro')}
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-400 font-mono mt-1 leading-relaxed">
@@ -1210,13 +1217,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                   <ArrowRight size={16} className="text-cyan-500 opacity-60" />
                   <div className="text-center">
                     <span className="text-[10px] text-emerald-500 font-bold block">MASTER</span>
-                    <span className="font-mono text-base font-black text-emerald-500">{after.integratedLUFS.toFixed(1)}</span>
+                    <span className="font-mono text-base font-black text-emerald-500">{finalMeasuredLUFS.toFixed(1)}</span>
                   </div>
                 </div>
                 <div className="text-[10px] opacity-70 font-mono text-center">
-                  {Math.abs(after.integratedLUFS - before.integratedLUFS) <= 0.3
+                  {Math.abs(finalMeasuredLUFS - before.integratedLUFS) <= 0.3
                     ? 'Volumen Preservado (0.0 LU delta)'
-                    : `Ganancia: ${(after.integratedLUFS - before.integratedLUFS >= 0 ? '+' : '') + (after.integratedLUFS - before.integratedLUFS).toFixed(1)} LU`}
+                    : `Ganancia: ${(finalMeasuredLUFS - before.integratedLUFS >= 0 ? '+' : '') + (finalMeasuredLUFS - before.integratedLUFS).toFixed(1)} LU`}
                 </div>
               </div>
 
@@ -1676,11 +1683,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                           <td className="py-2.5 font-bold text-slate-200">{action.module}</td>
                           <td className="py-2.5">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                              action.applied
-                                ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
-                                : 'bg-slate-800 text-slate-400 border-slate-700'
+                              action.statusLabel?.includes('ARMADO')
+                                ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                                : action.applied
+                                  ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                                  : 'bg-slate-800 text-slate-400 border-slate-700'
                             }`}>
-                              {action.applied ? 'ACTIVO' : 'BYPASS'}
+                              {action.statusLabel || (action.applied ? 'ACTIVO' : 'BYPASS')}
                             </span>
                           </td>
                           <td className="py-2.5 text-slate-300">

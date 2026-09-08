@@ -428,6 +428,18 @@ export interface AIMasteringResult {
   acousticDiagnosis?: AcousticAspectDiagnosis[];
   masteringDirection?: MasteringDirection;
   tournamentReport?: MasteringTournamentReport;
+  finalMeasuredLUFS?: number;
+  limiterTelemetry?: LimiterTelemetry;
+}
+
+export interface LimiterTelemetry {
+  limiterEnabled: boolean;
+  limiterCeiling: number;
+  maxGainReduction: number;
+  averageGainReduction: number;
+  samplesLimited: number;
+  finalTruePeak: number;
+  statusText: string;
 }
 
 export type AcousticAspectKey =
@@ -524,8 +536,10 @@ export interface MathematicalComparisonReport {
   sampleCorrelation: number; // Pearson correlation r (p.ej. 0.999998)
 
   // 3. Nivel RMS y Pico del residuo (dBFS)
-  residualRmsDb: number; // 20 * log10(RMS(Master * g^-1 - Source))
-  residualPeakDb: number; // 20 * log10(Peak(Master * g^-1 - Source))
+  residualRmsDb: number; // 20 * log10(RMS(Master_matched - Source))
+  residualPeakDb: number; // 20 * log10(Peak(Master_matched - Source))
+  residualMaxErrorLinear?: number; // Real max sample error |Master_matched - Source|
+  residualMaxErrorDb?: number; // 20 * log10(residualMaxErrorLinear)
 
   // 4. Diferencias espectrales por bandas a loudness igualado
   spectralBands: {
@@ -558,11 +572,13 @@ export interface MathematicalComparisonReport {
     applied: boolean;
     measuredImpactDb: number;
     actionDescription: string;
+    statusLabel?: string;
     samplesAffected?: number;
     peakReductionOrBoostDb?: number;
     activeTimeSeconds?: number;
     confirmedInSelectedRender?: boolean;
   }[];
+  limiterTelemetry?: LimiterTelemetry;
 
   // 9. Clasificación matemática estricta
   isOriginalPreservedWithoutMastering: boolean;
