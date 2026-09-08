@@ -13,6 +13,7 @@ import {
   ReferenceMasteringReportData,
   VocalAnalysisProfile,
   VocalProtectionReport,
+  VocalProtectionStatus,
   MasteringQualityScore,
   MasteringIterationRecord,
   MathematicalComparisonReport,
@@ -200,6 +201,7 @@ export class AudioEngine {
   private lastAnalysis: Partial<AnalysisMetrics> = {};
   public lastAIMasteringResult: AIMasteringResult | null = null;
   public currentSessionId: string = `sess_${Date.now().toString(36)}`;
+  public activeTrackSessionId: string = '';
   // Dedicated Transparent Playback Engine (Single Source of Truth & Zero Live DSP)
   private originalBuffer: AudioBuffer | null = null;
   private originalSourceId: string = '';
@@ -1224,7 +1226,7 @@ export class AudioEngine {
     const finalReopenedBuffer = reopenedData.reopenedBuffer;
 
     // Recalcular métricas de telemetría DIRECTAMENTE sobre el archivo exportado y reabierto
-    afterMetrics = await this.calculateAccurateDSPMetrics(finalReopenedBuffer);
+    const afterMetrics = await this.calculateAccurateDSPMetrics(finalReopenedBuffer);
     const finalLUFS = afterMetrics ? afterMetrics.integratedLUFS : targetLUFS;
     const finalTP = afterMetrics ? afterMetrics.truePeakDbTP : -1.0;
     const finalLRA = afterMetrics ? afterMetrics.dynamicRangeLRA : beforeStats.dynamicRangeLRA;
@@ -1636,7 +1638,7 @@ export class AudioEngine {
   // 1. Diagnóstico Acústico Multidimensional (17 Aspectos)
   public async diagnoseAcousticAspects(
     rawBuffer: AudioBuffer,
-    metrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; peakDb: number; spectralBands: number[]; harshness: number; mud: number; phase: number },
+    metrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; peakDb?: number; spectralBands: number[]; harshness: number; mud: number; phase: number },
     vocalProfile: VocalAnalysisProfile
   ): Promise<AcousticAspectDiagnosis[]> {
     const list: AcousticAspectDiagnosis[] = [];
@@ -2422,7 +2424,7 @@ export class AudioEngine {
     rawBuffer: AudioBuffer,
     tracks: Track[],
     currentParams: MasteringChainParams,
-    beforeMetrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; peakDb: number; spectralBands: number[]; harshness: number; mud: number; phase: number },
+    beforeMetrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; peakDb?: number; spectralBands: number[]; harshness: number; mud: number; phase: number },
     beforeStats: AIMasteringStats,
     _originalMqs: MasteringQualityScore | undefined,
     origVocal: VocalAnalysisProfile,
@@ -3352,7 +3354,7 @@ export class AudioEngine {
     rawBuffer?: AudioBuffer
   ): Promise<{
     calibratedBuffer: AudioBuffer | null;
-    calibratedMetrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; peakDb: number } | null;
+    calibratedMetrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; peakDb?: number } | null;
     calibratedParams: MasteringChainParams;
     gainCorrectionAppliedDb: number;
     vocalMatchPreserved: boolean;

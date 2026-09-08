@@ -107,6 +107,7 @@ export interface MasteringChainParams {
   vocalBodyMidRecoveryDb?: number; // Selective 300-900 Hz mid recovery in vocal sections
   vocalMidPresenceDb?: number; // Dedicated 1.5k-3.8k Mid channel vocal lift to place vocals on top of instruments
   sideVocalCarveDb?: number; // Dedicated Side-channel acoustic pocket carving to prevent instruments from masking vocals
+  sideLowMidDipDb?: number; // Subtle low-mid side dip to preserve mono firmness and front-to-back contrast
   isTransparentFallback?: boolean; // When active, strictly enforces pure linear passthrough & true peak safety
   stemAssisted?: boolean; // Tier 3 stem-assisted mastering
   stemMicroDuckingDb?: number; // 0.2 to 0.5 dB dynamic spectral instrumental ducking during active vocal
@@ -125,6 +126,7 @@ export interface Track {
   fadeIn: number; // Seconds
   fadeOut: number; // Seconds
   sourceId?: string; // Deterministic unique identifier of source audio
+  buffer?: AudioBuffer; // In-memory decoded PCM buffer for stems and preview
 }
 
 export enum PlaybackState {
@@ -287,6 +289,8 @@ export interface VocalAnalysisProfile {
   blockSideRmsArr?: number[];         // 16 block Side RMS values
   vocalActiveBlocks?: boolean[];      // 16 block boolean indicators of vocal activity
 }
+
+export type VocalProtectionStatus = 'approved' | 'acceptable' | 'warning' | 'failed' | 'partial';
 
 export interface VocalProtectionReport {
   original: VocalAnalysisProfile;
