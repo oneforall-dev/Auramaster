@@ -2,7 +2,7 @@ import React from 'react';
 import { 
   X, CheckCircle2, Sparkles, VolumeX, ArrowRight, ShieldCheck, 
   Activity, Music2, Cpu, Disc, Sliders, Layers, BarChart2, Gauge, Mic,
-  Scale, Binary
+  Scale, Binary, Trophy, Target
 } from 'lucide-react';
 import { AIMasteringResult, SkinMode } from '../types';
 import { Language, getT } from '../services/i18n';
@@ -229,6 +229,239 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* 1. Diagnóstico Acústico Multidimensional (17 Aspectos) */}
+          {result.acousticDiagnosis && result.acousticDiagnosis.length > 0 && (
+            <div className={`p-4 rounded-xl border space-y-3 ${
+              isClear 
+                ? 'bg-slate-50 border-slate-200 text-slate-800' 
+                : 'bg-slate-950/70 border-slate-800 text-slate-200'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                <div className="flex items-center gap-2">
+                  <Activity size={18} className="text-cyan-400" />
+                  <span className="font-bold text-xs uppercase tracking-wider text-slate-300">
+                    1. Diagnóstico Acústico Multidimensional (17 Aspectos)
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-[10px] font-mono">
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                    {result.acousticDiagnosis.filter(d => d.status === 'excelente').length} Excelentes (Protegidos)
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                    {result.acousticDiagnosis.filter(d => d.status === 'mejorable' || d.status === 'problematico').length} Intervenidos
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {result.acousticDiagnosis.map((item, idx) => (
+                  <div 
+                    key={idx} 
+                    className={`p-2.5 rounded-lg border text-xs flex flex-col justify-between ${
+                      item.status === 'excelente'
+                        ? 'bg-emerald-950/20 border-emerald-500/30'
+                        : item.status === 'mejorable'
+                          ? 'bg-amber-950/20 border-amber-500/30'
+                          : item.status === 'problematico'
+                            ? 'bg-rose-950/20 border-rose-500/30'
+                            : 'bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className="font-bold text-slate-200 text-xs">{item.label}</span>
+                        <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
+                          item.status === 'excelente'
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            : item.status === 'mejorable'
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              : item.status === 'problematico'
+                                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                : 'bg-slate-800 text-slate-300 border-slate-700'
+                        }`}>
+                          {item.status === 'excelente' ? '✓ Excelente (Proteger)' : item.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="text-[10px] font-mono text-cyan-300 mb-1">
+                        {item.measuredValue}
+                      </div>
+                      <p className="text-[10px] text-slate-400 line-clamp-2">
+                        {item.description}
+                      </p>
+                    </div>
+                    <div className="mt-2 pt-1 border-t border-slate-800/60 text-[10px] font-mono text-slate-300 flex items-center gap-1">
+                      <span className="text-cyan-400">↳</span>
+                      <span className="truncate" title={item.recommendation}>{item.recommendation}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 2. Dirección de Mastering Específica */}
+          {result.masteringDirection && (
+            <div className={`p-4 rounded-xl border space-y-2.5 ${
+              isClear 
+                ? 'bg-gradient-to-r from-indigo-50 to-cyan-50 border-indigo-200 text-slate-800' 
+                : 'bg-gradient-to-r from-indigo-950/40 to-cyan-950/30 border-indigo-500/30 text-slate-200'
+            }`}>
+              <div className="flex items-center gap-2">
+                <Target size={18} className="text-indigo-400" />
+                <span className="font-bold text-xs uppercase tracking-wider text-slate-300">
+                  2. Dirección de Mastering Específica Formulada para esta Canción
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {result.masteringDirection.selectedGoals.map((goal, gIdx) => (
+                  <span key={gIdx} className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-200 border border-indigo-500/40 shadow-sm flex items-center gap-1.5">
+                    <Sparkles size={12} className="text-indigo-400" />
+                    {goal}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs text-slate-400 font-mono pt-1">
+                {result.masteringDirection.rationale}
+              </p>
+            </div>
+          )}
+
+          {/* 3. Torneo de Candidatos a Loudness Igualado */}
+          {result.tournamentReport && (
+            <div className={`p-4 rounded-xl border space-y-4 ${
+              isClear 
+                ? 'bg-slate-50 border-slate-200 text-slate-800' 
+                : 'bg-slate-950/70 border-slate-800 text-slate-200'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                <div className="flex items-center gap-2">
+                  <Trophy size={18} className="text-amber-400" />
+                  <span className="font-bold text-xs uppercase tracking-wider text-slate-300">
+                    3. Torneo Automático de Candidatos a Loudness Igualado
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    Ganador: {result.tournamentReport.winnerName}
+                  </span>
+                  {result.tournamentReport.safetyFallbackApplied && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                      Regla de Seguridad
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Candidates Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {result.tournamentReport.candidates.map((cand) => {
+                  const isWinner = cand.id === result.tournamentReport?.winnerCandidateId;
+                  return (
+                    <div 
+                      key={cand.id} 
+                      className={`p-3 rounded-xl border flex flex-col justify-between relative transition-all ${
+                        cand.isDisqualified
+                          ? 'bg-rose-950/15 border-rose-500/30 opacity-75'
+                          : isWinner
+                            ? 'bg-gradient-to-b from-emerald-950/30 to-slate-900/90 border-emerald-500/50 shadow-lg ring-1 ring-emerald-500/30'
+                            : 'bg-slate-900/70 border-slate-800'
+                      }`}
+                    >
+                      {isWinner && (
+                        <div className="absolute -top-2.5 right-3 bg-emerald-500 text-slate-950 text-[9px] font-black uppercase px-2 py-0.5 rounded-full shadow">
+                          ★ Seleccionado
+                        </div>
+                      )}
+                      <div>
+                        <div className="flex items-baseline justify-between mb-1.5">
+                          <span className="font-bold text-sm text-slate-100">{cand.name}</span>
+                          <span className={`font-mono text-sm font-black ${isWinner ? 'text-emerald-400' : 'text-slate-300'}`}>
+                            {cand.scores.totalScore} pts
+                          </span>
+                        </div>
+                        <div className="text-[11px] font-mono text-slate-400 mb-2">
+                          LUFS: {cand.integratedLUFS.toFixed(1)} · TP: {cand.truePeakDbTP.toFixed(1)} dBTP
+                        </div>
+
+                        {/* Breakdown meters */}
+                        <div className="space-y-1 text-[10px] font-mono text-slate-300 border-t border-slate-800 pt-2 mb-2">
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Voz (VIR Δ {cand.deltaVirDb >= 0 ? '+' : ''}{cand.deltaVirDb.toFixed(2)} dB):</span>
+                            <span className={cand.deltaVirDb >= -0.3 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                              {cand.scores.vocalScore}/20
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Balance Tonal:</span>
+                            <span>{cand.scores.tonalBalanceScore}/15</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Profundidad 3D:</span>
+                            <span>{cand.scores.depthScore}/10</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Transientes / Pegada:</span>
+                            <span>{cand.scores.transientScore}/10</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Fase Estéreo:</span>
+                            <span className={cand.phaseCorrelation >= 0.75 ? 'text-emerald-400' : 'text-amber-400'}>
+                              {cand.scores.stereoPhaseScore}/10
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Cohesión / Confort:</span>
+                            <span>{cand.scores.cohesionFatigueScore}/15</span>
+                          </div>
+                        </div>
+
+                        {cand.isDisqualified && cand.disqualificationReason && (
+                          <div className="p-2 rounded bg-rose-950/40 border border-rose-500/40 text-rose-300 text-[10px] font-mono mb-2">
+                            Descalificado: {cand.disqualificationReason}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-800 text-[9px] font-mono text-slate-400">
+                        {cand.perceptualHighlights.join(' • ')}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Matchups list */}
+              {result.tournamentReport.matchups.length > 0 && (
+                <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-800 space-y-1.5">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                    Enfrentamientos Directos a Loudness Igualado:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {result.tournamentReport.matchups.map((m, mIdx) => (
+                      <div key={mIdx} className="p-2 rounded bg-slate-950/60 border border-slate-800/80 text-[11px] font-mono flex flex-col justify-between">
+                        <div className="flex justify-between text-slate-300">
+                          <span className="truncate">{m.candidate1} vs {m.candidate2}</span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between text-[10px]">
+                          <span className="text-emerald-400 font-bold">↳ Ganador: {m.winner}</span>
+                          <span className="text-slate-400">Δ {m.deltaScore > 0 ? '+' : ''}{m.deltaScore} pts</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Safety & Loudness note */}
+              {result.tournamentReport.sweetSpotLoudnessNote && (
+                <div className="text-[11px] font-mono text-cyan-300 bg-cyan-950/30 border border-cyan-500/30 p-2.5 rounded-lg flex items-center gap-2">
+                  <Gauge size={16} className="text-cyan-400 shrink-0" />
+                  <span>{result.tournamentReport.sweetSpotLoudnessNote}</span>
+                </div>
+              )}
             </div>
           )}
 

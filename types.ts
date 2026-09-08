@@ -421,6 +421,94 @@ export interface AIMasteringResult {
   audioIdentity?: AudioIdentity;
   reopenedFromWav?: boolean;
   loudnessMatchGainDb?: number;
+  acousticDiagnosis?: AcousticAspectDiagnosis[];
+  masteringDirection?: MasteringDirection;
+  tournamentReport?: MasteringTournamentReport;
+}
+
+export type AcousticAspectKey =
+  | 'voz'
+  | 'kick'
+  | 'bajo'
+  | 'subgrave'
+  | 'percusion'
+  | 'medios'
+  | 'presencia'
+  | 'agudos'
+  | 'profundidad'
+  | 'separacion'
+  | 'dinamica'
+  | 'transientes'
+  | 'estereo'
+  | 'midside'
+  | 'fase'
+  | 'densidad'
+  | 'loudness';
+
+export type AcousticAspectStatus = 'excelente' | 'bueno' | 'mejorable' | 'problematico';
+
+export interface AcousticAspectDiagnosis {
+  aspect: AcousticAspectKey;
+  label: string;
+  status: AcousticAspectStatus;
+  measuredValue: string;
+  description: string;
+  recommendation: string;
+  isProtected: boolean;
+}
+
+export interface MasteringDirection {
+  title: string;
+  selectedGoals: string[];
+  rationale: string;
+  protectedAspects: string[];
+}
+
+export interface TournamentCandidate {
+  id: 'candidate_a' | 'candidate_b' | 'candidate_c';
+  name: string;
+  type: 'transparent' | 'polished' | 'transformative';
+  params: MasteringChainParams;
+  integratedLUFS: number;
+  truePeakDbTP: number;
+  comparisonGainDb: number;
+  scores: {
+    vocalScore: number;
+    tonalBalanceScore: number;
+    separationScore: number;
+    lowEndScore: number;
+    transientScore: number;
+    depthScore: number;
+    stereoPhaseScore: number;
+    cohesionFatigueScore: number;
+    totalScore: number;
+  };
+  deltaVirDb: number;
+  phaseCorrelation: number;
+  headToHeadWins: number;
+  isDisqualified: boolean;
+  disqualificationReason?: string;
+  perceptualHighlights: string[];
+}
+
+export interface TournamentMatchup {
+  candidate1: string;
+  candidate2: string;
+  winner: string;
+  deltaScore: number;
+  rationale: string;
+}
+
+export interface MasteringTournamentReport {
+  candidates: TournamentCandidate[];
+  matchups: TournamentMatchup[];
+  winnerCandidateId: 'candidate_a' | 'candidate_b' | 'candidate_c';
+  winnerName: string;
+  safetyFallbackApplied: boolean;
+  safetyReason?: string;
+  selfCorrectionApplied: boolean;
+  selfCorrectionNotes?: string[];
+  sweetSpotLoudnessNote: string;
 }
 
 export interface MathematicalComparisonReport {

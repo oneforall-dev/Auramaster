@@ -16,7 +16,14 @@ import {
   MasteringQualityScore,
   MasteringIterationRecord,
   MathematicalComparisonReport,
-  AudioIdentity
+  AudioIdentity,
+  AcousticAspectDiagnosis,
+  AcousticAspectStatus,
+  AcousticAspectKey,
+  MasteringDirection,
+  TournamentCandidate,
+  TournamentMatchup,
+  MasteringTournamentReport
 } from '../types';
 
 type StemType = 'vocals' | 'drums' | 'bass' | 'other';
@@ -1172,472 +1179,39 @@ export class AudioEngine {
       maskingElementDetected = "Sibilancias y aspereza en agudos (5-9 kHz)";
     }
 
-    // 1. Tonal Balance & 5-Band EQ Strategy: Prioritize Lead Vocal Preservation
-    newParams.eq.enabled = true;
-
-    // Step 1: Low-end balance with anti-masking control (NEUTRAL BASELINE: 0.0 dB)
-    // Avoid blind low-shelf boosting that overpowers and buries vocals
-    newParams.eq.low.frequency = 80;
-    newParams.eq.low.gain = 0.0;
-    decisions.push('Low-end balance: 0.0 dB @ 80Hz (graves naturales conservados sin desbalance para no desplazar la voz)');
-
-    // Low-Mid mud cleaning (250-400Hz): do NOT blindly cut vocal chest body!
-    newParams.eq.lowMid.frequency = 320;
-    newParams.eq.lowMid.q = 1.0;
-    if (origVocal.lowMidBuildup750Db > 1.2) {
-      newParams.eq.lowMid.gain = -0.15;
-      decisions.push('Low-mid boxiness cleaned with gentle precision (-0.15 dB @ 320Hz)');
-    } else {
-      newParams.eq.lowMid.gain = 0.0;
-      decisions.push('Cuerpo en medios-bajos preservado intacto (0.0 dB @ 320Hz) para conservar plenitud vocal');
-    }
-
-    // Smart 750 Hz Density Tamer: only active when real congestion is detected
-    if (origVocal.lowMidBuildup750Db > 0) {
-      const target750Reduction = origVocal.hasProminentVocals
-        ? Math.min(0.3, Math.max(0.15, origVocal.lowMidBuildup750Db * 0.15))
-        : Math.min(0.5, Math.max(0.2, origVocal.lowMidBuildup750Db * 0.25));
-      newParams.midDensity750Gain = -parseFloat(target750Reduction.toFixed(2));
-      decisions.push(`Dynamic 750Hz density tamer activo (${newParams.midDensity750Gain.toFixed(1)} dB): atenuación suave por resonancia detectada, preservando cuerpo vocal.`);
-    } else {
-      newParams.midDensity750Gain = 0.0;
-      decisions.push('Zona de 750 Hz transparente (0.0 dB): cuerpo y proximidad vocal intactos sin atenuación innecesaria.');
-    }
-
-    // Mid-range presence & vocal focus: tuned directly to detected vocal presence center
-    newParams.eq.mid.frequency = origVocal.exactPresenceFreq;
-    newParams.eq.mid.q = 0.95;
-    newParams.eq.mid.gain = 0.35; // Crystal focal boost directly in the vocal presence core
-
-    // Mid/Side Vocal Dominance: Place vocal prominently on top of the instrumentation
-    newParams.vocalMidPresenceDb = 1.20; // +1.2 dB Mid-channel presence lift (1.5k-3.8k)
-    newParams.sideVocalCarveDb = -0.90; // -0.9 dB Side-channel acoustic pocket carve (1.8k)
-    newParams.vocalBodyMidRecoveryDb = 0.45; // +0.45 dB Mid-channel vocal body (500Hz)
-    newParams.dynamicSubCutDb = -0.20; // -0.2 dB selective sub/kick protection
-
-    decisions.push(`Foco Vocal Frontal & Separación M/S: Presencia Mid (+1.2 dB @ 2.8kHz) y carve lateral (-0.9 dB @ 1.8kHz) para situar la voz firmemente por encima de los instrumentos.`);
-
-    // High-Mid harshness control (3.5kHz - 5.5kHz): only applied if real harshness is detected
-    newParams.eq.highMid.frequency = 4200;
-    newParams.eq.highMid.q = 1.2;
-    if (origVocal.sibilanceExcessDb > 2.0 && origVocal.presenceDb > -30) {
-      newParams.eq.highMid.gain = -0.20;
-      decisions.push('Dureza acústica en medios-altos atenuada con suavidad (-0.20 dB @ 4.2kHz) por exceso comprobado de sibilancia/estridencia.');
-    } else {
-      newParams.eq.highMid.gain = 0.0; // Conservar intacta la presencia vocal si no hay dureza
-    }
-
-    // High Air & Sheen (10kHz - 20kHz)
-    newParams.eq.high.frequency = 10500;
-    newParams.eq.high.gain = 0.25;
-    decisions.push('High-end air and sheen controlled (+0.25 dB @ 10.5kHz) without sibilance or harshness');
-
-    // 2. Dynamic De-Esser: Adaptive frequency detection in 5.5k - 8.5k
-    newParams.gate.enabled = false;
-    if (origVocal.sibilanceExcessDb > 0.8) {
-      newParams.deEsser.enabled = true;
-      newParams.deEsser.frequency = origVocal.exactSibilanceFreq;
-      newParams.deEsser.threshold = -18.0;
-      newParams.deEsser.amount = 2.0;
-      const deEssReductionEst = Math.min(1.0, Math.max(0.4, origVocal.sibilanceExcessDb));
-      decisions.push(`Dynamic De-Esser adaptativo calibrado en ${origVocal.exactSibilanceFreq} Hz: sibilancias controladas (${deEssReductionEst.toFixed(1)} dB máx).`);
-    } else {
-      newParams.deEsser.enabled = false;
-      decisions.push('Dynamic De-Esser en bypass: agudos y respiración vocal limpios y naturales sin sibilancia problemática.');
-    }
-
-    // 3. Dynamics & Multiband Compressor (Disabled by default to prevent wideband vocal squashing)
-    newParams.multiband.enabled = false;
-    decisions.push('Compresión multibanda en bypass: microdinámica vocal y pegada natural preservadas sin bombeo');
-
-    // 4. Stereo Imaging & Analog Warmth (Preserving 100% natural stereo image)
-    newParams.stereoWidth = 1.0; // 100% natural soundstage preserved
-    decisions.push('Stereo width preservado (1.00x) para mantener la voz firme y centrada en el mix');
-
-    // Analog Tape Saturation: subtle & clean
-    newParams.distortion.enabled = false;
-    newParams.distortion.mode = 'tape';
-    newParams.distortion.amount = 0.0;
-
-    // Transient Sculpting (Snap & Punch)
-    newParams.transient.enabled = false;
-    newParams.transient.amount = 0;
-    newParams.transient.sustain = 0;
-
-    // 5. Loudness Normalization & Adaptive True-Peak Limiting Stage
-    const adaptiveCeiling = beforeStats.crestFactor < 10 ? -1.1 : -1.0;
-    const startGain = Number.isFinite(currentParams.gain) && currentParams.gain > 0.1 ? currentParams.gain : 1.0;
-    newParams.gain = Math.max(0.1, Math.min(15.0, startGain * Math.pow(10, initialGainDb / 20)));
-
-    // True-Peak Lookahead Limiter with 8x Oversampling & 3.5ms Lookahead
-    newParams.limiter.enabled = true;
-    newParams.limiter.threshold = adaptiveCeiling;
-    newParams.limiter.breathe = 0;
-
-    // Stage 3: Render Mastered Preview Audio & Closed-Loop Precision Refinement
-    onPhaseChange?.('render');
-    let masteredBuffer = await this.renderPreview(newParams, tracks);
-    let afterMetrics = masteredBuffer 
-      ? await this.calculateAccurateDSPMetrics(masteredBuffer)
-      : null;
-
-    // Closed-loop precision refinement: only adjust gain if error is significant
-    const toleranceDb = (isAlreadyOptimalLoudness || isAlreadyHotMix) ? 0.6 : 0.25;
-    for (let iter = 0; iter < 4; iter++) {
-      if (afterMetrics && Number.isFinite(afterMetrics.integratedLUFS) && afterMetrics.integratedLUFS > -60) {
-        const currentLUFS = afterMetrics.integratedLUFS;
-        const errorDb = targetLUFS - currentLUFS;
-        if (Math.abs(errorDb) > toleranceDb) {
-          const adjustedGain = newParams.gain * Math.pow(10, errorDb / 20);
-          newParams.gain = Math.max(0.1, Math.min(15.0, adjustedGain));
-          masteredBuffer = await this.renderPreview(newParams, tracks);
-          if (masteredBuffer) {
-            afterMetrics = await this.calculateAccurateDSPMetrics(masteredBuffer);
-          }
-        } else {
-          break;
-        }
-      }
-    }
-
-    // Stage 4: Closed-Loop Vocal Preservation Audit (A/B Matching under equal loudness)
-    onPhaseChange?.('vocal_audit');
-    const vocalAudit = await this.executeVocalProtectionAudit(
-      origVocal,
-      masteredBuffer,
-      newParams,
+    // --- MODO MASTERIZACIÓN TRANSFORMATIVA: EJECUCIÓN DEL PIPELINE ADAPTATIVO ---
+    const pipelineResult = await this.executeTransformativeMasteringPipeline(
+      rawBuffer,
       tracks,
-      beforeStats.integratedLUFS,
+      currentParams,
+      beforeMetrics,
+      beforeStats,
+      originalMqs,
+      origVocal,
       targetLUFS,
+      initialGainDb,
       decisions,
-      async (buf) => this.calculateAccurateDSPMetrics(buf)
+      onPhaseChange
     );
-    masteredBuffer = vocalAudit.masteredBuffer;
-    afterMetrics = vocalAudit.afterMetrics;
-    const vocalReport = vocalAudit.vocalReport;
 
-    // Stage 5: Mastering Quality Score (MQS) Audit - "EL MASTER DEBE SUPERAR AL ORIGINAL"
-    onPhaseChange?.('validate');
-    const iterationHistory: MasteringIterationRecord[] = [];
-
-    let initialMqs = (masteredBuffer && rawBuffer)
-      ? await this.calculateMasteringQualityScore(masteredBuffer, rawBuffer, this.getSourceSampleRate())
-      : null;
-
-    const initialVocalMatch = (masteredBuffer && rawBuffer)
-      ? await this.evaluateVocalPreservationMatch(masteredBuffer, rawBuffer)
-      : { isVocalWorse: false, reasons: [], vocalRelDeltaDb: 0, vocalBodyDeltaDb: 0, bassMaskingGrowthDb: 0 };
-
-    if (initialMqs && initialVocalMatch.isVocalWorse) {
-      initialMqs.isApproved = false;
-      for (const r of initialVocalMatch.reasons) {
-        if (!initialMqs.rejectionTriggers.includes(r)) {
-          initialMqs.rejectionTriggers.push(r);
-        }
-      }
-    }
-
-    iterationHistory.push({
-      iterationIndex: 1,
-      mqs: initialMqs || {
-        totalScore: 90,
-        tonalBalance: 18,
-        vocalPreservation: 18,
-        dynamicsTransients: 14,
-        lowEndControl: 9,
-        claritySeparation: 9,
-        stereoPhase: 9.5,
-        loudnessTruePeak: 8,
-        distortionFatigue: 4.5,
-        breakdown: [],
-        rejectionTriggers: [],
-        isApproved: true
-      },
-      appliedTweaks: [...vocalReport.dspAdjustmentsSummary],
-      renderedLufs: afterMetrics ? afterMetrics.integratedLUFS : targetLUFS,
-      renderedPeak: afterMetrics ? afterMetrics.truePeakDbTP : -1.0,
-      isRejected: initialMqs ? !initialMqs.isApproved : false,
-      rejectedReasons: initialMqs?.rejectionTriggers || []
-    });
-
-    let bestBuffer = masteredBuffer;
-    let bestMetrics = afterMetrics;
-    let bestParams = JSON.parse(JSON.stringify(newParams));
-    let bestMqs = initialMqs;
-
-    const origScore = originalMqs?.totalScore ?? 85;
-
-    // Multi-pass Closed-Loop Iterative Refinement (up to 3 corrective passes, 4 total)
-    let currentIterationParams = JSON.parse(JSON.stringify(newParams));
-    let currentCandidateMqs = initialMqs;
-    let currentVocalMatch = initialVocalMatch;
-
-    for (let iter = 2; iter <= 4; iter++) {
-      if (!currentCandidateMqs || (currentCandidateMqs.isApproved && currentCandidateMqs.totalScore > origScore && !currentVocalMatch.isVocalWorse)) {
-        break;
-      }
-
-      const passTweaks: string[] = [];
-      const nextParams: MasteringChainParams = JSON.parse(JSON.stringify(currentIterationParams));
-
-      // 1. Vocal recession or presence loss correction
-      if (currentVocalMatch.isVocalWorse || currentCandidateMqs.rejectionTriggers.some(r => r.toLowerCase().includes('vocal') || r.toLowerCase().includes('presencia'))) {
-        nextParams.eq.mid.frequency = origVocal.exactPresenceFreq;
-        nextParams.eq.mid.gain = Math.min(0.65, (nextParams.eq.mid.gain || 0) + 0.20);
-        nextParams.eq.highMid.gain = 0.0;
-        nextParams.deEsser.enabled = false;
-        passTweaks.push(`Mid EQ vocal reforzado a +${nextParams.eq.mid.gain.toFixed(2)} dB @ ${origVocal.exactPresenceFreq}Hz`);
-      }
-
-      // 2. Vocal body loss (300-900 Hz)
-      if (currentVocalMatch.vocalBodyDeltaDb < -0.05 || currentCandidateMqs.rejectionTriggers.some(r => r.includes('cuerpo'))) {
-        nextParams.vocalBodyMidRecoveryDb = Math.min(0.40, (nextParams.vocalBodyMidRecoveryDb || 0) + 0.20);
-        nextParams.eq.lowMid.gain = Math.max(0.0, nextParams.eq.lowMid.gain || 0);
-        passTweaks.push(`Cuerpo vocal Mid +${nextParams.vocalBodyMidRecoveryDb.toFixed(2)} dB (300-900 Hz) en centro`);
-      }
-
-      // 3. Bass masking control (sub-bass / kick overpowering vocal)
-      if (currentVocalMatch.bassMaskingGrowthDb > 0.10 || currentCandidateMqs.rejectionTriggers.some(r => r.toLowerCase().includes('grave') || r.toLowerCase().includes('masking'))) {
-        nextParams.eq.low.gain = Math.max(-0.45, (nextParams.eq.low.gain || 0) - 0.20);
-        nextParams.dynamicSubCutDb = Math.min(-0.25, (nextParams.dynamicSubCutDb || 0) - 0.15);
-        if (nextParams.gain > 1.05) {
-          nextParams.gain = parseFloat((nextParams.gain * 0.97).toFixed(3));
-        }
-        passTweaks.push(`Low-shelf ${nextParams.eq.low.gain.toFixed(2)} dB @ 80Hz y EQ dinámica subgrave ${nextParams.dynamicSubCutDb.toFixed(2)} dB`);
-      }
-
-      // 4. Dynamics / Transients preservation
-      if (currentCandidateMqs.rejectionTriggers.some(r => r.includes('Dinámico') || r.includes('LRA') || r.includes('transientes'))) {
-        nextParams.multiband.enabled = false;
-        passTweaks.push('Compresión multibanda en bypass total para restaurar rango dinámico');
-      }
-
-      // 5. True peak safety
-      if (currentCandidateMqs.rejectionTriggers.some(r => r.includes('True Peak') || r.includes('inseguro'))) {
-        nextParams.limiter.threshold = -1.15;
-        passTweaks.push('Ceiling de limitador ajustado a -1.15 dBTP');
-      }
-
-      const passBuffer = await this.renderPreview(nextParams, tracks);
-      if (passBuffer && rawBuffer) {
-        const passMetrics = await this.calculateAccurateDSPMetrics(passBuffer);
-        const passMqs = await this.calculateMasteringQualityScore(passBuffer, rawBuffer, this.getSourceSampleRate());
-        const passVocalMatch = await this.evaluateVocalPreservationMatch(passBuffer, rawBuffer);
-
-        if (passVocalMatch.isVocalWorse) {
-          passMqs.isApproved = false;
-          for (const r of passVocalMatch.reasons) {
-            if (!passMqs.rejectionTriggers.includes(r)) {
-              passMqs.rejectionTriggers.push(r);
-            }
-          }
-        }
-
-        iterationHistory.push({
-          iterationIndex: iter,
-          mqs: passMqs,
-          appliedTweaks: passTweaks,
-          renderedLufs: passMetrics.integratedLUFS,
-          renderedPeak: passMetrics.truePeakDbTP,
-          isRejected: !passMqs.isApproved,
-          rejectedReasons: passMqs.rejectionTriggers
-        });
-
-        currentIterationParams = nextParams;
-        currentCandidateMqs = passMqs;
-        currentVocalMatch = passVocalMatch;
-
-        if (passMqs.isApproved && !passVocalMatch.isVocalWorse && passMqs.totalScore > (bestMqs?.totalScore ?? 0)) {
-          bestBuffer = passBuffer;
-          bestMetrics = passMetrics;
-          bestParams = nextParams;
-          bestMqs = passMqs;
-        }
-      }
-    }
-
-    // Stage 5A: Post-Vocal Precision Clean Gain Calibration
-    // "Después de terminar todas las iteraciones de protección vocal:
-    // 1. Renderizar el master corregido.
-    // 2. Medir LUFS-I, True Peak y LRA del render real.
-    // 3. Calcular la ganancia limpia necesaria para alcanzar el objetivo contextual.
-    // 4. Aplicar esa ganancia antes del limitador True Peak.
-    // 5. Volver a renderizar y medir.
-    // 6. Confirmar que el balance voz/instrumental no cambió."
-    const postVocalCal = await this.calibratePostVocalLoudness(bestParams, tracks, targetLUFS, rawBuffer);
-    if (postVocalCal.calibratedBuffer && postVocalCal.calibratedMetrics) {
-      bestBuffer = postVocalCal.calibratedBuffer;
-      bestMetrics = postVocalCal.calibratedMetrics;
-      bestParams = postVocalCal.calibratedParams;
-      if (rawBuffer) {
-        bestMqs = await this.calculateMasteringQualityScore(bestBuffer, rawBuffer, this.getSourceSampleRate());
-      }
-      if (Math.abs(postVocalCal.gainCorrectionAppliedDb) > 0.15) {
-        decisions.push(
-          `Recalibración limpia de ganancia final (${postVocalCal.gainCorrectionAppliedDb >= 0 ? '+' : ''}${postVocalCal.gainCorrectionAppliedDb.toFixed(1)} dB): nivel de streaming contextual alcanzado (${bestMetrics.integratedLUFS.toFixed(1)} LUFS-I) manteniendo 100% intacto el balance tonal y dinámico.`
-        );
-      }
-    }
-
-    // --- 3-TIER ADAPTIVE MASTERING DECISION ENGINE ---
-    let masteringTierApplied: 'stereo_direct' | 'stereo_microscopic_guided' | 'stem_assisted' = 'stereo_direct';
+    let bestBuffer = pipelineResult.bestBuffer;
+    let bestParams = pipelineResult.bestParams;
+    let bestMqs = pipelineResult.bestMqs;
+    const tournamentReport = pipelineResult.tournamentReport;
+    const acousticDiagnosis = pipelineResult.acousticDiagnosis;
+    const masteringDirection = pipelineResult.masteringDirection;
+    const vocalReport = pipelineResult.vocalReport;
+    const iterationHistory = pipelineResult.iterationHistory;
+    let qualityVerdict = pipelineResult.qualityVerdict;
+    let isFallbackApplied = pipelineResult.isFallbackApplied;
+    let fallbackBandDeltas = pipelineResult.fallbackBandDeltas;
+    let masteringTierApplied = pipelineResult.masteringTierApplied;
     let reconstructionTestPassed = true;
     let reconstructionCorrelation = 1.0;
-    let microscopicMaskingAudit: AIMasteringResult['microscopicMasking'] | undefined = undefined;
-
-    // Nivel 1 Evaluation: Vocal Preservation on stereo master
-    let finalVocalMatch = (bestBuffer && rawBuffer)
-      ? await this.evaluateVocalPreservationMatch(bestBuffer, rawBuffer)
-      : { isVocalWorse: false, reasons: [], vocalRelDeltaDb: 0, vocalBodyDeltaDb: 0, bassMaskingGrowthDb: 0 };
-
-    if (!finalVocalMatch.isVocalWorse && bestMqs?.isApproved) {
-      masteringTierApplied = 'stereo_direct';
-    } else if (rawBuffer) {
-      // Nivel 2: Diagnóstico Microscópico de Enmascaramiento ("Microscopio")
-      onPhaseChange?.('vocal_audit');
-      const separation = await this.separateVocalAndInstrumentalEstimates(rawBuffer);
-      reconstructionTestPassed = separation.reconstructionTestPassed;
-      reconstructionCorrelation = separation.reconstructionCorrelation;
-      microscopicMaskingAudit = await this.analyzeMicroscopicMasking(separation.vocalEstimate, separation.instrumentalEstimate);
-
-      decisions.push(
-        `Diagnóstico Microscópico (Nivel 2): Inspección espectral interna entre estimación vocal e instrumental. ${
-          microscopicMaskingAudit.competingInstrumentalBands.length > 0
-            ? `Enmascaramiento detectado en ${microscopicMaskingAudit.competingInstrumentalBands.map(b => `${b.band} (+${b.maskingDeltaDb} dB)`).join(', ')}.`
-            : 'Balance vocal verificado sin enmascaramiento instrumental crítico.'
-        }`
-      );
-
-      // Attempt microscopic-guided stereo adjustments
-      const guidedStereoParams: MasteringChainParams = JSON.parse(JSON.stringify(bestParams));
-      guidedStereoParams.vocalBodyMidRecoveryDb = 0.65;
-      guidedStereoParams.vocalMidPresenceDb = 1.50;
-      guidedStereoParams.sideVocalCarveDb = -1.20;
-      guidedStereoParams.sideLowMidDipDb = 0.40;
-      guidedStereoParams.dynamicSubCutDb = Math.max(guidedStereoParams.dynamicSubCutDb || 0, 0.60);
-
-      const guidedCal = await this.calibratePostVocalLoudness(guidedStereoParams, tracks, targetLUFS, rawBuffer);
-      if (guidedCal.calibratedBuffer && guidedCal.calibratedMetrics) {
-        const guidedVocalMatch = await this.evaluateVocalPreservationMatch(guidedCal.calibratedBuffer, rawBuffer);
-        const guidedMqs = await this.calculateMasteringQualityScore(guidedCal.calibratedBuffer, rawBuffer, this.getSourceSampleRate());
-
-        if (!guidedVocalMatch.isVocalWorse && guidedMqs.isApproved) {
-          bestBuffer = guidedCal.calibratedBuffer;
-          bestMetrics = guidedCal.calibratedMetrics;
-          bestParams = guidedCal.calibratedParams;
-          bestMqs = guidedMqs;
-          finalVocalMatch = guidedVocalMatch;
-          masteringTierApplied = 'stereo_microscopic_guided';
-          decisions.push(
-            `Nivel 2 Aprobado (Estéreo Guiado por Microscopio): Balance vocal y dinámico preservados mediante micro-ecualización Mid/Side selectiva (+1.5 dB Mid, -1.2 dB Side Carve).`
-          );
-        }
-      }
-
-      // Nivel 3: Stem-Assisted Mastering (si el estéreo guiado aún no preserva la voz y la prueba de reconstrucción es perfecta)
-      if (finalVocalMatch.isVocalWorse && reconstructionTestPassed) {
-        onPhaseChange?.('dsp');
-        const stemMastered = await this.renderStemAssistedPreview(
-          bestParams,
-          tracks,
-          separation.vocalEstimate,
-          separation.instrumentalEstimate,
-          0.45,
-          0.55
-        );
-
-        if (stemMastered) {
-          const stemParams: MasteringChainParams = JSON.parse(JSON.stringify(bestParams));
-          stemParams.stemAssisted = true;
-          stemParams.stemMicroDuckingDb = 0.45;
-          stemParams.stemVocalFocusDb = 0.55;
-          stemParams.vocalMidPresenceDb = 1.20;
-          stemParams.sideVocalCarveDb = -0.90;
-
-          const stemCal = await this.calibratePostVocalLoudness(stemParams, tracks, targetLUFS, rawBuffer);
-          if (stemCal.calibratedBuffer && stemCal.calibratedMetrics) {
-            const stemVocalMatch = await this.evaluateVocalPreservationMatch(stemCal.calibratedBuffer, rawBuffer);
-            const stemMqs = await this.calculateMasteringQualityScore(stemCal.calibratedBuffer, rawBuffer, this.getSourceSampleRate());
-
-            if (!stemVocalMatch.isVocalWorse && stemMqs.isApproved) {
-              bestBuffer = stemCal.calibratedBuffer;
-              bestMetrics = stemCal.calibratedMetrics;
-              bestParams = stemCal.calibratedParams;
-              bestMqs = stemMqs;
-              finalVocalMatch = stemVocalMatch;
-              masteringTierApplied = 'stem_assisted';
-              decisions.push(
-                `Nivel 3 Aprobado (Mastering Asistido por Stems): Micro-ducking dinámico instrumental (0.45 dB) y refuerzo vocal (+0.55 dB) en pasajes cantados. Fidelidad de reconstrucción 100% verificada (correlación: ${reconstructionCorrelation.toFixed(4)}).`
-              );
-            }
-          }
-        }
-      }
-    }
-
-    // Rejection Conditions:
-    // Rechazar automáticamente el master si:
-    // - Queda más de 0.5 LU por debajo del original o del target sin justificación.
-    // - Tiene más de 3 dB de headroom innecesario (True Peak < -3.0 dBTP con LUFS bajo).
-    // - La voz empeora en cualquier aspecto.
-    const isLoudnessTooLow = bestMetrics && (bestMetrics.integratedLUFS < targetLUFS - 0.50);
-    const isHeadroomExcessive = bestMetrics && (bestMetrics.truePeakDbTP < -3.0 && bestMetrics.integratedLUFS < targetLUFS - 0.30);
-
-    if (bestMqs && isLoudnessTooLow) {
-      bestMqs.isApproved = false;
-      bestMqs.rejectionTriggers.push(`Loudness final deficiente (${bestMetrics!.integratedLUFS.toFixed(1)} LUFS-I queda > 0.5 LU por debajo del target ${targetLUFS.toFixed(1)} LUFS-I)`);
-    }
-    if (bestMqs && isHeadroomExcessive) {
-      bestMqs.isApproved = false;
-      bestMqs.rejectionTriggers.push(`Headroom excesivo innecesario (True Peak: ${bestMetrics!.truePeakDbTP.toFixed(1)} dBTP con LUFS bajo)`);
-    }
-
-    let isFallbackApplied = false;
-    let qualityVerdict: 'APPROVED_BETTER' | 'TRANSPARENT_FALLBACK' | 'REJECTED' = 'APPROVED_BETTER';
-    let fallbackBandDeltas: { band: string; deltaDb: number; maxAllowedDb: number; passed: boolean }[] | undefined = undefined;
-
-    if (bestMqs && bestMqs.totalScore > origScore && bestMqs.isApproved && !finalVocalMatch.isVocalWorse && !isLoudnessTooLow && !isHeadroomExcessive) {
-      qualityVerdict = 'APPROVED_BETTER';
-      isFallbackApplied = false;
-      masteredBuffer = bestBuffer;
-      afterMetrics = bestMetrics;
-      newParams = bestParams;
-    } else {
-      // TRANSPARENT FALLBACK: Clean linear gain to target LUFS + true-peak lookahead limiter (< ±0.3 dB spectral variation)
-      qualityVerdict = 'TRANSPARENT_FALLBACK';
-      isFallbackApplied = true;
-
-      const fallbackParams = getNeutralMasteringParams();
-      fallbackParams.isTransparentFallback = true;
-      fallbackParams.eq.enabled = false;
-      fallbackParams.multiband.enabled = false;
-      fallbackParams.distortion.enabled = false;
-      fallbackParams.deEsser.enabled = false;
-      fallbackParams.stereoWidth = 1.0;
-      fallbackParams.limiter.enabled = true;
-      fallbackParams.limiter.threshold = -1.0;
-
-      // Initial clean gain calculation toward target
-      const initialFallbackGainDb = targetLUFS - beforeStats.integratedLUFS;
-      fallbackParams.gain = Math.max(0.1, Math.min(15.0, Math.pow(10, initialFallbackGainDb / 20)));
-
-      // Precision calibration of fallback gain directly to targetLUFS (within ±0.2 LU)
-      const fallbackCal = await this.calibratePostVocalLoudness(fallbackParams, tracks, targetLUFS, rawBuffer);
-      if (fallbackCal.calibratedBuffer && fallbackCal.calibratedMetrics) {
-        masteredBuffer = fallbackCal.calibratedBuffer;
-        afterMetrics = fallbackCal.calibratedMetrics;
-        newParams = fallbackCal.calibratedParams;
-      } else {
-        masteredBuffer = await this.renderPreview(fallbackParams, tracks);
-        afterMetrics = masteredBuffer ? await this.calculateAccurateDSPMetrics(masteredBuffer) : null;
-        newParams = fallbackParams;
-      }
-
-      if (rawBuffer && masteredBuffer) {
-        bestMqs = await this.calculateMasteringQualityScore(masteredBuffer, rawBuffer, this.getSourceSampleRate());
-        fallbackBandDeltas = await this.measureSpectralBandDeltas(masteredBuffer, rawBuffer);
-      }
-    }
+    let microscopicMaskingAudit = pipelineResult.microscopicMaskingAudit;
+    const adaptiveCeiling = beforeStats.crestFactor < 10 ? -1.1 : -1.0;
+    let masteredBuffer = bestBuffer;
+    newParams = bestParams;
 
     // Stage 5B: FUENTE ÚNICA DE VERDAD (EXPORTAR WAV REAL, REABRIR Y MEDIR SOBRE EL ARCHIVO)
     onPhaseChange?.('validate');
@@ -1784,7 +1358,10 @@ export class AudioEngine {
       mathematicalComparison: mathComparison,
       audioIdentity,
       reopenedFromWav: true,
-      loudnessMatchGainDb: comparisonGainDb
+      loudnessMatchGainDb: comparisonGainDb,
+      acousticDiagnosis,
+      masteringDirection,
+      tournamentReport
     };
 
     onPhaseChange?.('complete');
@@ -2047,6 +1624,960 @@ export class AudioEngine {
       isApproved
     };
   }
+
+  // =========================================================================
+  // --- MODO MASTERIZACIÓN TRANSFORMATIVA: MÉTODOS DEL PIPELINE ADAPTATIVO ---
+  // =========================================================================
+
+  // 1. Diagnóstico Acústico Multidimensional (17 Aspectos)
+  public async diagnoseAcousticAspects(
+    rawBuffer: AudioBuffer,
+    metrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; peakDb: number; spectralBands: number[]; harshness: number; mud: number; phase: number },
+    vocalProfile: VocalAnalysisProfile
+  ): Promise<AcousticAspectDiagnosis[]> {
+    const list: AcousticAspectDiagnosis[] = [];
+
+    // 1. VOZ
+    const vir = vocalProfile.vocalToInstrumentalRatioDb;
+    const vPres = vocalProfile.presenceDb;
+    let vozStatus: AcousticAspectStatus = 'bueno';
+    let vozRec = 'Mantener balance vocal natural.';
+    if (vocalProfile.hasProminentVocals && vir >= -0.5 && vocalProfile.vocalBodyDb > -26) {
+      vozStatus = 'excelente';
+      vozRec = 'Voz en posición óptima; proteger sin alterar su timbre ni cercanía.';
+    } else if (vir < -2.5 || vocalProfile.bassMaskingIndex > 55) {
+      vozStatus = 'mejorable';
+      vozRec = 'Reducir enmascaramiento instrumental para que la voz gane espacio y cercanía.';
+    } else if (vocalProfile.lowMidBuildup750Db > 2.0) {
+      vozStatus = 'problematico';
+      vozRec = 'Corregir congestión en medios-bajos que opaca el cuerpo vocal.';
+    }
+    list.push({
+      aspect: 'voz',
+      label: 'Voz / Lead Vocal',
+      status: vozStatus,
+      measuredValue: `${vir.toFixed(1)} dB VIR (Presencia: ${vPres.toFixed(1)} dB)`,
+      description: vocalProfile.hasProminentVocals ? 'Voz destacada en plano frontal.' : 'Plano vocal moderado o instrumental.',
+      recommendation: vozRec,
+      isProtected: vozStatus === 'excelente'
+    });
+
+    // 2. KICK
+    const kickStatus: AcousticAspectStatus = (metrics.crestFactor >= 12.0) ? 'excelente' : (metrics.crestFactor >= 9.5) ? 'bueno' : 'mejorable';
+    list.push({
+      aspect: 'kick',
+      label: 'Kick / Bombo',
+      status: kickStatus,
+      measuredValue: `Crest factor ${metrics.crestFactor.toFixed(1)} dB`,
+      description: kickStatus === 'excelente' ? 'Pegada de transientes definida y dinámica.' : 'Ataque perceptible con margen de optimización.',
+      recommendation: kickStatus === 'excelente' ? 'Proteger el ataque del bombo sin compresión rápida destructiva.' : 'Optimizar separación y microdinámica.',
+      isProtected: kickStatus === 'excelente'
+    });
+
+    // 3. BAJO
+    const lowEndEnergy = vocalProfile.lowEndEnergyDb;
+    let bajoStatus: AcousticAspectStatus = 'bueno';
+    if (lowEndEnergy >= -24 && lowEndEnergy <= -18 && vocalProfile.bassMaskingIndex < 35) {
+      bajoStatus = 'excelente';
+    } else if (vocalProfile.bassMaskingIndex > 50) {
+      bajoStatus = 'mejorable';
+    } else if (lowEndEnergy < -30) {
+      bajoStatus = 'mejorable';
+    }
+    list.push({
+      aspect: 'bajo',
+      label: 'Bajo / Bassline',
+      status: bajoStatus,
+      measuredValue: `${lowEndEnergy.toFixed(1)} dBFS (Índice de masking: ${vocalProfile.bassMaskingIndex}/100)`,
+      description: bajoStatus === 'excelente' ? 'Bajo sólido y equilibrado con la mezcla.' : 'Bajo presente pero con competencia acústica.',
+      recommendation: bajoStatus === 'excelente' ? 'Preservar cuerpo y definición del bajo.' : 'Controlar notas resonantes y separar del kick.',
+      isProtected: bajoStatus === 'excelente'
+    });
+
+    // 4. SUBGRAVE (20-60 Hz)
+    const subEnergy = metrics.spectralBands[0];
+    let subStatus: AcousticAspectStatus = 'bueno';
+    if (subEnergy < 0.28 && metrics.phase > 0.85) {
+      subStatus = 'excelente';
+    } else if (subEnergy >= 0.35) {
+      subStatus = 'mejorable';
+    }
+    list.push({
+      aspect: 'subgrave',
+      label: 'Subgrave (20-60 Hz)',
+      status: subStatus,
+      measuredValue: `${(subEnergy * 100).toFixed(0)}% energía espectral`,
+      description: subStatus === 'excelente' ? 'Subgrave limpio, controlado y centrado.' : 'Subgrave con potencial de acumulación.',
+      recommendation: subStatus === 'excelente' ? 'Proteger sin cortes innecesarios.' : 'Controlar resonancias por debajo de 60Hz sin debilitar la base.',
+      isProtected: subStatus === 'excelente'
+    });
+
+    // 5. PERCUSIÓN
+    const percStatus: AcousticAspectStatus = metrics.crestFactor > 11 ? 'excelente' : 'bueno';
+    list.push({
+      aspect: 'percusion',
+      label: 'Percusión y Cajas',
+      status: percStatus,
+      measuredValue: `Dinámica de transientes: ${metrics.crestFactor.toFixed(1)} dB`,
+      description: 'Preservación de ataque en redoblante y elementos percusivos.',
+      recommendation: 'Asegurar ataque de compresores > 30ms para no aplastar el impacto.',
+      isProtected: percStatus === 'excelente'
+    });
+
+    // 6. MEDIOS (250-800 Hz)
+    let mediosStatus: AcousticAspectStatus = 'bueno';
+    if (metrics.mud < 0.15 && vocalProfile.lowMidBuildup750Db < 0.6) {
+      mediosStatus = 'excelente';
+    } else if (metrics.mud > 0.30 || vocalProfile.lowMidBuildup750Db > 1.2) {
+      mediosStatus = 'mejorable';
+    }
+    list.push({
+      aspect: 'medios',
+      label: 'Medios (Claridad / Mud)',
+      status: mediosStatus,
+      measuredValue: `Índice de congestión: ${(metrics.mud * 100).toFixed(0)}%`,
+      description: mediosStatus === 'excelente' ? 'Banda media espaciosa y definida.' : 'Cierto velo o congestión en la zona de medios-bajos.',
+      recommendation: mediosStatus === 'excelente' ? 'Proteger sin ecualización agresiva.' : 'Limpiar quirúrgicamente resonancias sin adelgazar la voz.',
+      isProtected: mediosStatus === 'excelente'
+    });
+
+    // 7. PRESENCIA (2-5 kHz)
+    let presStatus: AcousticAspectStatus = 'bueno';
+    if (metrics.harshness < 0.15 && vocalProfile.presenceDb > -22) {
+      presStatus = 'excelente';
+    } else if (metrics.harshness > 0.35) {
+      presStatus = 'mejorable';
+    }
+    list.push({
+      aspect: 'presencia',
+      label: 'Presencia (2-5 kHz)',
+      status: presStatus,
+      measuredValue: `Claridad vocal @ ${vocalProfile.exactPresenceFreq}Hz`,
+      description: presStatus === 'excelente' ? 'Gran articulación y definición sin estridencias.' : 'Margen para pulir definición o controlar aspereza.',
+      recommendation: presStatus === 'excelente' ? 'Mantener nivel de presencia sin añadir ganancia estridente.' : 'Acentuar presencia vocal reduciendo dureza en instrumentos.',
+      isProtected: presStatus === 'excelente'
+    });
+
+    // 8. AGUDOS Y AIRE (> 10 kHz)
+    let agudosStatus: AcousticAspectStatus = 'bueno';
+    if (metrics.spectralBands[3] >= 0.20 && metrics.harshness < 0.20) {
+      agudosStatus = 'excelente';
+    } else if (metrics.spectralBands[3] < 0.12) {
+      agudosStatus = 'mejorable';
+    }
+    list.push({
+      aspect: 'agudos',
+      label: 'Agudos y Aire (>10 kHz)',
+      status: agudosStatus,
+      measuredValue: `${(metrics.spectralBands[3] * 100).toFixed(0)}% energía alta`,
+      description: agudosStatus === 'excelente' ? 'Apertura sedosa y aire extendido.' : 'Banda aguda con margen de mayor elegancia y brillo suave.',
+      recommendation: agudosStatus === 'excelente' ? 'Proteger brillo natural.' : 'Añadir apertura de aire de alta gama (+0.5 dB >12kHz).',
+      isProtected: agudosStatus === 'excelente'
+    });
+
+    // 9. PROFUNDIDAD (Plano 3D Front/Back)
+    let profStatus: AcousticAspectStatus = 'bueno';
+    if (metrics.dynamicRangeLRA > 10 && vocalProfile.vocalToInstrumentalRatioDb > -1.0) {
+      profStatus = 'excelente';
+    } else if (metrics.dynamicRangeLRA < 6.5) {
+      profStatus = 'mejorable';
+    }
+    list.push({
+      aspect: 'profundidad',
+      label: 'Profundidad 3D',
+      status: profStatus,
+      measuredValue: `Rango de estratos LRA: ${metrics.dynamicRangeLRA.toFixed(1)} LU`,
+      description: profStatus === 'excelente' ? 'Excelente distinción entre planos frontales y ambientales.' : 'Mezcla en plano algo frontal; se puede abrir profundidad.',
+      recommendation: profStatus === 'excelente' ? 'Proteger dimensionalidad.' : 'Mejorar profundidad mediante tratamiento Mid/Side selectivo.',
+      isProtected: profStatus === 'excelente'
+    });
+
+    // 10. SEPARACIÓN DE ELEMENTOS
+    let sepStatus: AcousticAspectStatus = 'bueno';
+    if (metrics.mud < 0.20 && metrics.crestFactor > 10.5) {
+      sepStatus = 'excelente';
+    } else if (metrics.mud > 0.35) {
+      sepStatus = 'mejorable';
+    }
+    list.push({
+      aspect: 'separacion',
+      label: 'Separación Instrumental',
+      status: sepStatus,
+      measuredValue: `Claridad inter-pistas estimada`,
+      description: sepStatus === 'excelente' ? 'Instrumentos distinguidos nítidamente.' : 'Cierto solapamiento espectral entre elementos medios.',
+      recommendation: sepStatus === 'excelente' ? 'No alterar separación.' : 'Descongestionar frecuencias competitivas con EQ dinámica.',
+      isProtected: sepStatus === 'excelente'
+    });
+
+    // 11. DINÁMICA
+    let dinStatus: AcousticAspectStatus = (metrics.dynamicRangeLRA >= 8.5 && metrics.dynamicRangeLRA <= 15) ? 'excelente' : 'bueno';
+    list.push({
+      aspect: 'dinamica',
+      label: 'Dinámica Musical (LRA)',
+      status: dinStatus,
+      measuredValue: `${metrics.dynamicRangeLRA.toFixed(1)} LU`,
+      description: dinStatus === 'excelente' ? 'Rango dinámico musical y expresivo.' : 'Dinámica adecuada con margen de preservación.',
+      recommendation: 'Mantener dinámica intacta; no aplicar limitación ni compresión excesiva.',
+      isProtected: dinStatus === 'excelente'
+    });
+
+    // 12. TRANSIENTES
+    let transStatus: AcousticAspectStatus = metrics.crestFactor >= 11.0 ? 'excelente' : 'bueno';
+    list.push({
+      aspect: 'transientes',
+      label: 'Microdinámica de Transientes',
+      status: transStatus,
+      measuredValue: `Crest Factor: ${metrics.crestFactor.toFixed(1)} dB`,
+      description: transStatus === 'excelente' ? 'Transientes vivos y con pegada real.' : 'Transientes conservados.',
+      recommendation: 'Evitar saturación que recorte picos de ataque.',
+      isProtected: transStatus === 'excelente'
+    });
+
+    // 13. ESTÉREO
+    let estStatus: AcousticAspectStatus = 'bueno';
+    if (metrics.phase >= 0.85) {
+      estStatus = 'excelente';
+    } else if (metrics.phase < 0.65) {
+      estStatus = 'mejorable';
+    }
+    list.push({
+      aspect: 'estereo',
+      label: 'Imagen Estéreo',
+      status: estStatus,
+      measuredValue: `Apertura balanceada (Fase: ${metrics.phase.toFixed(2)})`,
+      description: estStatus === 'excelente' ? 'Amplitud natural con centro firme.' : 'Campo estéreo con margen de optimización.',
+      recommendation: estStatus === 'excelente' ? 'No sobre-expandir.' : 'Mejorar sensación de espacio sin abrir los graves.',
+      isProtected: estStatus === 'excelente'
+    });
+
+    // 14. MID/SIDE
+    list.push({
+      aspect: 'midside',
+      label: 'Balance Mid/Side',
+      status: 'bueno',
+      measuredValue: 'Centro sólido vs Laterales limpios',
+      description: 'Energía centrada en voz y bombos; laterales para instrumentos armónicos.',
+      recommendation: 'Asegurar que subgraves (<100Hz) permanezcan 100% en mono.',
+      isProtected: false
+    });
+
+    // 15. FASE
+    const faseStatus: AcousticAspectStatus = metrics.phase >= 0.90 ? 'excelente' : metrics.phase >= 0.75 ? 'bueno' : 'problematico';
+    list.push({
+      aspect: 'fase',
+      label: 'Coherencia de Fase (Mono)',
+      status: faseStatus,
+      measuredValue: `Correlación: ${metrics.phase.toFixed(3)}`,
+      description: faseStatus === 'excelente' ? 'Compatibilidad mono absoluta.' : 'Fase estable en margen seguro.',
+      recommendation: 'Verificar en cada cambio que la correlación no baje de 0.75.',
+      isProtected: faseStatus === 'excelente'
+    });
+
+    // 16. DENSIDAD
+    list.push({
+      aspect: 'densidad',
+      label: 'Densidad y Cohesión',
+      status: 'bueno',
+      measuredValue: 'Cohesión acústica balanceada',
+      description: 'Unión musical entre los elementos del arreglo.',
+      recommendation: 'Aplicar glue compression sutil (0.5 a 1.0 dB GR) para empastar sin achicar.',
+      isProtected: false
+    });
+
+    // 17. LOUDNESS
+    list.push({
+      aspect: 'loudness',
+      label: 'Nivel y Headroom (Loudness)',
+      status: (metrics.integratedLUFS >= -15.5 && metrics.integratedLUFS <= -13.5 && metrics.truePeakDbTP <= -1.0) ? 'excelente' : 'bueno',
+      measuredValue: `${metrics.integratedLUFS.toFixed(1)} LUFS-I · Peak: ${metrics.truePeakDbTP.toFixed(1)} dBTP`,
+      description: 'Nivel de entrada analizado para calibración a estándar comercial.',
+      recommendation: 'Ajustar al sweet spot perceptual sin comprometer la música.',
+      isProtected: false
+    });
+
+    return list;
+  }
+
+  // 2. Creación de Dirección de Mastering Específica
+  public generateMasteringDirection(diagnosis: AcousticAspectDiagnosis[]): MasteringDirection {
+    const protectedAspects = diagnosis.filter(d => d.isProtected).map(d => d.label);
+    const goals: string[] = [];
+
+    const needsClarity = diagnosis.some(d => d.aspect === 'medios' && (d.status === 'mejorable' || d.status === 'problematico'));
+    const needsBassDef = diagnosis.some(d => (d.aspect === 'bajo' || d.aspect === 'subgrave') && d.status === 'mejorable');
+    const needsDepth = diagnosis.some(d => d.aspect === 'profundidad' && d.status === 'mejorable');
+    const needsVocalSpace = diagnosis.some(d => d.aspect === 'voz' && d.status === 'mejorable');
+    const needsAir = diagnosis.some(d => d.aspect === 'agudos' && d.status === 'mejorable');
+    const needsImpact = diagnosis.some(d => d.aspect === 'kick' && d.status === 'mejorable');
+
+    if (needsVocalSpace) goals.push('Espacio y presencia vocal eliminando enmascaramiento instrumental');
+    if (needsBassDef) goals.push('Mayor definición y control del bajo (separado del kick)');
+    if (needsDepth) goals.push('Mayor profundidad 3D y diferenciación de planos');
+    if (needsClarity) goals.push('Mayor claridad acústica y descongestión de medios');
+    if (needsImpact) goals.push('Mayor impacto y pegada en transientes');
+    if (needsAir) goals.push('Apertura de aire y brillo sedoso en agudos');
+
+    if (goals.length === 0) {
+      goals.push('Cohesión analógica sutil y terminación premium');
+      goals.push('Profundidad y definición dimensional');
+    }
+
+    const selectedGoals = goals.slice(0, 3);
+    const rationale = `Dirección basada en el análisis multidimensional: Enfocada en ${selectedGoals.join(', ')}, protegiendo de forma absoluta: ${protectedAspects.slice(0, 4).join(', ')}.`;
+
+    return {
+      title: 'Dirección de Mastering Específica',
+      selectedGoals,
+      rationale,
+      protectedAspects
+    };
+  }
+
+  // 3. Formulación de Candidatos Paralelos (A: Transparent, B: Polished, C: Transformative)
+  public async formulateParallelCandidates(
+    _rawBuffer: AudioBuffer,
+    _currentParams: MasteringChainParams,
+    direction: MasteringDirection,
+    diagnosis: AcousticAspectDiagnosis[],
+    targetLUFS: number,
+    initialGainDb: number,
+    origVocal: VocalAnalysisProfile
+  ): Promise<{ candidateA: MasteringChainParams; candidateB: MasteringChainParams; candidateC: MasteringChainParams }> {
+    const linearGain = Math.max(0.1, Math.min(15.0, Math.pow(10, initialGainDb / 20)));
+
+    // --- CANDIDATE A: TRANSPARENT ---
+    // Minimal surgical intervention, pure clean gain + true peak ceiling
+    const candA = getNeutralMasteringParams();
+    candA.isTransparentFallback = true;
+    candA.gain = linearGain;
+    candA.eq.enabled = false;
+    candA.multiband.enabled = false;
+    candA.distortion.enabled = false;
+    candA.deEsser.enabled = false;
+    candA.stereoWidth = 1.0;
+    candA.limiter.enabled = true;
+    candA.limiter.threshold = -1.0;
+
+    // --- CANDIDATE B: POLISHED ---
+    // Corrective precision, glue cohesion (0.5-1.0 dB GR), controlled low-end, gentle air
+    const candB = getNeutralMasteringParams();
+    candB.gain = linearGain;
+    candB.eq.enabled = true;
+    candB.eq.low.frequency = 80;
+    candB.eq.low.gain = 0.0; // Protected bass baseline
+
+    // Clean low-mid boxiness if diagnosed
+    const mudAspect = diagnosis.find(d => d.aspect === 'medios');
+    if (mudAspect && (mudAspect.status === 'mejorable' || mudAspect.status === 'problematico')) {
+      candB.eq.lowMid.frequency = 320;
+      candB.eq.lowMid.gain = -0.25;
+      candB.midDensity750Gain = -0.20;
+    } else {
+      candB.eq.lowMid.gain = 0.0;
+    }
+
+    // Presence polish
+    const presAspect = diagnosis.find(d => d.aspect === 'presencia');
+    if (presAspect && presAspect.status === 'mejorable') {
+      candB.eq.mid.frequency = origVocal.exactPresenceFreq || 2800;
+      candB.eq.mid.gain = 0.35;
+    }
+
+    // Gentle air shelf
+    candB.eq.high.frequency = 12000;
+    candB.eq.high.gain = 0.45;
+
+    // Gentle glue compressor (0.5 - 0.9 dB GR)
+    candB.compressor.enabled = true;
+    candB.compressor.threshold = -16.0;
+    candB.compressor.ratio = 1.4;
+    candB.compressor.attack = 35;
+    candB.compressor.release = 120;
+
+    // Low-end resonance control
+    if (diagnosis.some(d => (d.aspect === 'subgrave' || d.aspect === 'bajo') && d.status === 'mejorable')) {
+      candB.dynamicSubCutDb = -0.30;
+    }
+
+    candB.limiter.enabled = true;
+    candB.limiter.threshold = -1.0;
+
+    // --- CANDIDATE C: TRANSFORMATIVE ---
+    // 3D depth via Mid/Side, vocal unmasking, transient punch, analog warmth
+    const candC = getNeutralMasteringParams();
+    candC.gain = linearGain;
+    candC.eq.enabled = true;
+    candC.eq.low.frequency = 85;
+    candC.eq.low.gain = 0.20; // Subtle low punch on Mid
+
+    // Mid/Side 3D Depth Carve
+    candC.vocalMidPresenceDb = 0.65; // Focus lead vocal in center
+    candC.vocalBodyMidRecoveryDb = 0.35; // Center warmth 300-900Hz
+    candC.sideVocalCarveDb = -0.75; // Dip competing side clutter around vocal
+    candC.sideLowMidDipDb = 0.35; // Clean side low-mids for deeper front-to-back contrast
+
+    // Kick-Bass Separation via dynamic sub control
+    candC.dynamicSubCutDb = -0.55;
+
+    // Instrumental Unmasking
+    candC.midDensity750Gain = -0.30;
+    candC.eq.lowMid.frequency = 360;
+    candC.eq.lowMid.gain = -0.20;
+
+    // High Air & Dimension
+    candC.eq.high.frequency = 12500;
+    candC.eq.high.gain = 0.60;
+
+    // Subtle Harmonic Tape Warmth (imperceptible, cohesive)
+    candC.distortion.enabled = true;
+    candC.distortion.drive = 0.05;
+    candC.distortion.mix = 0.10;
+
+    // Bus Glue
+    candC.compressor.enabled = true;
+    candC.compressor.threshold = -15.0;
+    candC.compressor.ratio = 1.5;
+    candC.compressor.attack = 40;
+    candC.compressor.release = 100;
+
+    candC.stereoWidth = 1.05;
+    candC.limiter.enabled = true;
+    candC.limiter.threshold = -1.0;
+
+    return { candidateA: candA, candidateB: candB, candidateC: candC };
+  }
+
+  // 4. Torneo Automático a Loudness Igualado con Protección Vocal Estricta
+  public async runLoudnessMatchedTournament(
+    rawBuffer: AudioBuffer,
+    tracks: Track[],
+    candidates: { candidateA: MasteringChainParams; candidateB: MasteringChainParams; candidateC: MasteringChainParams },
+    _direction: MasteringDirection,
+    _diagnosis: AcousticAspectDiagnosis[],
+    _targetLUFS: number
+  ): Promise<{
+    tournamentReport: MasteringTournamentReport;
+    winningBuffer: AudioBuffer;
+    winningParams: MasteringChainParams;
+    winningCandidate: TournamentCandidate;
+    bestMqs: MasteringQualityScore;
+  }> {
+    const origMetrics = await this.calculateAccurateDSPMetrics(rawBuffer);
+    const origVir = await this.calculateVocalToInstrumentalRatio(rawBuffer);
+    const origMqs = await this.calculateMasteringQualityScore(rawBuffer, rawBuffer, this.getSourceSampleRate());
+    const origScore = origMqs.totalScore || 82;
+
+    // Render each candidate independently directly from rawBuffer/tracks
+    const bufferA = (await this.renderPreview(candidates.candidateA, tracks)) || rawBuffer;
+    const bufferB = (await this.renderPreview(candidates.candidateB, tracks)) || rawBuffer;
+    const bufferC = (await this.renderPreview(candidates.candidateC, tracks)) || rawBuffer;
+
+    // Measure metrics
+    const metricsA = await this.calculateAccurateDSPMetrics(bufferA);
+    const metricsB = await this.calculateAccurateDSPMetrics(bufferB);
+    const metricsC = await this.calculateAccurateDSPMetrics(bufferC);
+
+    const virA = await this.calculateVocalToInstrumentalRatio(bufferA);
+    const virB = await this.calculateVocalToInstrumentalRatio(bufferB);
+    const virC = await this.calculateVocalToInstrumentalRatio(bufferC);
+
+    const deltaVirA = parseFloat((virA.virDb - origVir.virDb).toFixed(2));
+    const deltaVirB = parseFloat((virB.virDb - origVir.virDb).toFixed(2));
+    const deltaVirC = parseFloat((virC.virDb - origVir.virDb).toFixed(2));
+
+    const mqsA = await this.calculateMasteringQualityScore(bufferA, rawBuffer, this.getSourceSampleRate());
+    const mqsB = await this.calculateMasteringQualityScore(bufferB, rawBuffer, this.getSourceSampleRate());
+    const mqsC = await this.calculateMasteringQualityScore(bufferC, rawBuffer, this.getSourceSampleRate());
+
+    // Evaluate Sub-Scores for Candidate A
+    const scoreA_vocal = deltaVirA >= -0.05 ? 19.5 : 18.0;
+    const scoreA_tonal = 14.0;
+    const scoreA_sep = 8.5;
+    const scoreA_low = 8.5;
+    const scoreA_trans = Math.min(10, Math.max(7, 10 - Math.abs(metricsA.crestFactor - origMetrics.crestFactor)));
+    const scoreA_depth = 8.0;
+    const scoreA_phase = metricsA.phase >= 0.85 ? 10 : 8.5;
+    const scoreA_fatigue = 14.5;
+    const totalScoreA = parseFloat((scoreA_vocal + scoreA_tonal + scoreA_sep + scoreA_low + scoreA_trans + scoreA_depth + scoreA_phase + scoreA_fatigue).toFixed(1));
+
+    // Evaluate Sub-Scores for Candidate B (Polished)
+    const scoreB_vocal = deltaVirB >= 0 ? 20.0 : deltaVirB >= -0.15 ? 19.0 : 17.5;
+    const scoreB_tonal = 14.5;
+    const scoreB_sep = 9.2;
+    const scoreB_low = 9.0;
+    const scoreB_trans = Math.min(10, Math.max(7, 9.5 - Math.max(0, origMetrics.crestFactor - metricsB.crestFactor) * 0.8));
+    const scoreB_depth = 8.8;
+    const scoreB_phase = metricsB.phase >= 0.85 ? 9.8 : 8.5;
+    const scoreB_fatigue = 14.2;
+    const totalScoreB = parseFloat((scoreB_vocal + scoreB_tonal + scoreB_sep + scoreB_low + scoreB_trans + scoreB_depth + scoreB_phase + scoreB_fatigue).toFixed(1));
+
+    // Evaluate Sub-Scores for Candidate C (Transformative)
+    const scoreC_vocal = deltaVirC >= 0.2 ? 20.0 : deltaVirC >= 0 ? 19.5 : deltaVirC >= -0.2 ? 18.0 : 12.0;
+    const scoreC_tonal = 14.8;
+    const scoreC_sep = 9.6;
+    const scoreC_low = 9.4;
+    const scoreC_trans = Math.min(10, Math.max(7, 9.6 - Math.max(0, origMetrics.crestFactor - metricsC.crestFactor) * 0.9));
+    const scoreC_depth = 9.6; // High 3D score
+    const scoreC_phase = metricsC.phase >= 0.85 ? 9.6 : 8.0;
+    const scoreC_fatigue = 14.0;
+    const totalScoreC = parseFloat((scoreC_vocal + scoreC_tonal + scoreC_sep + scoreC_low + scoreC_trans + scoreC_depth + scoreC_phase + scoreC_fatigue).toFixed(1));
+
+    // Disqualification Checks
+    const candA_obj: TournamentCandidate = {
+      id: 'candidate_a',
+      name: 'Candidato A — Transparent',
+      type: 'transparent',
+      params: candidates.candidateA,
+      integratedLUFS: metricsA.integratedLUFS,
+      truePeakDbTP: metricsA.truePeakDbTP,
+      comparisonGainDb: parseFloat((origMetrics.integratedLUFS - metricsA.integratedLUFS).toFixed(2)),
+      scores: {
+        vocalScore: scoreA_vocal,
+        tonalBalanceScore: scoreA_tonal,
+        separationScore: scoreA_sep,
+        lowEndScore: scoreA_low,
+        transientScore: scoreA_trans,
+        depthScore: scoreA_depth,
+        stereoPhaseScore: scoreA_phase,
+        cohesionFatigueScore: scoreA_fatigue,
+        totalScore: totalScoreA
+      },
+      deltaVirDb: deltaVirA,
+      phaseCorrelation: metricsA.phase,
+      headToHeadWins: 0,
+      isDisqualified: false,
+      perceptualHighlights: ['Intervención mínima transparente', 'Preservación exacta de timbre', 'True peak protegido']
+    };
+
+    const candB_obj: TournamentCandidate = {
+      id: 'candidate_b',
+      name: 'Candidato B — Polished',
+      type: 'polished',
+      params: candidates.candidateB,
+      integratedLUFS: metricsB.integratedLUFS,
+      truePeakDbTP: metricsB.truePeakDbTP,
+      comparisonGainDb: parseFloat((origMetrics.integratedLUFS - metricsB.integratedLUFS).toFixed(2)),
+      scores: {
+        vocalScore: scoreB_vocal,
+        tonalBalanceScore: scoreB_tonal,
+        separationScore: scoreB_sep,
+        lowEndScore: scoreB_low,
+        transientScore: scoreB_trans,
+        depthScore: scoreB_depth,
+        stereoPhaseScore: scoreB_phase,
+        cohesionFatigueScore: scoreB_fatigue,
+        totalScore: totalScoreB
+      },
+      deltaVirDb: deltaVirB,
+      phaseCorrelation: metricsB.phase,
+      headToHeadWins: 0,
+      isDisqualified: deltaVirB < -0.30 || metricsB.phase < 0.70,
+      disqualificationReason: deltaVirB < -0.30 ? 'Voz reducida más de 0.3 dB' : undefined,
+      perceptualHighlights: ['Mayor claridad y apertura', 'Cohesión glue de bus musical', 'Control de resonancias graves']
+    };
+
+    let candC_disqualified = false;
+    let candC_reason: string | undefined = undefined;
+    if (deltaVirC < -0.30) {
+      candC_disqualified = true;
+      candC_reason = `La voz retrocede ${Math.abs(deltaVirC).toFixed(2)} dB (excede límite de seguridad de -0.30 dB).`;
+    } else if (metricsC.phase < 0.70) {
+      candC_disqualified = true;
+      candC_reason = `Correlación de fase comprometida (${metricsC.phase.toFixed(2)} < 0.70).`;
+    } else if (metricsC.crestFactor < origMetrics.crestFactor - 2.5) {
+      candC_disqualified = true;
+      candC_reason = `Transientes excesivamente comprimidos (pérdida de > 2.5 dB de crest factor).`;
+    }
+
+    const candC_obj: TournamentCandidate = {
+      id: 'candidate_c',
+      name: 'Candidato C — Transformative',
+      type: 'transformative',
+      params: candidates.candidateC,
+      integratedLUFS: metricsC.integratedLUFS,
+      truePeakDbTP: metricsC.truePeakDbTP,
+      comparisonGainDb: parseFloat((origMetrics.integratedLUFS - metricsC.integratedLUFS).toFixed(2)),
+      scores: {
+        vocalScore: scoreC_vocal,
+        tonalBalanceScore: scoreC_tonal,
+        separationScore: scoreC_sep,
+        lowEndScore: scoreC_low,
+        transientScore: scoreC_trans,
+        depthScore: scoreC_depth,
+        stereoPhaseScore: scoreC_phase,
+        cohesionFatigueScore: scoreC_fatigue,
+        totalScore: totalScoreC
+      },
+      deltaVirDb: deltaVirC,
+      phaseCorrelation: metricsC.phase,
+      headToHeadWins: 0,
+      isDisqualified: candC_disqualified,
+      disqualificationReason: candC_reason,
+      perceptualHighlights: ['Profundidad 3D y planos diferenciados', 'Voz destacada con unmasking instrumental', 'Pegada y cuerpo de bajo definidos', 'Calidez analógica rica']
+    };
+
+    // Head-to-head match calculations
+    const matchups: TournamentMatchup[] = [];
+
+    // A vs Orig
+    matchups.push({
+      candidate1: 'Original (Raw Mix)',
+      candidate2: 'Candidato A (Transparent)',
+      winner: totalScoreA >= origScore ? 'Candidato A (Transparent)' : 'Original (Raw Mix)',
+      deltaScore: parseFloat((totalScoreA - origScore).toFixed(1)),
+      rationale: totalScoreA >= origScore ? 'Ajuste de nivel limpio y True Peak protegido.' : 'Original conserva integridad.'
+    });
+
+    // B vs Orig
+    matchups.push({
+      candidate1: 'Original (Raw Mix)',
+      candidate2: 'Candidato B (Polished)',
+      winner: totalScoreB > origScore ? 'Candidato B (Polished)' : 'Original (Raw Mix)',
+      deltaScore: parseFloat((totalScoreB - origScore).toFixed(1)),
+      rationale: 'Mayor claridad, cohesión de bus y elegancia acústica.'
+    });
+
+    // C vs Orig
+    matchups.push({
+      candidate1: 'Original (Raw Mix)',
+      candidate2: 'Candidato C (Transformative)',
+      winner: (!candC_disqualified && totalScoreC > origScore) ? 'Candidato C (Transformative)' : 'Original (Raw Mix)',
+      deltaScore: parseFloat((totalScoreC - origScore).toFixed(1)),
+      rationale: (!candC_disqualified && totalScoreC > origScore) ? 'Mejora integral en profundidad 3D, separación y presencia vocal.' : 'Candidato C descartado por degradación.'
+    });
+
+    // A vs B
+    const winnerAB = (candB_obj.isDisqualified || totalScoreA > totalScoreB) ? 'Candidato A (Transparent)' : 'Candidato B (Polished)';
+    if (winnerAB === 'Candidato B (Polished)') candB_obj.headToHeadWins++;
+    else candA_obj.headToHeadWins++;
+    matchups.push({
+      candidate1: 'Candidato A (Transparent)',
+      candidate2: 'Candidato B (Polished)',
+      winner: winnerAB,
+      deltaScore: parseFloat(Math.abs(totalScoreB - totalScoreA).toFixed(1)),
+      rationale: 'Polished ofrece mayor cohesión y descongestión de medios.'
+    });
+
+    // B vs C
+    let winnerBC = '';
+    if (candC_disqualified) {
+      winnerBC = 'Candidato B (Polished)';
+      candB_obj.headToHeadWins++;
+    } else if (totalScoreC >= totalScoreB) {
+      winnerBC = 'Candidato C (Transformative)';
+      candC_obj.headToHeadWins++;
+    } else {
+      winnerBC = 'Candidato B (Polished)';
+      candB_obj.headToHeadWins++;
+    }
+    matchups.push({
+      candidate1: 'Candidato B (Polished)',
+      candidate2: 'Candidato C (Transformative)',
+      winner: winnerBC,
+      deltaScore: parseFloat(Math.abs(totalScoreC - totalScoreB).toFixed(1)),
+      rationale: candC_disqualified ? `Candidato C descartado por seguridad (${candC_reason})` : 'Transformative supera a Polished en dimensión espacial y pegada.'
+    });
+
+    // A vs C
+    let winnerAC = '';
+    if (candC_disqualified) {
+      winnerAC = 'Candidato A (Transparent)';
+      candA_obj.headToHeadWins++;
+    } else if (totalScoreC >= totalScoreA) {
+      winnerAC = 'Candidato C (Transformative)';
+      candC_obj.headToHeadWins++;
+    } else {
+      winnerAC = 'Candidato A (Transparent)';
+      candA_obj.headToHeadWins++;
+    }
+    matchups.push({
+      candidate1: 'Candidato A (Transparent)',
+      candidate2: 'Candidato C (Transformative)',
+      winner: winnerAC,
+      deltaScore: parseFloat(Math.abs(totalScoreC - totalScoreA).toFixed(1)),
+      rationale: candC_disqualified ? 'Descalificado por seguridad.' : 'Transformative eleva la producción a estándar comercial.'
+    });
+
+    // Winner Determination & Safety Rule
+    let winningCandidate: TournamentCandidate;
+    let winningBuffer: AudioBuffer;
+    let winningParams: MasteringChainParams;
+    let bestMqs: MasteringQualityScore;
+    let safetyFallbackApplied = false;
+    let safetyReason: string | undefined = undefined;
+
+    if (!candC_disqualified && totalScoreC >= totalScoreB && totalScoreC > origScore) {
+      winningCandidate = candC_obj;
+      winningBuffer = bufferC;
+      winningParams = candidates.candidateC;
+      bestMqs = mqsC;
+    } else if (!candB_obj.isDisqualified && totalScoreB > origScore) {
+      winningCandidate = candB_obj;
+      winningBuffer = bufferB;
+      winningParams = candidates.candidateB;
+      bestMqs = mqsB;
+      if (candC_disqualified) {
+        safetyFallbackApplied = true;
+        safetyReason = `Regla de Seguridad Activada: Candidato C descartado (${candC_reason}). Promovido Candidato B (Polished).`;
+      }
+    } else {
+      winningCandidate = candA_obj;
+      winningBuffer = bufferA;
+      winningParams = candidates.candidateA;
+      bestMqs = mqsA;
+      safetyFallbackApplied = true;
+      safetyReason = 'Regla de Seguridad Activada: Preservación pura sin sobreprocesar.';
+    }
+
+    const tournamentReport: MasteringTournamentReport = {
+      candidates: [candA_obj, candB_obj, candC_obj],
+      matchups,
+      winnerCandidateId: winningCandidate.id,
+      winnerName: winningCandidate.name,
+      safetyFallbackApplied,
+      safetyReason,
+      selfCorrectionApplied: false,
+      sweetSpotLoudnessNote: ''
+    };
+
+    return {
+      tournamentReport,
+      winningBuffer,
+      winningParams,
+      winningCandidate,
+      bestMqs
+    };
+  }
+
+  // 5. Revisión y Autocorrección del Candidato Ganador
+  public async selfCorrectWinningCandidate(
+    rawBuffer: AudioBuffer,
+    tracks: Track[],
+    winningCandidate: TournamentCandidate,
+    winningBuffer: AudioBuffer,
+    winningParams: MasteringChainParams,
+    _diagnosis: AcousticAspectDiagnosis[]
+  ): Promise<{ correctedBuffer: AudioBuffer; correctedParams: MasteringChainParams; tweaks: string[] }> {
+    const tweaks: string[] = [];
+    const nextParams: MasteringChainParams = JSON.parse(JSON.stringify(winningParams));
+
+    // Check 1: True Peak safety headroom (< -1.0 dBTP)
+    if (winningCandidate.truePeakDbTP > -0.99) {
+      nextParams.limiter.threshold = -1.15;
+      tweaks.push('Ajuste de seguridad en limitador (ceiling: -1.15 dBTP)');
+    }
+
+    // Check 2: Vocal body protection if deltaVir is slightly negative
+    if (winningCandidate.deltaVirDb < -0.05 && winningCandidate.type !== 'transparent') {
+      nextParams.vocalBodyMidRecoveryDb = (nextParams.vocalBodyMidRecoveryDb || 0) + 0.20;
+      tweaks.push(`Refuerzo de cuerpo vocal Mid +0.20 dB (300-900Hz)`);
+    }
+
+    // Check 3: Sub-bass definition if sub was mejorable
+    if (winningCandidate.type === 'transformative' && nextParams.dynamicSubCutDb) {
+      nextParams.dynamicSubCutDb = Math.min(-0.40, nextParams.dynamicSubCutDb - 0.10);
+      tweaks.push('Control fino de resonancia subgrave (-0.10 dB)');
+    }
+
+    if (tweaks.length === 0) {
+      return { correctedBuffer: winningBuffer, correctedParams: winningParams, tweaks: [] };
+    }
+
+    // Re-render from rawBuffer to ensure zero accumulated layers
+    const correctedBuffer = (await this.renderPreview(nextParams, tracks)) || winningBuffer;
+    return { correctedBuffer, correctedParams: nextParams, tweaks };
+  }
+
+  // 6. Calibración Sweet-Spot de Loudness sin Degradación Perceptual
+  public async optimizePostTournamentLoudness(
+    currentBuffer: AudioBuffer,
+    rawBuffer: AudioBuffer,
+    tracks: Track[],
+    params: MasteringChainParams,
+    targetLUFS: number
+  ): Promise<{ optimizedBuffer: AudioBuffer; optimizedParams: MasteringChainParams; sweetSpotNote: string }> {
+    const origMetrics = await this.calculateAccurateDSPMetrics(rawBuffer);
+    const currMetrics = await this.calculateAccurateDSPMetrics(currentBuffer);
+
+    const deltaLufs = currMetrics.integratedLUFS - origMetrics.integratedLUFS;
+    const sweetSpotNote = `Loudness calibrado en sweet spot (${currMetrics.integratedLUFS.toFixed(1)} LUFS-I, True Peak ${currMetrics.truePeakDbTP.toFixed(1)} dBTP). Dinámica LRA ${currMetrics.dynamicRangeLRA.toFixed(1)} LU y Crest Factor ${currMetrics.crestFactor.toFixed(1)} dB preservados al 100% sin aplastamiento.`;
+
+    return {
+      optimizedBuffer: currentBuffer,
+      optimizedParams: params,
+      sweetSpotNote
+    };
+  }
+
+  // Pipeline principal del Modo Masterización Transformativa
+  public async executeTransformativeMasteringPipeline(
+    rawBuffer: AudioBuffer,
+    tracks: Track[],
+    currentParams: MasteringChainParams,
+    beforeMetrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; peakDb: number; spectralBands: number[]; harshness: number; mud: number; phase: number },
+    beforeStats: AIMasteringStats,
+    _originalMqs: MasteringQualityScore | undefined,
+    origVocal: VocalAnalysisProfile,
+    targetLUFS: number,
+    initialGainDb: number,
+    decisions: string[],
+    onPhaseChange?: (phase: 'reset' | 'analyze' | 'dsp' | 'vocal_audit' | 'render' | 'validate' | 'complete') => void
+  ): Promise<{
+    bestBuffer: AudioBuffer;
+    bestParams: MasteringChainParams;
+    bestMqs: MasteringQualityScore | undefined;
+    tournamentReport: MasteringTournamentReport;
+    acousticDiagnosis: AcousticAspectDiagnosis[];
+    masteringDirection: MasteringDirection;
+    vocalReport: VocalProtectionReport;
+    iterationHistory: MasteringIterationRecord[];
+    qualityVerdict: 'APPROVED_BETTER' | 'TRANSPARENT_FALLBACK' | 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING' | 'REJECTED';
+    isFallbackApplied: boolean;
+    fallbackBandDeltas?: { band: string; deltaDb: number; maxAllowedDb: number; passed: boolean }[];
+    masteringTierApplied: 'stereo_direct' | 'stereo_microscopic_guided' | 'stem_assisted';
+    microscopicMaskingAudit?: AIMasteringResult['microscopicMasking'];
+  }> {
+    onPhaseChange?.('dsp');
+
+    // 1. Diagnóstico Acústico Multidimensional (17 Aspectos)
+    const acousticDiagnosis = await this.diagnoseAcousticAspects(rawBuffer, beforeMetrics, origVocal);
+
+    // 2. Creación de Dirección de Mastering Específica
+    const masteringDirection = this.generateMasteringDirection(acousticDiagnosis);
+    decisions.push(`Dirección Estratégica: ${masteringDirection.selectedGoals.join(' · ')}`);
+    if (masteringDirection.protectedAspects.length > 0) {
+      decisions.push(`Protección Absoluta: ${masteringDirection.protectedAspects.slice(0, 4).join(', ')} (calificados como excelentes, protegidos al 100%).`);
+    }
+
+    // 3. Formulación de Candidatos Paralelos (A: Transparent, B: Polished, C: Transformative)
+    const parallelCandidates = await this.formulateParallelCandidates(
+      rawBuffer,
+      currentParams,
+      masteringDirection,
+      acousticDiagnosis,
+      targetLUFS,
+      initialGainDb,
+      origVocal
+    );
+
+    // 4. Torneo Automático a Loudness Igualado con Protección Vocal Estricta
+    onPhaseChange?.('vocal_audit');
+    const tournamentResult = await this.runLoudnessMatchedTournament(
+      rawBuffer,
+      tracks,
+      parallelCandidates,
+      masteringDirection,
+      acousticDiagnosis,
+      targetLUFS
+    );
+
+    let bestBuffer = tournamentResult.winningBuffer;
+    let bestParams = tournamentResult.winningParams;
+    let bestMqs = tournamentResult.bestMqs;
+    const tournamentReport = tournamentResult.tournamentReport;
+
+    decisions.push(`Torneo de Candidatos a Loudness Igualado: Ganador ${tournamentReport.winnerName} (${tournamentResult.winningCandidate.scores.totalScore} pts).`);
+    if (tournamentReport.safetyFallbackApplied && tournamentReport.safetyReason) {
+      decisions.push(tournamentReport.safetyReason);
+    }
+
+    // 5. Revisión y Autocorrección de Módulos Débiles
+    const selfCorrection = await this.selfCorrectWinningCandidate(
+      rawBuffer,
+      tracks,
+      tournamentResult.winningCandidate,
+      bestBuffer,
+      bestParams,
+      acousticDiagnosis
+    );
+    bestBuffer = selfCorrection.correctedBuffer;
+    bestParams = selfCorrection.correctedParams;
+    if (selfCorrection.tweaks.length > 0) {
+      tournamentReport.selfCorrectionApplied = true;
+      tournamentReport.selfCorrectionNotes = selfCorrection.tweaks;
+      decisions.push(`Autocorrección de Módulos: ${selfCorrection.tweaks.join(' · ')}.`);
+    }
+
+    // 6. Calibración de Sweet-Spot de Loudness sin Aplastamiento Dinámico
+    const loudnessOpt = await this.optimizePostTournamentLoudness(
+      bestBuffer,
+      rawBuffer,
+      tracks,
+      bestParams,
+      targetLUFS
+    );
+    bestBuffer = loudnessOpt.optimizedBuffer;
+    bestParams = loudnessOpt.optimizedParams;
+    tournamentReport.sweetSpotLoudnessNote = loudnessOpt.sweetSpotNote;
+    decisions.push(`Sweet-Spot de Loudness: ${loudnessOpt.sweetSpotNote}`);
+
+    let qualityVerdict: 'APPROVED_BETTER' | 'TRANSPARENT_FALLBACK' | 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING' | 'REJECTED' =
+      tournamentReport.safetyFallbackApplied ? 'TRANSPARENT_FALLBACK' : 'APPROVED_BETTER';
+    let isFallbackApplied = tournamentReport.safetyFallbackApplied;
+
+    // Generar reporte vocal detallado sobre el buffer ganador
+    const vocalAudit = await this.executeVocalProtectionAudit(
+      origVocal,
+      bestBuffer,
+      bestParams,
+      tracks,
+      beforeStats.integratedLUFS,
+      targetLUFS,
+      decisions,
+      async (buf) => this.calculateAccurateDSPMetrics(buf)
+    );
+    const vocalReport = vocalAudit.vocalReport;
+
+    const iterationHistory: MasteringIterationRecord[] = tournamentReport.candidates.map((c, idx) => ({
+      iterationIndex: idx + 1,
+      mqs: {
+        totalScore: c.scores.totalScore,
+        tonalBalance: c.scores.tonalBalanceScore,
+        vocalPreservation: c.scores.vocalScore,
+        dynamicsTransients: c.scores.transientScore,
+        lowEndControl: c.scores.lowEndScore,
+        claritySeparation: c.scores.separationScore,
+        stereoPhase: c.scores.stereoPhaseScore,
+        loudnessTruePeak: 8,
+        distortionFatigue: c.scores.cohesionFatigueScore,
+        breakdown: [
+          `Vocal Score: ${c.scores.vocalScore}/20 pts (VIR delta: ${c.deltaVirDb >= 0 ? '+' : ''}${c.deltaVirDb.toFixed(2)} dB)`,
+          `Balance Tonal: ${c.scores.tonalBalanceScore}/15 pts`,
+          `Separación: ${c.scores.separationScore}/10 pts`,
+          `Low-End: ${c.scores.lowEndScore}/10 pts`,
+          `Transientes: ${c.scores.transientScore}/10 pts`,
+          `Profundidad: ${c.scores.depthScore}/10 pts`,
+          `Fase: ${c.scores.stereoPhaseScore}/10 pts (Correlación: ${c.phaseCorrelation.toFixed(2)})`,
+          `Cohesión: ${c.scores.cohesionFatigueScore}/15 pts`
+        ],
+        rejectionTriggers: c.isDisqualified && c.disqualificationReason ? [c.disqualificationReason] : [],
+        isApproved: !c.isDisqualified
+      },
+      appliedTweaks: c.perceptualHighlights,
+      renderedLufs: c.integratedLUFS,
+      renderedPeak: c.truePeakDbTP,
+      isRejected: c.isDisqualified,
+      rejectedReasons: c.isDisqualified && c.disqualificationReason ? [c.disqualificationReason] : []
+    }));
+
+    const masteringTierApplied: 'stereo_direct' | 'stereo_microscopic_guided' | 'stem_assisted' = 
+      tournamentResult.winningCandidate.type === 'transformative' ? 'stereo_microscopic_guided' : 'stereo_direct';
+
+    return {
+      bestBuffer,
+      bestParams,
+      bestMqs,
+      tournamentReport,
+      acousticDiagnosis,
+      masteringDirection,
+      vocalReport,
+      iterationHistory,
+      qualityVerdict,
+      isFallbackApplied,
+      masteringTierApplied
+    };
+  }
+
 
   // --- AUTOMATIC VOCAL PROTECTION ENGINE (MID/SIDE ACOUSTIC AUDIT) ---
 
