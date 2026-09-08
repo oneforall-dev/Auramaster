@@ -3760,6 +3760,7 @@ export class AudioEngine {
     let candMSumSq = 0, candSSumSq = 0;
     let origLRSq = 0, origLSq = 0, origRSq = 0;
     let candLRSq = 0, candLSq = 0, candRSq = 0;
+    let sampleCount = 0;
 
     const hasStereo = numChannels >= 2;
     if (hasStereo) {
@@ -3767,6 +3768,7 @@ export class AudioEngine {
       const oR = originalBuffer.getChannelData(1);
       const cL = candidateBuffer.getChannelData(0);
       const cR = candidateBuffer.getChannelData(1);
+      const step = Math.max(1, Math.floor(length / 250000));
 
       for (let i = 0; i < length; i += step) {
         const oMid = 0.5 * (oL[i] + oR[i]);
@@ -3786,6 +3788,7 @@ export class AudioEngine {
         candLRSq += cL[i] * cR[i];
         candLSq += cL[i] * cL[i];
         candRSq += cR[i] * cR[i];
+        sampleCount++;
       }
     }
 
