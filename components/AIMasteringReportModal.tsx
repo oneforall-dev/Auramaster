@@ -1,7 +1,8 @@
 import React from 'react';
 import { 
   X, CheckCircle2, Sparkles, VolumeX, ArrowRight, ShieldCheck, 
-  Activity, Music2, Cpu, Disc, Sliders, Layers, BarChart2, Gauge, Mic
+  Activity, Music2, Cpu, Disc, Sliders, Layers, BarChart2, Gauge, Mic,
+  Scale, Binary
 } from 'lucide-react';
 import { AIMasteringResult, SkinMode } from '../types';
 import { Language, getT } from '../services/i18n';
@@ -73,13 +74,17 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                   {referenceReport ? 'Reporte de Mastering Multi-Referencia AI' : 'Reporte de Mixer Fixer AI'}
                 </h3>
                 <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
-                  targetMet 
-                    ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' 
-                    : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                  result.qualityVerdict === 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING'
+                    ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                    : targetMet 
+                      ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' 
+                      : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
                 }`}>
-                  {referenceReport 
-                    ? `Match Sónico: ${referenceReport.matchingScorePercent}%` 
-                    : targetMet ? 'Objetivo Cumplido' : 'Master Optimizado'}
+                  {result.qualityVerdict === 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING'
+                    ? 'Original Preservado (Sin Masterización Sustancial)'
+                    : referenceReport 
+                      ? `Match Sónico: ${referenceReport.matchingScorePercent}%` 
+                      : targetMet ? 'Objetivo Cumplido' : 'Master Optimizado'}
                 </span>
               </div>
               <p className={`text-xs mt-0.5 ${isClear ? 'text-slate-600' : 'text-slate-400'}`}>
@@ -216,21 +221,27 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                         Auditoría de Calidad: El Master Debe Superar al Original
                       </h4>
                       <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
-                        result.isFallbackApplied
-                          ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
-                          : result.mqs.isApproved
-                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                            : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                        result.qualityVerdict === 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING'
+                          ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                          : result.isFallbackApplied
+                            ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                            : result.mqs.isApproved
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                              : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                       }`}>
-                        {result.isFallbackApplied 
-                          ? 'Fallback Transparente' 
-                          : result.mqs.isApproved ? 'Master Superior Aprobado' : 'Revisión Requerida'}
+                        {result.qualityVerdict === 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING'
+                          ? 'Original Preservado — Sin Masterización Sustancial'
+                          : result.isFallbackApplied 
+                            ? 'Fallback Transparente' 
+                            : result.mqs.isApproved ? 'Master Superior Aprobado' : 'Revisión Requerida'}
                       </span>
                     </div>
                     <p className="text-xs opacity-75 font-mono mt-0.5">
-                      {result.isFallbackApplied 
-                        ? 'La mezcla original ya posee balance sobresaliente; se aplicó preservación pura sin sobreprocesar.'
-                        : `Evaluación comparativa a loudness igualado: Original ${result.originalMqs ? `${result.originalMqs.totalScore} pts` : ''} ➔ Master ${result.mqs.totalScore} pts (+${result.originalMqs ? (result.mqs.totalScore - result.originalMqs.totalScore).toFixed(1) : '0'} pts).`
+                      {result.qualityVerdict === 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING'
+                        ? 'Mezcla terminada en origen. Correlación > 0.99999 y residuo < -80 dBFS: puntuación calibrada a nivel honesto.'
+                        : result.isFallbackApplied 
+                          ? 'La mezcla original ya posee balance sobresaliente; se aplicó preservación pura sin sobreprocesar.'
+                          : `Evaluación comparativa a loudness igualado: Original ${result.originalMqs ? `${result.originalMqs.totalScore} pts` : ''} ➔ Master ${result.mqs.totalScore} pts (+${result.originalMqs ? (result.mqs.totalScore - result.originalMqs.totalScore).toFixed(1) : '0'} pts).`
                       }
                     </p>
                   </div>
@@ -418,6 +429,292 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     </span>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* AUDITORÍA MATEMÁTICA COMPARATIVA (MASTER VS ORIGINAL A GANANCIA COMPENSADA) */}
+          {result.mathematicalComparison && (
+            <div className={`p-4 rounded-xl border space-y-4 ${
+              isClear 
+                ? 'bg-gradient-to-br from-cyan-50/70 via-slate-50 to-indigo-50/50 border-cyan-200 text-slate-800' 
+                : 'bg-gradient-to-br from-slate-950/90 via-slate-900/80 to-cyan-950/30 border-cyan-500/30 text-slate-200'
+            }`}>
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 border-slate-700/50">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-500 to-indigo-600 text-white shadow-lg shrink-0">
+                    <Scale size={20} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-sm sm:text-base tracking-wide flex items-center gap-1.5">
+                        Auditoría Matemática Comparativa (Ganancia Compensada)
+                      </h4>
+                      <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
+                        result.mathematicalComparison.isOriginalPreservedWithoutMastering
+                          ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                          : result.mathematicalComparison.classification === 'TECHNICAL_TRANSPARENT_DELIVERY'
+                            ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+                            : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                      }`}>
+                        {result.mathematicalComparison.classificationLabel}
+                      </span>
+                    </div>
+                    <p className="text-xs opacity-75 font-mono mt-0.5">
+                      Compensación lineal aplicada: {result.mathematicalComparison.gainOffsetDb >= 0 ? '+' : ''}{result.mathematicalComparison.gainOffsetDb.toFixed(2)} dB ({result.mathematicalComparison.gainCompensationLinear.toFixed(4)}x) para aislar la acción DSP real.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-center font-mono text-[11px]">
+                  <span className={`px-2.5 py-1 rounded-lg border font-bold ${
+                    result.mathematicalComparison.isOriginalPreservedWithoutMastering
+                      ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                      : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  }`}>
+                    {result.mathematicalComparison.isOriginalPreservedWithoutMastering
+                      ? '✓ ORIGEN PRESERVADO'
+                      : '✓ DSP VERIFICADO'}
+                  </span>
+                </div>
+              </div>
+
+              {/* 5 Key Mathematical Metrics */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                {/* 1. Pearson Sample Correlation */}
+                <div className={`p-2.5 rounded-lg border text-xs flex flex-col justify-between ${
+                  isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
+                }`}>
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-mono block">Correlación Muestral (r)</span>
+                    <span className="text-base font-bold font-mono text-cyan-400 block mt-1">
+                      {result.mathematicalComparison.sampleCorrelation.toFixed(6)}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 pt-1 border-t border-slate-800 text-[10px] font-mono flex items-center justify-between">
+                    <span className="text-slate-500">Umbral: &gt; 0.99999</span>
+                    <span className={result.mathematicalComparison.sampleCorrelation >= 0.99999 ? 'text-cyan-400 font-bold' : 'text-emerald-400'}>
+                      {result.mathematicalComparison.sampleCorrelation >= 0.99999 ? 'Identidad' : 'No lineal'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. Residual RMS */}
+                <div className={`p-2.5 rounded-lg border text-xs flex flex-col justify-between ${
+                  isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
+                }`}>
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-mono block">Nivel RMS Residuo</span>
+                    <span className="text-base font-bold font-mono text-indigo-400 block mt-1">
+                      {result.mathematicalComparison.residualRmsDb.toFixed(1)} dBFS
+                    </span>
+                  </div>
+                  <div className="mt-1.5 pt-1 border-t border-slate-800 text-[10px] font-mono flex items-center justify-between">
+                    <span className="text-slate-500">Umbral: &lt; -80 dBFS</span>
+                    <span className={result.mathematicalComparison.residualRmsDb <= -80 ? 'text-cyan-400 font-bold' : 'text-amber-400'}>
+                      {result.mathematicalComparison.residualRmsDb <= -80 ? 'Inaudible' : 'Medible'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. Residual Peak */}
+                <div className={`p-2.5 rounded-lg border text-xs flex flex-col justify-between ${
+                  isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
+                }`}>
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-mono block">Residuo Pico</span>
+                    <span className="text-base font-bold font-mono text-slate-200 block mt-1">
+                      {result.mathematicalComparison.residualPeakDb.toFixed(1)} dBFS
+                    </span>
+                  </div>
+                  <div className="mt-1.5 pt-1 border-t border-slate-800 text-[10px] font-mono flex items-center justify-between">
+                    <span className="text-slate-500">Pico Máx Error</span>
+                    <span className="text-slate-400 font-bold">Error pico</span>
+                  </div>
+                </div>
+
+                {/* 4. Envelope Correlation */}
+                <div className={`p-2.5 rounded-lg border text-xs flex flex-col justify-between ${
+                  isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
+                }`}>
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-mono block">Envolvente (50ms)</span>
+                    <span className="text-base font-bold font-mono text-emerald-400 block mt-1">
+                      {(result.mathematicalComparison.envelopeCorrelation * 100).toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="mt-1.5 pt-1 border-t border-slate-800 text-[10px] font-mono flex items-center justify-between">
+                    <span className="text-slate-500">Tracking temporal</span>
+                    <span className="text-emerald-400 font-bold">Fiel</span>
+                  </div>
+                </div>
+
+                {/* 5. Max Spectral Delta */}
+                <div className={`p-2.5 rounded-lg border text-xs flex flex-col justify-between ${
+                  isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'
+                }`}>
+                  <div>
+                    <span className="text-[10px] text-slate-400 uppercase font-mono block">Δ Espectral Máx</span>
+                    <span className={`text-base font-bold font-mono block mt-1 ${
+                      result.mathematicalComparison.maxSpectralDeltaDb <= 0.05 ? 'text-cyan-400' : 'text-emerald-400'
+                    }`}>
+                      ±{result.mathematicalComparison.maxSpectralDeltaDb.toFixed(3)} dB
+                    </span>
+                  </div>
+                  <div className="mt-1.5 pt-1 border-t border-slate-800 text-[10px] font-mono flex items-center justify-between">
+                    <span className="text-slate-500">Límite: ±0.05 dB</span>
+                    <span className={result.mathematicalComparison.maxSpectralDeltaDb <= 0.05 ? 'text-cyan-400 font-bold' : 'text-slate-400'}>
+                      {result.mathematicalComparison.maxSpectralDeltaDb <= 0.05 ? 'Idéntico' : 'Ajustado'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 5-Band Spectral Differences Table */}
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Activity size={13} className="text-cyan-400" />
+                  Diferencias Espectrales por Bandas a Ganancia Compensada (Tolerancia: ±0.05 dB)
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 font-mono text-[11px]">
+                  {result.mathematicalComparison.spectralBands.map((band, idx) => (
+                    <div key={idx} className={`p-2 rounded-lg border flex flex-col justify-between gap-1 ${
+                      isClear ? 'bg-white border-slate-200' : 'bg-slate-900/80 border-slate-800'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-400 font-sans truncate">{band.band}</span>
+                        <span className="text-[9px] text-slate-500">{band.fLow}-{band.fHigh >= 1000 ? `${band.fHigh / 1000}k` : band.fHigh}Hz</span>
+                      </div>
+                      <div className="flex items-baseline justify-between mt-0.5">
+                        <span className={`font-bold ${band.passed ? 'text-cyan-400' : 'text-emerald-400'}`}>
+                          {band.deltaDb >= 0 ? `+${band.deltaDb.toFixed(3)}` : band.deltaDb.toFixed(3)} dB
+                        </span>
+                        <span className={`text-[9px] font-bold uppercase px-1 py-0.2 rounded ${
+                          band.passed ? 'bg-cyan-500/10 text-cyan-300' : 'bg-emerald-500/10 text-emerald-400'
+                        }`}>
+                          {band.passed ? 'Sin cambio' : 'EQ Real'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Dynamics & Stereo Image Comparison */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Dynamic Metrics */}
+                <div className={`p-3 rounded-lg border space-y-2 ${
+                  isClear ? 'bg-white border-slate-200' : 'bg-slate-900/70 border-slate-800'
+                }`}>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
+                    Diferencias de Dinámica (LRA & Factor de Cresta)
+                  </span>
+                  <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                    <div className="p-2 rounded bg-slate-950/50 border border-slate-800/80">
+                      <span className="text-[9px] text-slate-500 block">Δ Rango Dinámico (LRA)</span>
+                      <span className="font-bold text-slate-200 text-sm">
+                        {result.mathematicalComparison.deltaLra >= 0 ? '+' : ''}{result.mathematicalComparison.deltaLra.toFixed(3)} LU
+                      </span>
+                      <span className="text-[9px] text-slate-400 block mt-0.5">
+                        {Math.abs(result.mathematicalComparison.deltaLra) <= 0.05 ? 'Preservación idéntica' : 'Dinámica calibrada'}
+                      </span>
+                    </div>
+                    <div className="p-2 rounded bg-slate-950/50 border border-slate-800/80">
+                      <span className="text-[9px] text-slate-500 block">Δ Factor de Cresta (Pegada)</span>
+                      <span className="font-bold text-slate-200 text-sm">
+                        {result.mathematicalComparison.deltaCrestFactor >= 0 ? '+' : ''}{result.mathematicalComparison.deltaCrestFactor.toFixed(3)} dB
+                      </span>
+                      <span className="text-[9px] text-slate-400 block mt-0.5">
+                        {Math.abs(result.mathematicalComparison.deltaCrestFactor) <= 0.05 ? 'Transientes intactos' : 'Pegada adaptada'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Stereo Image Metrics */}
+                <div className={`p-3 rounded-lg border space-y-2 ${
+                  isClear ? 'bg-white border-slate-200' : 'bg-slate-900/70 border-slate-800'
+                }`}>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
+                    Diferencias de Imagen Estéreo & Fase
+                  </span>
+                  <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                    <div className="p-2 rounded bg-slate-950/50 border border-slate-800/80">
+                      <span className="text-[9px] text-slate-500 block">Relación Mid/Side</span>
+                      <div className="flex items-baseline gap-1 mt-0.5">
+                        <span className="font-bold text-slate-200">
+                          {result.mathematicalComparison.originalMidSideRatio.toFixed(3)} ➔ {result.mathematicalComparison.masterMidSideRatio.toFixed(3)}
+                        </span>
+                      </div>
+                      <span className="text-[9px] text-slate-400 block mt-0.5">
+                        Δ {result.mathematicalComparison.deltaStereoWidth >= 0 ? '+' : ''}{result.mathematicalComparison.deltaStereoWidth.toFixed(3)} ({Math.abs(result.mathematicalComparison.deltaStereoWidth) <= 0.02 ? 'Anchura idéntica' : 'Optimizado'})
+                      </span>
+                    </div>
+                    <div className="p-2 rounded bg-slate-950/50 border border-slate-800/80">
+                      <span className="text-[9px] text-slate-500 block">Correlación de Fase Estéreo</span>
+                      <div className="flex items-baseline gap-1 mt-0.5">
+                        <span className="font-bold text-slate-200">
+                          {result.mathematicalComparison.originalPhaseCorrelation.toFixed(3)} ➔ {result.mathematicalComparison.masterPhaseCorrelation.toFixed(3)}
+                        </span>
+                      </div>
+                      <span className="text-[9px] text-emerald-400 block mt-0.5">
+                        Fase 100% Mono-compatible
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Real Action of Each DSP Module */}
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Binary size={13} className="text-indigo-400" />
+                  Acción Real de Cada Módulo DSP en la Forma de Onda
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {result.mathematicalComparison.dspModuleActions.map((dsp, idx) => (
+                    <div key={idx} className={`p-2.5 rounded-lg border flex flex-col justify-between text-xs ${
+                      isClear ? 'bg-white border-slate-200' : 'bg-slate-950/60 border-slate-800'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-200 text-[11px]">{dsp.module}</span>
+                        <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
+                          dsp.applied
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                            : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                        }`}>
+                          {dsp.applied ? 'Activo' : 'Bypass / Neutro'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-mono mt-1 leading-relaxed">
+                        {dsp.actionDescription}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Honest Engineering Notice */}
+              <div className={`p-3 rounded-lg border text-xs flex items-start gap-2.5 ${
+                result.mathematicalComparison.isOriginalPreservedWithoutMastering
+                  ? 'bg-cyan-950/40 border-cyan-500/40 text-cyan-200'
+                  : 'bg-indigo-950/40 border-indigo-500/40 text-indigo-200'
+              }`}>
+                <ShieldCheck size={18} className="shrink-0 text-cyan-400 mt-0.5" />
+                <div className="space-y-1">
+                  <div className="font-bold text-xs">
+                    {result.mathematicalComparison.isOriginalPreservedWithoutMastering
+                      ? 'Dictamen de Integridad: Mezcla Original Preservada'
+                      : 'Dictamen de Integridad: Masterización Sustancial Aprobada'}
+                  </div>
+                  <p className="text-[11px] opacity-90 leading-relaxed font-sans">
+                    {result.mathematicalComparison.honestNote}
+                  </p>
+                  <p className="text-[10px] font-mono opacity-75">
+                    {result.mathematicalComparison.classificationReason}
+                  </p>
+                </div>
               </div>
             </div>
           )}

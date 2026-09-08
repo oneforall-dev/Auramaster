@@ -380,7 +380,7 @@ export interface AIMasteringResult {
   totalIterationsRun?: number;
   iterationHistory?: MasteringIterationRecord[];
   isFallbackApplied?: boolean;
-  qualityVerdict?: 'APPROVED_BETTER' | 'TRANSPARENT_FALLBACK' | 'REJECTED';
+  qualityVerdict?: 'APPROVED_BETTER' | 'TRANSPARENT_FALLBACK' | 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING' | 'REJECTED';
   fallbackBandDeltas?: { band: string; deltaDb: number; maxAllowedDb: number; passed: boolean }[];
   masteringTierApplied?: 'stereo_direct' | 'stereo_microscopic_guided' | 'stem_assisted';
   reconstructionTestPassed?: boolean;
@@ -399,6 +399,67 @@ export interface AIMasteringResult {
     format: string;
     passed: boolean;
   };
+  mathematicalComparison?: MathematicalComparisonReport;
+}
+
+export interface MathematicalComparisonReport {
+  // 1. Compensación global de ganancia
+  gainOffsetDb: number;
+  gainCompensationLinear: number;
+
+  // 2. Correlación entre muestras
+  sampleCorrelation: number; // Pearson correlation r (p.ej. 0.999998)
+
+  // 3. Nivel RMS y Pico del residuo (dBFS)
+  residualRmsDb: number; // 20 * log10(RMS(Master * g^-1 - Source))
+  residualPeakDb: number; // 20 * log10(Peak(Master * g^-1 - Source))
+
+  // 4. Diferencias espectrales por bandas a loudness igualado
+  spectralBands: {
+    band: string;
+    fLow: number;
+    fHigh: number;
+    deltaDb: number;
+    passed: boolean;
+  }[];
+  maxSpectralDeltaDb: number;
+
+  // 5. Diferencias de dinámica
+  deltaLra: number;
+  deltaCrestFactor: number;
+
+  // 6. Diferencias de imagen estéreo
+  originalMidSideRatio: number;
+  masterMidSideRatio: number;
+  deltaStereoWidth: number;
+  originalPhaseCorrelation: number;
+  masterPhaseCorrelation: number;
+  deltaPhaseCorrelation: number;
+
+  // 7. Diferencias de envolvente
+  envelopeCorrelation: number;
+
+  // 8. Acción real de cada módulo DSP
+  dspModuleActions: {
+    module: string;
+    applied: boolean;
+    measuredImpactDb: number;
+    actionDescription: string;
+  }[];
+
+  // 9. Clasificación matemática estricta
+  isOriginalPreservedWithoutMastering: boolean;
+  classification:
+    | 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING'
+    | 'SUBSTANTIAL_GENUINE_IMPROVEMENT'
+    | 'TECHNICAL_TRANSPARENT_DELIVERY';
+  classificationLabel: string;
+  classificationReason: string;
+
+  // 10. Honestidad en presentación
+  hasAudibleTransformation: boolean;
+  honestNote: string;
+  mixNearMasterReady: boolean;
 }
 
 export interface BulkMasteringSummary {
