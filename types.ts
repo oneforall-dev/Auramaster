@@ -105,6 +105,8 @@ export interface MasteringChainParams {
   midDensity750Gain?: number; // Dynamic 750 Hz density control
   dynamicSubCutDb?: number; // Selective 30-75 Hz dynamic sub/kick attenuation
   vocalBodyMidRecoveryDb?: number; // Selective 300-900 Hz mid recovery in vocal sections
+  vocalMidPresenceDb?: number; // Dedicated 1.5k-3.8k Mid channel vocal lift to place vocals on top of instruments
+  sideVocalCarveDb?: number; // Dedicated Side-channel acoustic pocket carving to prevent instruments from masking vocals
   isTransparentFallback?: boolean; // When active, strictly enforces pure linear passthrough & true peak safety
   stemAssisted?: boolean; // Tier 3 stem-assisted mastering
   stemMicroDuckingDb?: number; // 0.2 to 0.5 dB dynamic spectral instrumental ducking during active vocal

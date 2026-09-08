@@ -90,6 +90,8 @@ export function getNeutralMasteringParams(): MasteringChainParams {
     midDensity750Gain: 0.0,
     dynamicSubCutDb: 0.0,
     vocalBodyMidRecoveryDb: 0.0,
+    vocalMidPresenceDb: 0.0,
+    sideVocalCarveDb: 0.0,
     isTransparentFallback: false,
     limiter: { enabled: true, threshold: -1.0, breathe: 0 }
   };
@@ -127,8 +129,13 @@ export class AudioEngine {
   private highMidEQ: BiquadFilterNode | null = null;
   private highEQ: BiquadFilterNode | null = null;
 
-  // De-Esser Nodes
+  // Multiband Clean Bypass Path to eliminate IIR crossover phase cancellations
+  private mbBypassGain: GainNode | null = null;
+  private mbWetGain: GainNode | null = null;
+
+  // De-Esser Nodes (Peaking notch + transparent limiter)
   private deEsserComp: DynamicsCompressorNode | null = null;
+  private deEsserFilter: BiquadFilterNode | null = null;
 
   // Spatial / Time FX
   private delayNode: DelayNode | null = null;
@@ -153,6 +160,10 @@ export class AudioEngine {
   private dynamicSubCutNode: BiquadFilterNode | null = null;
   // Mid Channel Vocal Body Recovery (300-900 Hz in center)
   private vocalBodyRecoveryNode: BiquadFilterNode | null = null;
+  // Mid Channel Vocal Presence Lift (1.5k-3.8k in center)
+  private vocalMidPresenceNode: BiquadFilterNode | null = null;
+  // Side Channel Vocal Carve (cleans pocket for lead vocals)
+  private sideVocalCarveNode: BiquadFilterNode | null = null;
   
   // Dynamic Breathe (Expander)
   private expander: WaveShaperNode | null = null;
@@ -230,19 +241,46 @@ export class AudioEngine {
       this.dynamicSubCutNode.Q.value = 1.3;
       this.dynamicSubCutNode.gain.value = 0.0;
 
-      this.vocalBodyRecoveryNode = this.audioContext.createBiquadFilter();
+       this.vocalBodyRecoveryNode = this.audioContext.createBiquadFilter();
       this.vocalBodyRecoveryNode.type = 'peaking';
       this.vocalBodyRecoveryNode.frequency.value = 500;
       this.vocalBodyRecoveryNode.Q.value = 0.8;
       this.vocalBodyRecoveryNode.gain.value = 0.0;
 
+      // Mid Channel Vocal Presence Lift (1.5k - 3.8k) to keep vocal on top of instruments
+      this.vocalMidPresenceNode = this.audioContext.createBiquadFilter();
+      this.vocalMidPresenceNode.type = 'peaking';
+      this.vocalMidPresenceNode.frequency.value = 2800;
+      this.vocalMidPresenceNode.Q.value = 1.0;
+      this.vocalMidPresenceNode.gain.value = 0.0;
+
+      // Side Channel Vocal Carve to prevent stereo guitars/synths from masking center lead
+      this.sideVocalCarveNode = this.audioContext.createBiquadFilter();
+      this.sideVocalCarveNode.type = 'peaking';
+      this.sideVocalCarveNode.frequency.value = 1800;
+      this.sideVocalCarveNode.Q.value = 0.9;
+      this.sideVocalCarveNode.gain.value = 0.0;
+
+      // Multiband Crossover Clean Bypass Gains (0% phase cancellation when multiband is inactive)
+      this.mbBypassGain = this.audioContext.createGain();
+      this.mbBypassGain.gain.value = 1.0;
+      this.mbWetGain = this.audioContext.createGain();
+      this.mbWetGain.gain.value = 0.0;
+
       this.highMidEQ = this.audioContext.createBiquadFilter(); this.highMidEQ.type = 'peaking';
       this.highEQ = this.audioContext.createBiquadFilter(); this.highEQ.type = 'highshelf';
       
+      this.deEsserFilter = this.audioContext.createBiquadFilter();
+      this.deEsserFilter.type = 'peaking';
+      this.deEsserFilter.frequency.value = 6500;
+      this.deEsserFilter.Q.value = 2.0;
+      this.deEsserFilter.gain.value = 0.0;
+
       this.deEsserComp = this.audioContext.createDynamicsCompressor();
       this.deEsserComp.attack.value = 0.005; 
       this.deEsserComp.release.value = 0.05;
-      this.deEsserComp.ratio.value = 4;
+      this.deEsserComp.ratio.value = 1.0; // Transparent to prevent bus pumping
+      this.deEsserComp.threshold.value = 0.0;
 
       this.delayNode = this.audioContext.createDelay(2.0);
       this.delayDry = this.audioContext.createGain();
@@ -276,11 +314,11 @@ export class AudioEngine {
       this.msSideGain = this.audioContext.createGain();
       this.msMerger = this.audioContext.createChannelMerger(2);
 
-      // Transparent Mastering Limiter with smooth 8.0dB soft knee
+      // Transparent Mastering Limiter with crisp 0.5dB knee: true brickwall threshold, zero ducking below -1dB
       this.limiter = this.audioContext.createDynamicsCompressor();
       this.limiter.threshold.value = -1.0; 
       this.limiter.ratio.value = 20;
-      this.limiter.knee.value = 8.0; // Smooth 8.0dB knee to eliminate abrupt hard-clip clicks at -1dB
+      this.limiter.knee.value = 0.5; // Sharp 0.5dB knee: limits only when touching ceiling, eliminating mix ducking
       this.limiter.attack.value = 0.0015; // Fast transparent peak catching
       this.limiter.release.value = 0.05; // Musical transparent recovery
 
@@ -313,6 +351,10 @@ export class AudioEngine {
       this.preMasterGain.connect(this.noiseGate);
       this.noiseGate.connect(this.distortion);
       
+      // Multiband crossover path with linear bypass to prevent phase comb-filtering in vocal range
+      this.distortion.connect(this.mbBypassGain!);
+      this.mbBypassGain!.connect(this.dynamicSubCutNode!);
+
       this.distortion.connect(this.lowCrossover);
       this.distortion.connect(this.midCrossoverLow);
       this.midCrossoverLow.connect(this.midCrossoverHigh);
@@ -325,9 +367,10 @@ export class AudioEngine {
       this.compLow.connect(this.mbSum);
       this.compMid.connect(this.mbSum);
       this.compHigh.connect(this.mbSum);
+      this.mbSum.connect(this.mbWetGain!);
+      this.mbWetGain!.connect(this.dynamicSubCutNode!);
       
       // 5-Band EQ Serial Chain with Dynamic Sub/Kick Control & Mid Resonance Tamer
-      this.mbSum.connect(this.dynamicSubCutNode!);
       this.dynamicSubCutNode!.connect(this.lowEQ);
       this.lowEQ.connect(this.lowMidEQ);
       this.lowMidEQ.connect(this.midEQ);
@@ -335,7 +378,9 @@ export class AudioEngine {
       this.midDensityTamer.connect(this.highMidEQ);
       this.highMidEQ.connect(this.highEQ);
 
-      this.highEQ.connect(this.deEsserComp);
+      // De-Esser: Narrow peaking filter to prevent whole-mix ducking
+      this.highEQ.connect(this.deEsserFilter!);
+      this.deEsserFilter!.connect(this.deEsserComp);
 
       const spatialIn = this.deEsserComp;
 
@@ -368,15 +413,17 @@ export class AudioEngine {
       sideInvert.connect(this.msSideDiff);         
       this.msSideDiff.gain.value = 0.5; 
 
-      // Connect Side through Mono-Maker HighPass & Low-Mid Side Tamer before width gain
+      // Connect Side through Mono-Maker HighPass, Low-Mid Side Tamer & Vocal Carve before width gain
       this.msSideDiff.connect(this.sideMonoHighPass);
       this.sideMonoHighPass.connect(this.sideLowMidDip);
-      this.sideLowMidDip.connect(this.msSideGain); 
+      this.sideLowMidDip.connect(this.sideVocalCarveNode!);
+      this.sideVocalCarveNode!.connect(this.msSideGain); 
 
-      // Connect Mid channel through Vocal Body Recovery Filter before Merger
+      // Connect Mid channel through Vocal Body Recovery Filter and Vocal Mid Presence Lift before Merger
       this.msMidSum.connect(this.vocalBodyRecoveryNode!);
-      this.vocalBodyRecoveryNode!.connect(this.msMerger, 0, 0); 
-      this.vocalBodyRecoveryNode!.connect(this.msMerger, 0, 1); 
+      this.vocalBodyRecoveryNode!.connect(this.vocalMidPresenceNode!);
+      this.vocalMidPresenceNode!.connect(this.msMerger, 0, 0); 
+      this.vocalMidPresenceNode!.connect(this.msMerger, 0, 1); 
 
       this.msSideGain.connect(this.msMerger, 0, 0); 
       
@@ -1126,7 +1173,14 @@ export class AudioEngine {
     newParams.eq.mid.frequency = origVocal.exactPresenceFreq;
     newParams.eq.mid.q = 0.95;
     newParams.eq.mid.gain = 0.35; // Crystal focal boost directly in the vocal presence core
-    decisions.push(`Foco Vocal Frontal: Presencia media calibrada (+0.35 dB @ ${origVocal.exactPresenceFreq}Hz) para protagonismo nítido`);
+
+    // Mid/Side Vocal Dominance: Place vocal prominently on top of the instrumentation
+    newParams.vocalMidPresenceDb = 1.20; // +1.2 dB Mid-channel presence lift (1.5k-3.8k)
+    newParams.sideVocalCarveDb = -0.90; // -0.9 dB Side-channel acoustic pocket carve (1.8k)
+    newParams.vocalBodyMidRecoveryDb = 0.45; // +0.45 dB Mid-channel vocal body (500Hz)
+    newParams.dynamicSubCutDb = -0.20; // -0.2 dB selective sub/kick protection
+
+    decisions.push(`Foco Vocal Frontal & Separación M/S: Presencia Mid (+1.2 dB @ 2.8kHz) y carve lateral (-0.9 dB @ 1.8kHz) para situar la voz firmemente por encima de los instrumentos.`);
 
     // High-Mid harshness control (3.5kHz - 5.5kHz): only applied if real harshness is detected
     newParams.eq.highMid.frequency = 4200;
@@ -1421,9 +1475,11 @@ export class AudioEngine {
 
       // Attempt microscopic-guided stereo adjustments
       const guidedStereoParams: MasteringChainParams = JSON.parse(JSON.stringify(bestParams));
-      guidedStereoParams.vocalBodyMidRecoveryDb = 0.35;
+      guidedStereoParams.vocalBodyMidRecoveryDb = 0.65;
+      guidedStereoParams.vocalMidPresenceDb = 1.50;
+      guidedStereoParams.sideVocalCarveDb = -1.20;
       guidedStereoParams.sideLowMidDipDb = 0.40;
-      guidedStereoParams.dynamicSubCutDb = Math.max(guidedStereoParams.dynamicSubCutDb || 0, 0.50);
+      guidedStereoParams.dynamicSubCutDb = Math.max(guidedStereoParams.dynamicSubCutDb || 0, 0.60);
 
       const guidedCal = await this.calibratePostVocalLoudness(guidedStereoParams, tracks, targetLUFS, rawBuffer);
       if (guidedCal.calibratedBuffer && guidedCal.calibratedMetrics) {
@@ -1438,7 +1494,7 @@ export class AudioEngine {
           finalVocalMatch = guidedVocalMatch;
           masteringTierApplied = 'stereo_microscopic_guided';
           decisions.push(
-            `Nivel 2 Aprobado (Estéreo Guiado por Microscopio): Balance vocal y dinámico preservados mediante micro-ecualización Mid/Side selectiva.`
+            `Nivel 2 Aprobado (Estéreo Guiado por Microscopio): Balance vocal y dinámico preservados mediante micro-ecualización Mid/Side selectiva (+1.5 dB Mid, -1.2 dB Side Carve).`
           );
         }
       }
@@ -1451,15 +1507,17 @@ export class AudioEngine {
           tracks,
           separation.vocalEstimate,
           separation.instrumentalEstimate,
-          0.35,
-          0.25
+          0.45,
+          0.55
         );
 
         if (stemMastered) {
           const stemParams: MasteringChainParams = JSON.parse(JSON.stringify(bestParams));
           stemParams.stemAssisted = true;
-          stemParams.stemMicroDuckingDb = 0.35;
-          stemParams.stemVocalFocusDb = 0.25;
+          stemParams.stemMicroDuckingDb = 0.45;
+          stemParams.stemVocalFocusDb = 0.55;
+          stemParams.vocalMidPresenceDb = 1.20;
+          stemParams.sideVocalCarveDb = -0.90;
 
           const stemCal = await this.calibratePostVocalLoudness(stemParams, tracks, targetLUFS, rawBuffer);
           if (stemCal.calibratedBuffer && stemCal.calibratedMetrics) {
@@ -1474,7 +1532,7 @@ export class AudioEngine {
               finalVocalMatch = stemVocalMatch;
               masteringTierApplied = 'stem_assisted';
               decisions.push(
-                `Nivel 3 Aprobado (Mastering Asistido por Stems): Micro-ducking dinámico instrumental (0.35 dB) en pasajes vocales. Fidelidad de reconstrucción 100% verificada (correlación: ${reconstructionCorrelation.toFixed(4)}).`
+                `Nivel 3 Aprobado (Mastering Asistido por Stems): Micro-ducking dinámico instrumental (0.45 dB) y refuerzo vocal (+0.55 dB) en pasajes cantados. Fidelidad de reconstrucción 100% verificada (correlación: ${reconstructionCorrelation.toFixed(4)}).`
               );
             }
           }
@@ -2560,18 +2618,15 @@ export class AudioEngine {
   }
 
   /**
-   * Stem-Assisted Mastering Preview (Nivel 3):
-   * Applies dynamic spectral micro-ducking (0.2 - 0.4 dB) to instrumental strictly during vocal frames,
-   * adds gentle vocal focus (+0.25 dB body & presence), recombines, and runs through mastering limiter bus.
+   * Applies dynamic spectral micro-ducking to instrumental strictly during vocal frames,
+   * adds focused vocal presence/body reinforcement, and recombines into a pristine master source.
    */
-  public async renderStemAssistedPreview(
-    params: MasteringChainParams,
-    tracks: Track[],
+  public createStemAssistedBuffer(
     vocalBuffer: AudioBuffer,
     instrumentalBuffer: AudioBuffer,
-    microDuckingDb = 0.35,
-    vocalFocusDb = 0.25
-  ): Promise<AudioBuffer | null> {
+    microDuckingDb = 0.45,
+    vocalFocusDb = 0.55
+  ): AudioBuffer {
     const numChannels = vocalBuffer.numberOfChannels;
     const length = Math.min(vocalBuffer.length, instrumentalBuffer.length);
     const sampleRate = vocalBuffer.sampleRate;
@@ -2608,6 +2663,29 @@ export class AudioEngine {
       }
     }
 
+    return recombinedBuffer;
+  }
+
+  /**
+   * Stem-Assisted Mastering Preview (Nivel 3):
+   * Applies dynamic spectral micro-ducking to instrumental strictly during vocal frames,
+   * adds focused vocal presence/body reinforcement, recombines, and runs through mastering limiter bus.
+   */
+  public async renderStemAssistedPreview(
+    params: MasteringChainParams,
+    tracks: Track[],
+    vocalBuffer: AudioBuffer,
+    instrumentalBuffer: AudioBuffer,
+    microDuckingDb = 0.45,
+    vocalFocusDb = 0.55
+  ): Promise<AudioBuffer | null> {
+    const recombinedBuffer = this.createStemAssistedBuffer(
+      vocalBuffer,
+      instrumentalBuffer,
+      microDuckingDb,
+      vocalFocusDb
+    );
+
     const tempTrack: Track = {
       id: 'recombined_stem_master',
       name: 'Recombined Stem Master',
@@ -2622,7 +2700,7 @@ export class AudioEngine {
       buffer: recombinedBuffer
     };
 
-    return await this.renderPreview(params, [tempTrack]);
+    return await this.renderPreview({ ...params, stemAssisted: false }, [tempTrack]);
   }
 
   public async calibratePostVocalLoudness(
@@ -2790,6 +2868,7 @@ export class AudioEngine {
     vocalRelDeltaDb: number;
     vocalBodyDeltaDb: number;
     bassMaskingGrowthDb: number;
+    vocalDominanceDeltaDb: number;
   }> {
     const origMetrics = await this.calculateAccurateDSPMetrics(originalBuffer);
     const candMetrics = await this.calculateAccurateDSPMetrics(candidateBuffer);
@@ -2807,6 +2886,11 @@ export class AudioEngine {
     const bassMaskingGrowthDb = parseFloat((lowEndRelDelta - bodyRelDelta).toFixed(2));
     const vocalBodyDeltaDb = parseFloat(bodyRelDelta.toFixed(2));
 
+    // Evaluación de Dominancia Vocal sobre Instrumentación (Guitarras, Sintes y Laterales)
+    const origDominance = origProfile.presenceDb - Math.max(origProfile.guitarsSynthsMidDb, origProfile.sideEnergyDb);
+    const candDominance = candProfile.presenceDb - Math.max(candProfile.guitarsSynthsMidDb, candProfile.sideEnergyDb);
+    const vocalDominanceDeltaDb = parseFloat((candDominance - origDominance).toFixed(2));
+
     const reasons: string[] = [];
     if (vocalRelDeltaDb < -0.05) {
       reasons.push(`Pérdida de presencia vocal a volumen igualado (Δ: ${vocalRelDeltaDb.toFixed(2)} dB < -0.05 dB)`);
@@ -2817,13 +2901,17 @@ export class AudioEngine {
     if (bassMaskingGrowthDb > 0.15) {
       reasons.push(`Graves/subgraves enmascaran la voz (+${bassMaskingGrowthDb.toFixed(2)} dB sobre cuerpo vocal > 0.15 dB)`);
     }
+    if (vocalDominanceDeltaDb < -0.05) {
+      reasons.push(`La voz queda por debajo de los instrumentos (dominancia vocal reducida en ${Math.abs(vocalDominanceDeltaDb).toFixed(2)} dB)`);
+    }
 
     return {
       isVocalWorse: reasons.length > 0,
       reasons,
       vocalRelDeltaDb,
       vocalBodyDeltaDb,
-      bassMaskingGrowthDb
+      bassMaskingGrowthDb,
+      vocalDominanceDeltaDb
     };
   }
 
@@ -3019,11 +3107,11 @@ export class AudioEngine {
         }
       }
 
-      // Recover vocal body (+0.15 to +0.25 dB) in Mid path (300-900 Hz) without widening or muddying sides
-      if ((deltas.subBassRelDeltaDb > 0.25 || deltas.lowMidRelDeltaDb > 0.25 || (origVocal.vocalBodyDb - finalVocal.vocalBodyDb > 0.20)) && (!newParams.vocalBodyMidRecoveryDb || newParams.vocalBodyMidRecoveryDb < 0.20)) {
-        newParams.vocalBodyMidRecoveryDb = 0.20;
+      // Recover vocal body (+0.40 to +0.65 dB) in Mid path (300-900 Hz) without widening or muddying sides
+      if ((deltas.subBassRelDeltaDb > 0.20 || deltas.lowMidRelDeltaDb > 0.20 || (origVocal.vocalBodyDb - finalVocal.vocalBodyDb > 0.15)) && (!newParams.vocalBodyMidRecoveryDb || newParams.vocalBodyMidRecoveryDb < 0.50)) {
+        newParams.vocalBodyMidRecoveryDb = 0.50;
         responsibleStagesIdentified.push('Recuperador Cuerpo Vocal Mid (300-900 Hz)');
-        dspAdjustmentsSummary.push('Cuerpo vocal Mid: +0.20 dB (300-900 Hz en centro) para dar solidez sin ensuciar laterales');
+        dspAdjustmentsSummary.push('Cuerpo vocal Mid: +0.50 dB (300-900 Hz en centro) para dar solidez sin ensuciar laterales');
         passChanged = true;
       }
 
@@ -3053,12 +3141,26 @@ export class AudioEngine {
         passChanged = true;
       }
 
-      // Paso 4: Compensación Vocal Mid Real
-      // Mantener compensación de presencia alrededor de +0.35 dB en el centro espectral exacto de la voz
-      if ((maskerReductionAttempted || pass >= 1) && (deltas.maxRelativeDeltaDb > 0.30 || relativePresenceDeltaDb < -0.10)) {
-        const targetPresGain = 0.35;
+      // Paso 4: Compensación Vocal Mid Real & Carve Lateral (Garantizar voz por encima de la instrumentación)
+      if ((maskerReductionAttempted || pass >= 1) && (deltas.maxRelativeDeltaDb > 0.25 || relativePresenceDeltaDb < 0 || deltas.midInstRelDeltaDb > 0.15)) {
+        if (!newParams.vocalMidPresenceDb || newParams.vocalMidPresenceDb < 1.40) {
+          newParams.vocalMidPresenceDb = 1.40;
+          responsibleStagesIdentified.push('Presencia Vocal Mid (+1.4 dB @ 2.8kHz)');
+          dspAdjustmentsSummary.push('Presencia Vocal Mid: +1.40 dB en centro para asegurar voz por encima de instrumentos');
+          passChanged = true;
+          vocalCompensated = true;
+          midCompensationAttempted = true;
+        }
+        if (!newParams.sideVocalCarveDb || newParams.sideVocalCarveDb > -1.10) {
+          newParams.sideVocalCarveDb = -1.10;
+          responsibleStagesIdentified.push('Carve Lateral Anti-Enmascaramiento (-1.1 dB @ 1.8kHz)');
+          dspAdjustmentsSummary.push('Carve Lateral: -1.10 dB en canal Side para crear espacio acústico a la voz');
+          passChanged = true;
+        }
+
+        const targetPresGain = 0.40;
         if (newParams.eq.mid.gain < targetPresGain) {
-          const compBoost = parseFloat(Math.min(targetPresGain - newParams.eq.mid.gain, 0.35).toFixed(2));
+          const compBoost = parseFloat(Math.min(targetPresGain - newParams.eq.mid.gain, 0.40).toFixed(2));
           if (compBoost > 0.05) {
             midCompensationAppliedDb = parseFloat((midCompensationAppliedDb + compBoost).toFixed(2));
             newParams.eq.mid.frequency = origVocal.exactPresenceFreq;
@@ -4117,6 +4219,12 @@ export class AudioEngine {
       this.highEQ.gain.setTargetAtTime(params.eq.enabled ? params.eq.high.gain : 0, t, 0.02);
     }
 
+    if (this.mbBypassGain && this.mbWetGain) {
+      const mbActive = params.multiband.enabled ? 1.0 : 0.0;
+      this.mbWetGain.gain.setTargetAtTime(mbActive, t, 0.02);
+      this.mbBypassGain.gain.setTargetAtTime(1.0 - mbActive, t, 0.02);
+    }
+
     if (this.midDensityTamer) {
       const densityGain = params.midDensity750Gain !== undefined ? params.midDensity750Gain : 0.0;
       this.midDensityTamer.gain.setTargetAtTime(densityGain, t, 0.02);
@@ -4132,8 +4240,26 @@ export class AudioEngine {
       this.vocalBodyRecoveryNode.gain.setTargetAtTime(recGain, t, 0.02);
     }
 
-    if (this.deEsserComp && params.deEsser) {
-      this.deEsserComp.threshold.setTargetAtTime(params.deEsser.enabled ? params.deEsser.threshold : 0, t, 0.02);
+    if (this.vocalMidPresenceNode) {
+      const presenceGain = params.vocalMidPresenceDb !== undefined ? params.vocalMidPresenceDb : 0.0;
+      this.vocalMidPresenceNode.gain.setTargetAtTime(presenceGain, t, 0.02);
+    }
+
+    if (this.sideVocalCarveNode) {
+      const carveGain = params.sideVocalCarveDb !== undefined ? params.sideVocalCarveDb : 0.0;
+      this.sideVocalCarveNode.gain.setTargetAtTime(carveGain, t, 0.02);
+    }
+
+    if (this.deEsserFilter && params.deEsser) {
+      const deEssGain = params.deEsser.enabled ? -Math.min(2.5, Math.max(0.5, params.deEsser.amount || 1.2)) : 0.0;
+      this.deEsserFilter.frequency.setTargetAtTime(params.deEsser.frequency || 6500, t, 0.02);
+      this.deEsserFilter.gain.setTargetAtTime(deEssGain, t, 0.02);
+    }
+
+    if (this.deEsserComp) {
+      // Keep wideband compressor at 1:1 ratio to prevent mix pumping
+      this.deEsserComp.threshold.setTargetAtTime(0, t, 0.02);
+      this.deEsserComp.ratio.setTargetAtTime(1.0, t, 0.02);
     }
 
     if (this.msSideGain) {
@@ -4143,7 +4269,7 @@ export class AudioEngine {
 
     if (this.limiter) {
         this.limiter.threshold.setTargetAtTime(params.limiter.threshold, t, 0.01);
-        this.limiter.knee.setTargetAtTime(8.0, t, 0.01);
+        this.limiter.knee.setTargetAtTime(0.5, t, 0.01); // Crisp 0.5dB knee: limits only when ceiling touched
         this.limiter.ratio.setTargetAtTime(20, t, 0.01);
         this.limiter.attack.setTargetAtTime(0.0015, t, 0.01);
         this.limiter.release.setTargetAtTime(0.05, t, 0.01);
@@ -4389,12 +4515,34 @@ export class AudioEngine {
   async renderPreview(params: MasteringChainParams, tracks: Track[]): Promise<AudioBuffer | null> {
     if (this.tracks.size === 0 || tracks.length === 0) return null;
 
+    // If stem-assisted mastering is active and single track is provided (and not already recombined):
+    let effectiveTracks = tracks;
+    if (params.stemAssisted && tracks.length === 1 && tracks[0].id !== 'recombined_stem_master') {
+      const singleTrack = tracks[0];
+      const internal = this.tracks.get(singleTrack.id);
+      const srcBuffer = singleTrack.buffer || internal?.buffer;
+      if (srcBuffer) {
+        const separation = await this.separateVocalAndInstrumentalEstimates(srcBuffer);
+        const recombined = this.createStemAssistedBuffer(
+          separation.vocalEstimate,
+          separation.instrumentalEstimate,
+          params.stemMicroDuckingDb ?? 0.45,
+          params.stemVocalFocusDb ?? 0.55
+        );
+        effectiveTracks = [{
+          ...singleTrack,
+          buffer: recombined
+        }];
+      }
+    }
+
     // Calculate exact duration of the tracks being rendered
     let renderDuration = 0;
-    for (const t of tracks) {
+    for (const t of effectiveTracks) {
       const internal = this.tracks.get(t.id);
-      if (internal && internal.buffer.duration > renderDuration) {
-        renderDuration = internal.buffer.duration;
+      const buf = t.buffer || internal?.buffer;
+      if (buf && buf.duration > renderDuration) {
+        renderDuration = buf.duration;
       }
     }
     if (renderDuration <= 0) renderDuration = this.maxDuration || 1;
@@ -4405,16 +4553,17 @@ export class AudioEngine {
     const sum = offline.createGain();
     
     // Recreate full stem chains in offline context
-    for (const t of tracks) {
-        const state = tracks.find(tr => tr.id === t.id);
+    for (const t of effectiveTracks) {
+        const state = effectiveTracks.find(tr => tr.id === t.id);
         const internal = this.tracks.get(t.id);
-        const hasSolo = tracks.some(tr => tr.soloed);
+        const trackBuffer = t.buffer || internal?.buffer;
+        const hasSolo = effectiveTracks.some(tr => tr.soloed);
         const isMuted = state?.muted || (hasSolo && !state?.soloed);
         
-        if (!state || isMuted || !internal) continue;
+        if (!state || isMuted || !trackBuffer) continue;
 
         const s = offline.createBufferSource();
-        s.buffer = internal.buffer;
+        s.buffer = trackBuffer;
 
         // Re-implement the Stem FX Chain for Offline Render
         const stemType = this.detectStemType(t.name);
@@ -4470,20 +4619,16 @@ export class AudioEngine {
     const gate = offline.createWaveShaper();
     gate.curve = params.gate.enabled ? this.makeGateCurve(params.gate.threshold, params.gate.ratio) : new Float32Array([-1, 0, 1]);
     
-    const deEsser = offline.createDynamicsCompressor();
-    if (params.deEsser && params.deEsser.enabled) {
-         // Transparent musical dynamic de-essing: calibrated to target sharp sibilance without choking air
-         deEsser.threshold.value = Math.max(-18.0, params.deEsser.threshold);
-         deEsser.ratio.value = 1.8; // Smooth 1.8:1 ratio (max ~0.8 dB reduction)
-         deEsser.knee.value = 6.0;
-         deEsser.attack.value = 0.0015; // 1.5ms fast attack
-         deEsser.release.value = 0.025; // 25ms snappy release to act only during genuine sibilances
-    } else {
-         deEsser.threshold.value = 0;
-         deEsser.ratio.value = 1.0;
-    }
+    // De-Esser: Narrow peaking notch (eliminates wideband compressor that was ducking the master mix)
+    const deEsser = offline.createBiquadFilter();
+    deEsser.type = 'peaking';
+    deEsser.frequency.value = params.deEsser?.frequency || 6500;
+    deEsser.Q.value = 2.0;
+    deEsser.gain.value = (params.deEsser && params.deEsser.enabled)
+      ? -Math.min(2.5, Math.max(0.5, params.deEsser.amount || 1.2))
+      : 0.0;
 
-    // OFFLINE MID/SIDE STEREO MATRIX (Stereo Width, Mono Sub Centering & Side Low-Mid Tamer)
+    // OFFLINE MID/SIDE STEREO MATRIX (Stereo Width, Mono Sub Centering & Vocal Pocket Protection)
     const msSplitter = offline.createChannelSplitter(2);
     const msMidSum = offline.createGain(); msMidSum.gain.value = 0.5;
     const msSideDiff = offline.createGain(); msSideDiff.gain.value = 0.5;
@@ -4501,6 +4646,13 @@ export class AudioEngine {
     sideLowMidDip.Q.value = 1.0;
     sideLowMidDip.gain.value = -0.6; // Preserves mono firmness
 
+    // Side Channel Vocal Carve Filter (cleans stereo pocket so side instruments step aside for lead vocals)
+    const sideVocalCarve = offline.createBiquadFilter();
+    sideVocalCarve.type = 'peaking';
+    sideVocalCarve.frequency.value = 1800;
+    sideVocalCarve.Q.value = 0.9;
+    sideVocalCarve.gain.value = params.sideVocalCarveDb !== undefined ? params.sideVocalCarveDb : 0.0;
+
     const msSideGain = offline.createGain(); msSideGain.gain.value = params.stereoWidth ?? 1.0;
     const msMerger = offline.createChannelMerger(2);
     const sideOutInvert = offline.createGain(); sideOutInvert.gain.value = -1;
@@ -4512,6 +4664,13 @@ export class AudioEngine {
     vocalBodyRecovery.Q.value = 0.8;
     vocalBodyRecovery.gain.value = params.vocalBodyMidRecoveryDb !== undefined ? params.vocalBodyMidRecoveryDb : 0.0;
 
+    // Mid Channel Vocal Presence Lift (1.5k-3.8k in Mid channel only) - PLACES VOCAL PROMINENTLY ON TOP
+    const vocalMidPresence = offline.createBiquadFilter();
+    vocalMidPresence.type = 'peaking';
+    vocalMidPresence.frequency.value = 2800;
+    vocalMidPresence.Q.value = 1.0;
+    vocalMidPresence.gain.value = params.vocalMidPresenceDb !== undefined ? params.vocalMidPresenceDb : 0.0;
+
     deEsser.connect(msSplitter);
     msSplitter.connect(msMidSum, 0);
     msSplitter.connect(msMidSum, 1);
@@ -4520,19 +4679,21 @@ export class AudioEngine {
     msSplitter.connect(sideInvert, 1);
     sideInvert.connect(msSideDiff);
 
-    // Route Side: only apply highpass/dip if stereoWidth is specifically altered
+    // Route Side through Side Carve, Mono-Maker & Side Low-Mid Dip before msSideGain
+    msSideDiff.connect(sideVocalCarve);
     if (params.stereoWidth !== undefined && Math.abs(params.stereoWidth - 1.0) > 0.02) {
-      msSideDiff.connect(sideMonoHighPass);
+      sideVocalCarve.connect(sideMonoHighPass);
       sideMonoHighPass.connect(sideLowMidDip);
       sideLowMidDip.connect(msSideGain);
     } else {
-      msSideDiff.connect(msSideGain);
+      sideVocalCarve.connect(msSideGain);
     }
 
-    // Route Mid through Vocal Body Recovery Filter
+    // Route Mid through Vocal Body Recovery & Vocal Mid Presence Lift
     msMidSum.connect(vocalBodyRecovery);
-    vocalBodyRecovery.connect(msMerger, 0, 0);
-    vocalBodyRecovery.connect(msMerger, 0, 1);
+    vocalBodyRecovery.connect(vocalMidPresence);
+    vocalMidPresence.connect(msMerger, 0, 0);
+    vocalMidPresence.connect(msMerger, 0, 1);
 
     msSideGain.connect(msMerger, 0, 0);
     msSideGain.connect(sideOutInvert);
