@@ -362,6 +362,24 @@ export interface MasteringIterationRecord {
   rejectedReasons: string[];
 }
 
+export interface AudioIdentity {
+  sourceId: string;
+  trackSessionId: string;
+  iterationId: string;
+  renderId: string;
+  fileHash: string; // Cryptographic SHA-256 hex of exported WAV
+  sampleRate: number;
+  lengthInSamples: number;
+  duration: number;
+  originalLUFS: number;
+  masterLUFS: number;
+  comparisonGainDb: number; // originalLUFS - masterLUFS
+  virOriginalDb?: number; // Vocal-to-Instrumental Ratio in original mix
+  virMasterDb?: number; // Vocal-to-Instrumental Ratio in reopened master
+  deltaVirDb?: number; // virMasterDb - virOriginalDb (must not drop > 0.3 dB)
+  reopenedFromWav: boolean;
+}
+
 export interface AIMasteringResult {
   before: AIMasteringStats;
   after: AIMasteringStats;
@@ -400,6 +418,9 @@ export interface AIMasteringResult {
     passed: boolean;
   };
   mathematicalComparison?: MathematicalComparisonReport;
+  audioIdentity?: AudioIdentity;
+  reopenedFromWav?: boolean;
+  loudnessMatchGainDb?: number;
 }
 
 export interface MathematicalComparisonReport {
@@ -439,12 +460,16 @@ export interface MathematicalComparisonReport {
   // 7. Diferencias de envolvente
   envelopeCorrelation: number;
 
-  // 8. Acción real de cada módulo DSP
+  // 8. Acción real de cada módulo DSP (Telemetría de audio real)
   dspModuleActions: {
     module: string;
     applied: boolean;
     measuredImpactDb: number;
     actionDescription: string;
+    samplesAffected?: number;
+    peakReductionOrBoostDb?: number;
+    activeTimeSeconds?: number;
+    confirmedInSelectedRender?: boolean;
   }[];
 
   // 9. Clasificación matemática estricta

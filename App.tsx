@@ -88,7 +88,8 @@ export default function App() {
   const [params, setParams] = useState<MasteringChainParams>(DEFAULT_PARAMS);
   const [playbackState, setPlaybackState] = useState<PlaybackState>(PlaybackState.STOPPED);
   const [loadingAudio, setLoadingAudio] = useState(false);
-  const [isBypassed, setIsBypassed] = useState(false); 
+  const [isBypassed, setIsBypassed] = useState(true); // Default to Original (Raw)
+  const [loudnessMatchMode, setLoudnessMatchMode] = useState<'matched' | 'actual'>('matched');
   const [activePreset, setActivePreset] = useState<string>('universal');
   const [processedBuffer, setProcessedBuffer] = useState<AudioBuffer | null>(null);
   const [isPreviewRendering, setIsPreviewRendering] = useState(false);
@@ -151,6 +152,7 @@ export default function App() {
     setParams(getNeutralMasteringParams());
     setActivePreset('universal');
     setIsBypassed(true); // HARD RESET: Immediately force RAW Original
+    setLoudnessMatchMode('matched');
     setProcessedBuffer(null);
     setMasteringReport(null);
     setSelection(null);
@@ -170,6 +172,7 @@ export default function App() {
 
   useEffect(() => { audioEngine.setMasterParams(params); }, [params]);
   useEffect(() => { audioEngine.setBypass(isBypassed); }, [isBypassed]);
+  useEffect(() => { audioEngine.setLoudnessMatchMode(loudnessMatchMode); }, [loudnessMatchMode]);
   
   useEffect(() => { 
       tracks.forEach(t => { audioEngine.updateTrackSettings(t, tracks); }); 
@@ -1071,35 +1074,63 @@ export default function App() {
                             {(() => {
                               const activeTrack = tracks.find(t => t.id === activeTrackId) || tracks[0];
                               const hasActiveMaster = processingMode === 'bulk'
-                                ? Boolean(activeTrack && trackMasterMap[activeTrack.id]?.isMastered && trackMasterMap[activeTrack.id]?.result?.sourceId === (activeTrack.sourceId || activeTrack.id))
-                                : Boolean(masteringReport && activeTrack && masteringReport.sourceId === (activeTrack.sourceId || activeTrack.id));
+                                ? Boolean(activeTrack && trackMasterMap[activeTrack.id]?.isMastered && trackMasterMap[activeTrack.id]?.result?.sourceId === (activeTrack.sourceId || activeTrack.id) && audioEngine.hasValidMaster(activeTrack.sourceId || activeTrack.id))
+                                : Boolean(audioEngine.hasValidMaster() && masteringReport && activeTrack && masteringReport.sourceId === (activeTrack.sourceId || activeTrack.id));
+                              const comparisonGainDb = audioEngine.getComparisonGainDb();
 
                               return (
-                                <button 
-                                    onClick={() => {
-                                      if (!hasActiveMaster) {
-                                        setIsBypassed(true);
-                                        return;
+                                <div className="flex items-center gap-1.5">
+                                  {/* Loudness Match Toggle */}
+                                  {hasActiveMaster && (
+                                    <button
+                                      onClick={() => setLoudnessMatchMode(prev => prev === 'matched' ? 'actual' : 'matched')}
+                                      className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-all flex items-center gap-1 shadow-sm ${
+                                        loudnessMatchMode === 'matched'
+                                          ? 'bg-purple-950/70 border-purple-500/50 text-purple-200 hover:bg-purple-900/60'
+                                          : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200'
+                                      }`}
+                                      title={
+                                        loudnessMatchMode === 'matched'
+                                          ? `Loudness Matched: Ganancia de escucha calibrada a ${comparisonGainDb > 0 ? '+' : ''}${comparisonGainDb.toFixed(1)} dB para comparar timbre y voz sin sesgo de volumen`
+                                          : 'Nivel Real de Exportación: Escuchando el volumen real del master final (sin compensación de ganancia)'
                                       }
-                                      setIsBypassed(!isBypassed);
-                                    }} 
-                                    disabled={!hasActiveMaster}
-                                    className={`px-3.5 py-1 rounded-full text-[10px] font-bold transition-all flex items-center gap-1.5 shadow-sm ${
-                                      !hasActiveMaster
-                                        ? "bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-80"
-                                        : isBypassed 
-                                          ? "bg-amber-500 hover:bg-amber-400 text-black" 
-                                          : "bg-gradient-to-r from-cyan-500 to-cyan-400 text-black font-extrabold"
-                                    }`}
-                                    title={!hasActiveMaster ? (lang === 'es' ? 'Audio Original (sin masterizar)' : 'Original Audio (unmastered)') : isBypassed ? "Activar Master DSP" : "Bypass (Raw)"}
-                                >
-                                    {isBypassed || !hasActiveMaster ? <VolumeX size={12}/> : <CheckCircle2 size={12}/>}
-                                    <span>
-                                      {!hasActiveMaster 
-                                        ? (lang === 'es' ? 'ORIGINAL (Sin Master)' : 'ORIGINAL (Raw)') 
-                                        : isBypassed ? t.originalRaw : t.masteredDsp}
-                                    </span>
-                                </button>
+                                    >
+                                      <span className={`w-1.5 h-1.5 rounded-full ${loudnessMatchMode === 'matched' ? 'bg-purple-400 animate-pulse' : 'bg-slate-500'}`} />
+                                      <span>
+                                        {loudnessMatchMode === 'matched'
+                                          ? `Loudness Match (${comparisonGainDb > 0 ? '+' : ''}${comparisonGainDb.toFixed(1)} dB)`
+                                          : 'Nivel Real Export'}
+                                      </span>
+                                    </button>
+                                  )}
+
+                                  {/* Synchronized Transparent A/B Switch */}
+                                  <button 
+                                      onClick={() => {
+                                        if (!hasActiveMaster) {
+                                          setIsBypassed(true);
+                                          return;
+                                        }
+                                        setIsBypassed(!isBypassed);
+                                      }} 
+                                      disabled={!hasActiveMaster}
+                                      className={`px-3.5 py-1 rounded-full text-[10px] font-bold transition-all flex items-center gap-1.5 shadow-sm ${
+                                        !hasActiveMaster
+                                          ? "bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-80"
+                                          : isBypassed 
+                                            ? "bg-amber-500 hover:bg-amber-400 text-black" 
+                                            : "bg-gradient-to-r from-cyan-500 to-cyan-400 text-black font-extrabold"
+                                      }`}
+                                      title={!hasActiveMaster ? (lang === 'es' ? 'Audio Original (sin masterizar)' : 'Original Audio (unmastered)') : isBypassed ? "Activar Master DSP" : "Bypass (Raw)"}
+                                  >
+                                      {isBypassed || !hasActiveMaster ? <VolumeX size={12}/> : <CheckCircle2 size={12}/>}
+                                      <span>
+                                        {!hasActiveMaster 
+                                          ? (lang === 'es' ? 'ORIGINAL (Sin Master)' : 'ORIGINAL (Raw)') 
+                                          : isBypassed ? t.originalRaw : t.masteredDsp}
+                                      </span>
+                                  </button>
+                                </div>
                               );
                             })()}
                         </div>
@@ -1280,6 +1311,8 @@ export default function App() {
         result={masteringReport}
         isBypassed={isBypassed}
         onToggleBypass={() => setIsBypassed(!isBypassed)}
+        loudnessMatchMode={loudnessMatchMode}
+        onToggleLoudnessMatch={() => setLoudnessMatchMode(prev => prev === 'matched' ? 'actual' : 'matched')}
         lang={lang}
       />
 

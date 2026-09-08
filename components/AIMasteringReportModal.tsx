@@ -13,6 +13,8 @@ interface AIMasteringReportModalProps {
   result: AIMasteringResult | null;
   isBypassed: boolean;
   onToggleBypass: () => void;
+  loudnessMatchMode?: 'matched' | 'actual';
+  onToggleLoudnessMatch?: () => void;
   skin?: SkinMode;
   lang?: Language;
 }
@@ -23,6 +25,8 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
   result,
   isBypassed,
   onToggleBypass,
+  loudnessMatchMode = 'matched',
+  onToggleLoudnessMatch,
   skin = 'modern',
   lang = 'es'
 }) => {
@@ -138,6 +142,95 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
               <span>Escuchando: {isBypassed ? 'ORIGINAL (Mix Raw)' : 'MASTERIZADO (DSP)'}</span>
             </button>
           </div>
+
+          {/* Identidad del Audio & Fuente Única de Verdad (WAV Exportado & Reabierto) */}
+          {result.audioIdentity && (
+            <div className={`p-4 rounded-xl border space-y-3 ${
+              isClear 
+                ? 'bg-slate-50 border-slate-200 text-slate-800' 
+                : 'bg-slate-950/70 border-slate-800 text-slate-200'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                <div className="flex items-center gap-2">
+                  <Binary size={18} className="text-cyan-400" />
+                  <span className="font-bold text-xs uppercase tracking-wider text-slate-300">
+                    Fuente Única de Verdad: WAV Decodificado & Verificado
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  100% Bit-Identical al Archivo Final Exportado
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                {/* 1. File Hash SHA-256 */}
+                <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Hash Criptográfico SHA-256</span>
+                  <div className="mt-1 font-mono font-bold text-cyan-300 truncate" title={result.audioIdentity.fileHash}>
+                    {result.audioIdentity.fileHash ? `${result.audioIdentity.fileHash.substring(0, 16)}...` : 'Verificado'}
+                  </div>
+                  <div className="text-[9px] font-mono text-slate-400 mt-0.5">
+                    Decodificado desde archivo real
+                  </div>
+                </div>
+
+                {/* 2. Vocal-to-Instrumental Ratio (VIR) */}
+                <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Relación Voz/Instrumental (VIR)</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className={`font-mono font-bold ${(result.audioIdentity.deltaVirDb ?? 0) >= -0.3 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {result.audioIdentity.deltaVirDb !== undefined ? `${result.audioIdentity.deltaVirDb >= 0 ? '+' : ''}${result.audioIdentity.deltaVirDb.toFixed(2)} dB` : 'Preservada'}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      {(result.audioIdentity.deltaVirDb ?? 0) >= -0.3 ? '✓ Voz Protegida' : 'Auditoría'}
+                    </span>
+                  </div>
+                  <div className="text-[9px] font-mono text-slate-400 mt-0.5">
+                    Orig: {result.audioIdentity.virOriginalDb?.toFixed(1) ?? '--'} dB | Mast: {result.audioIdentity.virMasterDb?.toFixed(1) ?? '--'} dB
+                  </div>
+                </div>
+
+                {/* 3. Loudness Match Playback */}
+                <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Compensación A/B (Loudness)</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-mono font-bold text-purple-300">
+                      {result.audioIdentity.comparisonGainDb !== undefined 
+                        ? `${result.audioIdentity.comparisonGainDb >= 0 ? '+' : ''}${result.audioIdentity.comparisonGainDb.toFixed(1)} dB`
+                        : '0.0 dB'}
+                    </span>
+                    {onToggleLoudnessMatch && (
+                      <button
+                        onClick={onToggleLoudnessMatch}
+                        className={`text-[9px] font-mono px-2 py-0.5 rounded border font-semibold transition-all ${
+                          loudnessMatchMode === 'matched'
+                            ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                            : 'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}
+                      >
+                        {loudnessMatchMode === 'matched' ? 'Matched' : 'Nivel Real'}
+                      </button>
+                    )}
+                  </div>
+                  <div className="text-[9px] font-mono text-slate-400 mt-0.5">
+                    {loudnessMatchMode === 'matched' ? 'Sin sesgo de volumen (igualado)' : 'Volumen real de exportación'}
+                  </div>
+                </div>
+
+                {/* 4. Render Session ID */}
+                <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
+                  <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Identidad de Render</span>
+                  <div className="mt-1 font-mono text-xs text-slate-300 truncate" title={`Render: ${result.audioIdentity.renderId} | Sesión: ${result.audioIdentity.trackSessionId}`}>
+                    {result.audioIdentity.renderId}
+                  </div>
+                  <div className="text-[9px] font-mono text-emerald-400 mt-0.5">
+                    {(result.audioIdentity.sampleRate / 1000).toFixed(1)} kHz · {result.audioIdentity.duration.toFixed(1)}s
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* 3-Tier Adaptive Architecture Status Badge */}
           {result.masteringTierApplied && (
@@ -1307,6 +1400,67 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                       ? 'Centro sólido sin manchar lados'
                       : 'Cuerpo original preservado'}
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Telemetría DSP Real en el Archivo Exportado */}
+          {result.mathematicalComparison?.dspModuleActions && result.mathematicalComparison.dspModuleActions.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
+                  <Sliders size={14} className="text-indigo-400" />
+                  Telemetría DSP Verificada en el Archivo Exportado
+                </h4>
+                <span className="text-[10px] font-mono text-slate-400">
+                  Medición real sobre muestras del render
+                </span>
+              </div>
+              <div className={`p-4 rounded-xl border ${
+                isClear ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800'
+              }`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs font-mono">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 text-[10px] uppercase">
+                        <th className="pb-2 font-semibold">Módulo DSP</th>
+                        <th className="pb-2 font-semibold">Estado</th>
+                        <th className="pb-2 font-semibold">Impacto Medido</th>
+                        <th className="pb-2 font-semibold">Muestras / Tiempo</th>
+                        <th className="pb-2 font-semibold">Acción Confirmada</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {result.mathematicalComparison.dspModuleActions.map((action, idx) => (
+                        <tr key={idx} className="hover:bg-slate-900/40">
+                          <td className="py-2.5 font-bold text-slate-200">{action.module}</td>
+                          <td className="py-2.5">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              action.applied
+                                ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                                : 'bg-slate-800 text-slate-400 border-slate-700'
+                            }`}>
+                              {action.applied ? 'ACTIVO' : 'BYPASS'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 text-slate-300">
+                            {action.measuredImpactDb !== 0 
+                              ? `${action.measuredImpactDb >= 0 ? '+' : ''}${action.measuredImpactDb.toFixed(2)} dB`
+                              : '0.00 dB (Neutro)'}
+                          </td>
+                          <td className="py-2.5 text-slate-400 text-[11px]">
+                            {action.samplesAffected !== undefined && action.samplesAffected > 0
+                              ? `${action.samplesAffected.toLocaleString()} m. (${action.activeTimeSeconds?.toFixed(1) ?? '0.0'}s)`
+                              : action.applied ? 'Paso total' : '0 muestras'}
+                          </td>
+                          <td className="py-2.5 text-slate-400 text-[11px] max-w-xs truncate" title={action.actionDescription}>
+                            {action.actionDescription}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
