@@ -432,6 +432,8 @@ export interface AIMasteringResult {
   limiterTelemetry?: LimiterTelemetry;
 }
 
+export type LimiterState = 'BYPASS' | 'ARMED_NO_GAIN_REDUCTION' | 'ACTIVE';
+
 export interface LimiterTelemetry {
   limiterEnabled: boolean;
   limiterCeiling: number;
@@ -439,6 +441,7 @@ export interface LimiterTelemetry {
   averageGainReduction: number;
   samplesLimited: number;
   finalTruePeak: number;
+  state: LimiterState;
   statusText: string;
 }
 
@@ -573,6 +576,7 @@ export interface MathematicalComparisonReport {
     measuredImpactDb: number;
     actionDescription: string;
     statusLabel?: string;
+    limiterState?: LimiterState;
     samplesAffected?: number;
     peakReductionOrBoostDb?: number;
     activeTimeSeconds?: number;

@@ -33,9 +33,37 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
   if (!isOpen || !result) return null;
 
   const t = getT(lang);
+  const finalMeasuredLUFS = result.finalMeasuredLUFS;
+  const isFinalLufsValid = typeof finalMeasuredLUFS === 'number' && Number.isFinite(finalMeasuredLUFS);
+
+  if (!isFinalLufsValid) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-6 animate-in fade-in duration-200">
+        <div className="w-full max-w-md rounded-2xl p-6 bg-slate-900 border border-rose-500/40 text-slate-100 shadow-2xl space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-rose-400 font-bold text-base">
+              <ShieldCheck size={20} className="text-rose-500" />
+              <span>Error de Validación de Telemetría</span>
+            </div>
+            <button onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded-lg">
+              <X size={18} />
+            </button>
+          </div>
+          <p className="text-xs text-slate-300 leading-relaxed">
+            No se pudo verificar la medición final autoritativa de sonoridad (<code className="text-rose-300 font-mono">finalMeasuredLUFS</code>) sobre el archivo final exportado y reabierto. Por integridad del reporte y para evitar discrepancias silenciosas, este informe requiere una medición BS.1770/EBU R128 válida.
+          </p>
+          <div className="pt-2 flex justify-end">
+            <button onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold">
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const isClear = false;
   const { before, after, decisions, targetMet, statusNote, referenceReport } = result;
-  const finalMeasuredLUFS = result.finalMeasuredLUFS ?? after.integratedLUFS;
 
   const formatMode = (m: string) => {
     switch(m) {
@@ -1017,13 +1045,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-slate-200 text-[11px]">{dsp.module}</span>
                         <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded border ${
-                          dsp.statusLabel?.includes('ARMADO')
+                          dsp.limiterState === 'ARMED_NO_GAIN_REDUCTION' || dsp.statusLabel === 'ARMED_NO_GAIN_REDUCTION'
                             ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
-                            : dsp.applied
+                            : (dsp.limiterState === 'ACTIVE' || dsp.statusLabel === 'ACTIVE' || (dsp.applied && !dsp.statusLabel))
                               ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                              : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                              : 'bg-slate-800 text-slate-400 border-slate-700'
                         }`}>
-                          {dsp.statusLabel || (dsp.applied ? 'Activo' : 'Bypass / Neutro')}
+                          {dsp.limiterState || dsp.statusLabel || (dsp.applied ? 'ACTIVO' : 'BYPASS')}
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-400 font-mono mt-1 leading-relaxed">
@@ -1683,13 +1711,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                           <td className="py-2.5 font-bold text-slate-200">{action.module}</td>
                           <td className="py-2.5">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                              action.statusLabel?.includes('ARMADO')
+                              action.limiterState === 'ARMED_NO_GAIN_REDUCTION' || action.statusLabel === 'ARMED_NO_GAIN_REDUCTION'
                                 ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
-                                : action.applied
-                                  ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                                : (action.limiterState === 'ACTIVE' || action.statusLabel === 'ACTIVE' || (action.applied && !action.statusLabel))
+                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                                   : 'bg-slate-800 text-slate-400 border-slate-700'
                             }`}>
-                              {action.statusLabel || (action.applied ? 'ACTIVO' : 'BYPASS')}
+                              {action.limiterState || action.statusLabel || (action.applied ? 'ACTIVO' : 'BYPASS')}
                             </span>
                           </td>
                           <td className="py-2.5 text-slate-300">

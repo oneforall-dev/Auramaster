@@ -25,7 +25,8 @@ import {
   TournamentCandidate,
   TournamentMatchup,
   MasteringTournamentReport,
-  LimiterTelemetry
+  LimiterTelemetry,
+  LimiterState
 } from '../types';
 type StemType = 'vocals' | 'drums' | 'bass' | 'other';
 
@@ -1058,6 +1059,9 @@ export class AudioEngine {
 
     const finalTruePeak = maxAbsAfter > 0 ? parseFloat((20 * Math.log10(maxAbsAfter)).toFixed(2)) : -70.0;
 
+    const isArmedNoReduction = maxGainReduction < 0.05 && samplesLimited === 0;
+    const limiterState: LimiterState = isArmedNoReduction ? 'ARMED_NO_GAIN_REDUCTION' : 'ACTIVE';
+
     this.lastLimiterTelemetry = {
       limiterEnabled: true,
       limiterCeiling: targetCeilingDbTP,
@@ -1065,9 +1069,8 @@ export class AudioEngine {
       averageGainReduction: parseFloat(averageGainReduction.toFixed(2)),
       samplesLimited,
       finalTruePeak,
-      statusText: maxGainReduction < 0.05 && samplesLimited === 0
-        ? 'LIMITADOR ARMADO — SIN REDUCCIÓN DE GANANCIA'
-        : 'LIMITADOR ACTIVO'
+      state: limiterState,
+      statusText: limiterState
     };
 
     return buffer;
@@ -1258,10 +1261,13 @@ export class AudioEngine {
 
     // Recalcular métricas de telemetría DIRECTAMENTE sobre el archivo exportado y reabierto
     const afterMetrics = await this.calculateAccurateDSPMetrics(finalReopenedBuffer);
-    const finalMeasuredLUFS = afterMetrics ? parseFloat(afterMetrics.integratedLUFS.toFixed(1)) : targetLUFS;
-    const finalTP = afterMetrics ? parseFloat(afterMetrics.truePeakDbTP.toFixed(1)) : -1.0;
-    const finalLRA = afterMetrics ? parseFloat(afterMetrics.dynamicRangeLRA.toFixed(1)) : beforeStats.dynamicRangeLRA;
-    const finalCrest = afterMetrics ? parseFloat(afterMetrics.crestFactor.toFixed(1)) : 9.0;
+    if (!afterMetrics || !Number.isFinite(afterMetrics.integratedLUFS)) {
+      throw new Error("Validation Error: No se pudo obtener la medición final autoritativa de LUFS (finalMeasuredLUFS) sobre el archivo WAV reabierto.");
+    }
+    const finalMeasuredLUFS = parseFloat(afterMetrics.integratedLUFS.toFixed(1));
+    const finalTP = parseFloat(afterMetrics.truePeakDbTP.toFixed(1));
+    const finalLRA = parseFloat(afterMetrics.dynamicRangeLRA.toFixed(1));
+    const finalCrest = parseFloat(afterMetrics.crestFactor.toFixed(1));
 
     if (this.lastLimiterTelemetry) {
       this.lastLimiterTelemetry.finalTruePeak = finalTP;
@@ -1317,12 +1323,17 @@ export class AudioEngine {
     const qcVerification = await this.performExportQC(finalReopenedBuffer, 24);
 
     // Mathematical Comparison Audit (Master Reabierto vs Raw Source bajo Ganancia Compensada)
-    const mathComparison = rawBuffer
+    let mathComparison = rawBuffer
       ? await this.compareMasterToSourceMathematically(finalReopenedBuffer, rawBuffer, newParams)
       : undefined;
 
     if (mathComparison?.isOriginalPreservedWithoutMastering) {
       qualityVerdict = 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING';
+      // Para ORIGINAL PRESERVADO sin DSP destructivo, exportar sin TPDF dither para no introducir ruido nuevo innecesario
+      const unDitheredData = await this.exportWavAndReopen(targetBufferToExport, 24, false);
+      reopenedData.fileHash = unDitheredData.fileHash;
+      mathComparison = await this.compareMasterToSourceMathematically(unDitheredData.reopenedBuffer, rawBuffer, newParams);
+
       if (bestMqs) {
         bestMqs.totalScore = 85.0; // Honest baseline
         bestMqs.breakdown = [
@@ -1341,7 +1352,7 @@ export class AudioEngine {
         `Ajuste de nivel a estándar de distribución: ${finalMeasuredLUFS.toFixed(1)} LUFS-I (ajuste lineal limpio).`,
         `Control True Peak preventivo: pico medido en ${finalTP.toFixed(1)} dBTP (≤ -1.0 dBTP).`,
         'Exportado en WAV PCM 24-bit para distribución/procesamiento posterior. La conversión no añade información ni resolución efectiva al audio fuente original de 16 bits.',
-        'Dither TPDF aplicado durante la cuantización a 24-bit para linealizar el piso de ruido.',
+        'Dither omitido: al preservarse la mezcla original sin procesamiento destructivo, no se introduce ruido de cuantización innecesario.',
         `Módulos DSP (EQ, compresión, saturación, de-esser, stereo widener) verificados en bypass para preservar la integridad de la mezcla terminada.`
       ];
     }
@@ -3897,7 +3908,7 @@ export class AudioEngine {
       actionDescription: widthActive ? `Ancho estéreo modificado (${appliedParams!.stereoWidth.toFixed(2)}x)` : '1.00x Natural sin ensanchamiento artificial'
     });
 
-    // Limiter / True Peak
+    // Limiter / True Peak (exactamente 3 estados: BYPASS, ARMED_NO_GAIN_REDUCTION, ACTIVE)
     const limiterEnabled = Boolean(appliedParams?.limiter?.enabled);
     const telemetry: LimiterTelemetry = this.lastLimiterTelemetry ? { ...this.lastLimiterTelemetry } : {
       limiterEnabled,
@@ -3906,7 +3917,8 @@ export class AudioEngine {
       averageGainReduction: 0,
       samplesLimited: 0,
       finalTruePeak: candMetrics.truePeakDbTP,
-      statusText: 'LIMITADOR ARMADO — SIN REDUCCIÓN DE GANANCIA'
+      state: limiterEnabled ? 'ARMED_NO_GAIN_REDUCTION' : 'BYPASS',
+      statusText: limiterEnabled ? 'ARMED_NO_GAIN_REDUCTION' : 'BYPASS'
     };
 
     telemetry.finalTruePeak = candMetrics.truePeakDbTP;
@@ -3915,32 +3927,36 @@ export class AudioEngine {
 
     const hasMeasurableGr = telemetry.maxGainReduction >= 0.05 && telemetry.samplesLimited > 0;
     
-    let limiterStatusLabel: string;
+    let limiterState: LimiterState;
     let limiterActionDesc: string;
     let limiterApplied: boolean;
     let limiterImpactDb: number;
 
     if (!limiterEnabled) {
-      limiterStatusLabel = 'LIMITADOR EN BYPASS';
+      limiterState = 'BYPASS';
       limiterApplied = false;
       limiterImpactDb = 0.0;
       limiterActionDesc = 'Bypass / Sin limitador en la cadena';
     } else if (!hasMeasurableGr) {
-      limiterStatusLabel = 'LIMITADOR ARMADO — SIN REDUCCIÓN DE GANANCIA';
-      limiterApplied = false; // No cuenta como procesamiento efectivo que altere audio
+      limiterState = 'ARMED_NO_GAIN_REDUCTION';
+      limiterApplied = false; // altered zero samples, does not alter waveform
       limiterImpactDb = 0.0;
-      limiterActionDesc = `Limitador armado — sin reducción de ganancia (Ceiling: ${telemetry.limiterCeiling.toFixed(1)} dBTP, True Peak final: ${telemetry.finalTruePeak.toFixed(1)} dBTP, GR: 0.00 dB)`;
+      limiterActionDesc = `Limitador armado sin reducción de ganancia (Ceiling: ${telemetry.limiterCeiling.toFixed(1)} dBTP, True Peak final: ${telemetry.finalTruePeak.toFixed(1)} dBTP, GR: 0.00 dB, 0 muestras limitadas)`;
     } else {
-      limiterStatusLabel = 'LIMITADOR ACTIVO';
+      limiterState = 'ACTIVE';
       limiterApplied = true;
       limiterImpactDb = telemetry.maxGainReduction;
       limiterActionDesc = `Limitador activo con reducción de picos (Ceiling: ${telemetry.limiterCeiling.toFixed(1)} dBTP, Reducción máx: -${telemetry.maxGainReduction.toFixed(2)} dB, Muestras limitadas: ${telemetry.samplesLimited}, True Peak final: ${telemetry.finalTruePeak.toFixed(1)} dBTP)`;
     }
 
+    telemetry.state = limiterState;
+    telemetry.statusText = limiterState;
+
     dspModuleActions.push({
       module: 'Limitador Lookahead True Peak',
       applied: limiterApplied,
-      statusLabel: limiterStatusLabel,
+      statusLabel: limiterState,
+      limiterState: limiterState,
       measuredImpactDb: limiterImpactDb,
       actionDescription: limiterActionDesc,
       samplesAffected: telemetry.samplesLimited,
@@ -4605,17 +4621,23 @@ export class AudioEngine {
       );
     }
 
-    // 12. True Peak Limiter con telemetría de acción real
+    // 12. True Peak Limiter con telemetría de acción real (exactamente 3 estados: BYPASS, ARMED_NO_GAIN_REDUCTION, ACTIVE)
     const limiterTele = this.lastLimiterTelemetry;
-    if (!params.limiter?.enabled) {
-      finalDecisions.push(`Limitador Lookahead True Peak en bypass (sin limitador activo en la cadena).`);
-    } else if (!limiterTele || (limiterTele.maxGainReduction < 0.05 && limiterTele.samplesLimited === 0)) {
+    const limiterState: LimiterState = !params.limiter?.enabled 
+      ? 'BYPASS' 
+      : (!limiterTele || (limiterTele.maxGainReduction < 0.05 && limiterTele.samplesLimited === 0))
+        ? 'ARMED_NO_GAIN_REDUCTION'
+        : 'ACTIVE';
+
+    if (limiterState === 'BYPASS') {
+      finalDecisions.push(`Limitador Lookahead True Peak: BYPASS (sin limitador activo en la cadena).`);
+    } else if (limiterState === 'ARMED_NO_GAIN_REDUCTION') {
       finalDecisions.push(
-        `Limitador armado — sin reducción de ganancia (Ceiling: ${adaptiveCeiling.toFixed(1)} dBTP, True Peak final: ${afterStats.truePeakDbTP.toFixed(1)} dBTP, GR: 0.00 dB).`
+        `Limitador Lookahead True Peak: ARMED_NO_GAIN_REDUCTION (instanciado con Ceiling ${adaptiveCeiling.toFixed(1)} dBTP, 0 muestras limitadas, True Peak final: ${afterStats.truePeakDbTP.toFixed(1)} dBTP).`
       );
     } else {
       finalDecisions.push(
-        `Limitador activo: reducción de ganancia máx: -${limiterTele.maxGainReduction.toFixed(2)} dB (Ceiling: ${adaptiveCeiling.toFixed(1)} dBTP, True Peak final: ${afterStats.truePeakDbTP.toFixed(1)} dBTP).`
+        `Limitador Lookahead True Peak: ACTIVE (reducción de ganancia máx: -${limiterTele!.maxGainReduction.toFixed(2)} dB, Ceiling: ${adaptiveCeiling.toFixed(1)} dBTP, True Peak final: ${afterStats.truePeakDbTP.toFixed(1)} dBTP).`
       );
     }
 
@@ -4626,9 +4648,32 @@ export class AudioEngine {
     finalDecisions.push(
       'Exportado en WAV PCM 24-bit para distribución/procesamiento posterior. La conversión no añade información ni resolución efectiva al audio fuente original de 16 bits.'
     );
-    finalDecisions.push(
-      'Dither TPDF aplicado durante la cuantización a 24-bit para linealizar el piso de ruido.'
+
+    const hasFloatingPointDsp = (
+      Math.abs(params.eq.low.gain) > 0.05 ||
+      Math.abs(params.eq.mid.gain) > 0.05 ||
+      Math.abs(params.eq.highMid.gain) > 0.05 ||
+      Math.abs(params.eq.high.gain) > 0.05 ||
+      (params.multiband?.enabled ?? false) ||
+      (params.distortion?.enabled && params.distortion.amount > 0.01) ||
+      (params.deEsser?.enabled ?? false) ||
+      (params.dynamicSubCutDb && Math.abs(params.dynamicSubCutDb) > 0.05) ||
+      (params.vocalBodyMidRecoveryDb && params.vocalBodyMidRecoveryDb > 0.05) ||
+      (params.vocalMidPresenceDb && params.vocalMidPresenceDb > 0.05) ||
+      (params.stereoWidth !== undefined && Math.abs(params.stereoWidth - 1.0) >= 0.02) ||
+      (limiterState === 'ACTIVE') ||
+      Math.abs(afterStats.integratedLUFS - beforeStats.integratedLUFS) > 0.05
     );
+
+    if (hasFloatingPointDsp) {
+      finalDecisions.push(
+        'Dither TPDF aplicado durante la cuantización a 24-bit para linealizar el piso de ruido.'
+      );
+    } else {
+      finalDecisions.push(
+        'Dither omitido: al preservarse la mezcla original sin procesamiento destructivo, no se introduce ruido de cuantización innecesario.'
+      );
+    }
 
     return finalDecisions;
   }
@@ -6103,7 +6148,8 @@ export class AudioEngine {
   // --- FUENTE ÚNICA DE VERDAD: EXPORTAR WAV REAL, HASHEAR Y REABRIR DESDE ARCHIVO ---
   async exportWavAndReopen(
     buffer: AudioBuffer,
-    bitDepth: 16 | 24 | 32 = 24
+    bitDepth: 16 | 24 | 32 = 24,
+    applyDither: boolean = true
   ): Promise<{
     reopenedBuffer: AudioBuffer;
     fileHash: string;
@@ -6152,8 +6198,8 @@ export class AudioEngine {
       }
     } else if (bitDepth === 24) {
       for (let i = 0; i < buffer.length; i++) {
-        const ditherL = (Math.random() - Math.random()) / 0x800000;
-        const ditherR = (Math.random() - Math.random()) / 0x800000;
+        const ditherL = applyDither ? (Math.random() - Math.random()) / 0x800000 : 0;
+        const ditherR = applyDither ? (Math.random() - Math.random()) / 0x800000 : 0;
 
         const sL = Math.max(-1.0, Math.min(1.0, left[i] + ditherL));
         const sR = Math.max(-1.0, Math.min(1.0, right[i] + ditherR));
@@ -6173,8 +6219,8 @@ export class AudioEngine {
       }
     } else {
       for (let i = 0; i < buffer.length; i++) {
-        const ditherL = (Math.random() - Math.random()) / 0x8000;
-        const ditherR = (Math.random() - Math.random()) / 0x8000;
+        const ditherL = applyDither ? (Math.random() - Math.random()) / 0x8000 : 0;
+        const ditherR = applyDither ? (Math.random() - Math.random()) / 0x8000 : 0;
 
         const sL = Math.max(-1.0, Math.min(1.0, left[i] + ditherL));
         const sR = Math.max(-1.0, Math.min(1.0, right[i] + ditherR));
@@ -6304,10 +6350,27 @@ export class AudioEngine {
     params: MasteringChainParams,
     tracks: Track[],
     bitDepth: 16 | 24 | 32 = 24,
-    overrideBuffer?: AudioBuffer
+    overrideBuffer?: AudioBuffer,
+    applyDither?: boolean
   ): Promise<Blob | null> {
     const buffer = overrideBuffer || await this.renderPreview(params, tracks);
     if (!buffer) return null;
+
+    const hasMeaningfulDsp = (
+      Math.abs(params.eq?.low?.gain || 0) > 0.05 ||
+      Math.abs(params.eq?.mid?.gain || 0) > 0.05 ||
+      Math.abs(params.eq?.highMid?.gain || 0) > 0.05 ||
+      Math.abs(params.eq?.high?.gain || 0) > 0.05 ||
+      Boolean(params.multiband?.enabled) ||
+      (Boolean(params.distortion?.enabled) && (params.distortion?.amount || 0) > 0.01) ||
+      Boolean(params.deEsser?.enabled) ||
+      Math.abs(params.dynamicSubCutDb || 0) > 0.05 ||
+      (params.vocalBodyMidRecoveryDb || 0) > 0.05 ||
+      (params.vocalMidPresenceDb || 0) > 0.05 ||
+      (params.stereoWidth !== undefined && Math.abs(params.stereoWidth - 1.0) >= 0.02) ||
+      (this.lastLimiterTelemetry?.state === 'ACTIVE')
+    );
+    const shouldDither = applyDither !== undefined ? applyDither : (hasMeaningfulDsp && this.lastAIMasteringResult?.qualityVerdict !== 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING');
 
     const sampleRate = buffer.sampleRate;
     const numChannels = 2;
@@ -6351,10 +6414,10 @@ export class AudioEngine {
         view.setFloat32(offset, right[i], true); offset += 4;
       }
     } else if (bitDepth === 24) {
-      // 24-bit PCM with Triangular Probability Density Function (TPDF) Dither
+      // 24-bit PCM with Triangular Probability Density Function (TPDF) Dither when warranted
       for (let i = 0; i < buffer.length; i++) {
-        const ditherL = (Math.random() - Math.random()) / 0x800000;
-        const ditherR = (Math.random() - Math.random()) / 0x800000;
+        const ditherL = shouldDither ? (Math.random() - Math.random()) / 0x800000 : 0;
+        const ditherR = shouldDither ? (Math.random() - Math.random()) / 0x800000 : 0;
 
         const sL = Math.max(-1.0, Math.min(1.0, left[i] + ditherL));
         const sR = Math.max(-1.0, Math.min(1.0, right[i] + ditherR));
@@ -6373,10 +6436,10 @@ export class AudioEngine {
         offset += 3;
       }
     } else {
-      // 16-bit PCM with TPDF Dither
+      // 16-bit PCM with TPDF Dither when warranted
       for (let i = 0; i < buffer.length; i++) {
-        const ditherL = (Math.random() - Math.random()) / 0x8000;
-        const ditherR = (Math.random() - Math.random()) / 0x8000;
+        const ditherL = shouldDither ? (Math.random() - Math.random()) / 0x8000 : 0;
+        const ditherR = shouldDither ? (Math.random() - Math.random()) / 0x8000 : 0;
 
         const sL = Math.max(-1.0, Math.min(1.0, left[i] + ditherL));
         const sR = Math.max(-1.0, Math.min(1.0, right[i] + ditherR));
