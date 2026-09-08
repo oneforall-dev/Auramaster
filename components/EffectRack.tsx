@@ -24,13 +24,14 @@ interface EffectRackProps {
   onSmartMaster?: (type: 'spotify' | 'peak' | 'combo' | 'punch' | 'mono' | 'clipping' | 'super_mix' | 'clean_noise', selectionRange?: {start: number, end: number} | null) => void;
   selection?: {start: number, end: number} | null;
   isSmartAdjusting?: boolean;
+  smartMasterPhase?: string | null;
   activeTrackId?: string | null;
   onSelectTrack?: (id: string) => void;
   onOpenReferenceMastering?: () => void;
   referenceCount?: number;
 }
 
-const EffectRack: React.FC<EffectRackProps> = ({ params, onChange, tracks, onTrackChange, onRemove, skin = 'modern', lang = 'es', analysisStats, isExpanded = false, onToggleExpand, onSmartMaster, selection, isSmartAdjusting, activeTrackId, onSelectTrack, onOpenReferenceMastering, referenceCount = 0 }) => {
+const EffectRack: React.FC<EffectRackProps> = ({ params, onChange, tracks, onTrackChange, onRemove, skin = 'modern', lang = 'es', analysisStats, isExpanded = false, onToggleExpand, onSmartMaster, selection, isSmartAdjusting, smartMasterPhase, activeTrackId, onSelectTrack, onOpenReferenceMastering, referenceCount = 0 }) => {
   const [activeTab, setActiveTab] = useState<'fixers' | 'mixer' | 'dynamics' | 'eq' | 'transient' | 'color' | 'lofi' | 'space' | 'analysis'>('fixers');
   const [compBand, setCompBand] = useState<'low' | 'mid' | 'high'>('mid');
   const [selectedEQBand, setSelectedEQBand] = useState<keyof EQParams | null>('mid'); 
@@ -284,12 +285,32 @@ const EffectRack: React.FC<EffectRackProps> = ({ params, onChange, tracks, onTra
                                  <span className="px-1.5 py-0.5 rounded-full bg-purple-500/30 border border-purple-400/40 text-[9px] font-extrabold text-purple-200">AUTO 32-BIT</span>
                               </span>
                               <span className="text-[11px] text-purple-200/80 font-medium leading-tight">
-                                  {lang === 'es' ? 'Balancea stems, fase y masteriza a -14 LUFS.' : 'Auto-balances stems and masters to -14 LUFS.'}
+                                  {isSmartAdjusting ? (
+                                    smartMasterPhase === 'analyze' ? (lang === 'es' ? 'Fase 1/4: Diagnóstico acústico de 17 aspectos...' : 'Phase 1/4: Analyzing 17 acoustic aspects...') :
+                                    smartMasterPhase === 'dsp' ? (lang === 'es' ? 'Fase 2/4: Generando Candidatos A, B y C...' : 'Phase 2/4: Formulating Candidates A, B & C...') :
+                                    smartMasterPhase === 'vocal_audit' ? (lang === 'es' ? 'Fase 3/4: Torneo perceptual a loudness igualado...' : 'Phase 3/4: Matched-loudness tournament...') :
+                                    smartMasterPhase === 'validate' ? (lang === 'es' ? 'Fase 4/4: Reabriendo y validando WAV real...' : 'Phase 4/4: Reopening & validating WAV...') :
+                                    smartMasterPhase === 'complete' ? (lang === 'es' ? '¡Masterización completada!' : 'Mastering complete!') :
+                                    (lang === 'es' ? 'Optimizando masterización adaptativa...' : 'Optimizing adaptive master...')
+                                  ) : (
+                                    lang === 'es' ? 'Balancea stems, fase y masteriza a -14 LUFS.' : 'Auto-balances stems and masters to -14 LUFS.'
+                                  )}
                               </span>
                           </div>
                       </div>
                       <div className="hidden xl:flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-[11px] font-bold text-white transition-all shrink-0">
-                          <span>{isSmartAdjusting ? (lang === 'es' ? 'Optimizando...' : 'Optimizing...') : (lang === 'es' ? 'Ejecutar' : 'Run')}</span>
+                          <span>
+                            {isSmartAdjusting ? (
+                              smartMasterPhase === 'analyze' ? (lang === 'es' ? 'Analizando...' : 'Analyzing...') :
+                              smartMasterPhase === 'dsp' ? (lang === 'es' ? 'Candidatos...' : 'Candidates...') :
+                              smartMasterPhase === 'vocal_audit' ? (lang === 'es' ? 'Torneo A/B/C...' : 'Tournament...') :
+                              smartMasterPhase === 'validate' ? (lang === 'es' ? 'Validando...' : 'Validating...') :
+                              smartMasterPhase === 'complete' ? (lang === 'es' ? 'Listo' : 'Done') :
+                              (lang === 'es' ? 'Optimizando...' : 'Optimizing...')
+                            ) : (
+                              lang === 'es' ? 'Ejecutar' : 'Run'
+                            )}
+                          </span>
                           <Wand2 size={12} />
                       </div>
                   </button>

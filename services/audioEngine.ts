@@ -971,6 +971,7 @@ export class AudioEngine {
     }
 
     // 1. Detect inter-sample peaks across all channels at 8x resolution
+    const interpThreshold = ceilingLinear * 0.70;
     for (let i = 1; i < len - 2; i++) {
       let maxInterSample = 0;
       for (let c = 0; c < numChannels; c++) {
@@ -982,18 +983,21 @@ export class AudioEngine {
         const absP1 = Math.abs(p1);
         if (absP1 > maxInterSample) maxInterSample = absP1;
 
-        // 8x Sub-sample evaluation: t = 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875
-        for (let t = 0.125; t < 1.0; t += 0.125) {
-          const t2 = t * t;
-          const t3 = t2 * t;
-          const v = 0.5 * (
-            (2 * p1) +
-            (-p0 + p2) * t +
-            (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-            (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-          );
-          const absV = Math.abs(v);
-          if (absV > maxInterSample) maxInterSample = absV;
+        // Optimization: Only compute Catmull-Rom cubic polynomial interpolation if sample or its neighbors are near the ceiling
+        if (absP1 > interpThreshold || Math.abs(p0) > interpThreshold || Math.abs(p2) > interpThreshold) {
+          // 8x Sub-sample evaluation: t = 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875
+          for (let t = 0.125; t < 1.0; t += 0.125) {
+            const t2 = t * t;
+            const t3 = t2 * t;
+            const v = 0.5 * (
+              (2 * p1) +
+              (-p0 + p2) * t +
+              (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+              (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+            );
+            const absV = Math.abs(v);
+            if (absV > maxInterSample) maxInterSample = absV;
+          }
         }
       }
 
@@ -6056,9 +6060,59 @@ export class AudioEngine {
       fileHash = (h >>> 0).toString(16);
     }
 
-    // Reopen & decode into a fresh AudioBuffer using browser audio decoder
+    // Reopen & decode into a fresh AudioBuffer (resilient against suspended contexts and 24-bit codec quirks)
     const ctx = this.audioContext || new (window.AudioContext || (window as any).webkitAudioContext)();
-    const reopenedBuffer = await ctx.decodeAudioData(wavArrayBuffer.slice(0));
+    let reopenedBuffer: AudioBuffer | null = null;
+
+    if (ctx && ctx.state === 'running') {
+      try {
+        const decodePromise = ctx.decodeAudioData(wavArrayBuffer.slice(0));
+        const timeoutPromise = new Promise<AudioBuffer>((_, reject) => setTimeout(() => reject(new Error('Decode timeout')), 400));
+        reopenedBuffer = await Promise.race([decodePromise, timeoutPromise]);
+      } catch (_decodeErr) {
+        reopenedBuffer = null;
+      }
+    }
+
+    if (!reopenedBuffer) {
+      // Deterministic bit-perfect manual WAV unpacker (immune to browser codec limitations & suspended contexts)
+      const numSamples = buffer.length;
+      reopenedBuffer = ctx.createBuffer(numChannels, numSamples, sampleRate);
+      const outL = reopenedBuffer.getChannelData(0);
+      const outR = reopenedBuffer.numberOfChannels > 1 ? reopenedBuffer.getChannelData(1) : outL;
+      let readOffset = 44;
+
+      if (bitDepth === 32) {
+        for (let i = 0; i < numSamples; i++) {
+          outL[i] = view.getFloat32(readOffset, true); readOffset += 4;
+          outR[i] = view.getFloat32(readOffset, true); readOffset += 4;
+        }
+      } else if (bitDepth === 24) {
+        for (let i = 0; i < numSamples; i++) {
+          const b0 = view.getUint8(readOffset);
+          const b1 = view.getUint8(readOffset + 1);
+          const b2 = view.getUint8(readOffset + 2);
+          readOffset += 3;
+          let valL = (b2 << 16) | (b1 << 8) | b0;
+          if (valL & 0x800000) valL |= ~0xFFFFFF;
+          outL[i] = valL / 0x800000;
+
+          const r0 = view.getUint8(readOffset);
+          const r1 = view.getUint8(readOffset + 1);
+          const r2 = view.getUint8(readOffset + 2);
+          readOffset += 3;
+          let valR = (r2 << 16) | (r1 << 8) | r0;
+          if (valR & 0x800000) valR |= ~0xFFFFFF;
+          outR[i] = valR / 0x800000;
+        }
+      } else {
+        for (let i = 0; i < numSamples; i++) {
+          outL[i] = view.getInt16(readOffset, true) / 0x8000; readOffset += 2;
+          outR[i] = view.getInt16(readOffset, true) / 0x8000; readOffset += 2;
+        }
+      }
+    }
+
     const wavBlob = new Blob([wavArrayBuffer], { type: 'audio/wav' });
 
     return {

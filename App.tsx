@@ -98,6 +98,7 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isSmartAdjusting, setIsSmartAdjusting] = useState(false);
+  const [smartMasterPhase, setSmartMasterPhase] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [selection, setSelection] = useState<{start: number, end: number} | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => authService.getUser());
@@ -723,8 +724,10 @@ export default function App() {
 
   const handleSmartMaster = async (type: string) => {
     setIsSmartAdjusting(true);
+    setSmartMasterPhase('analyze');
     
     setTimeout(async () => {
+      try {
         let newParams = { ...params };
         const currentPeak = Number.isFinite(fileStats.peak) ? fileStats.peak : -20;
         const TARGET_PEAK = -1.0;
@@ -785,7 +788,10 @@ export default function App() {
                     balancedTracks,
                     null,
                     activeSourceId,
-                    targetSessionId
+                    targetSessionId,
+                    (phase) => {
+                      setSmartMasterPhase(phase);
+                    }
                   );
                   // Verify session is still active
                   if (result.sessionId === currentSessionIdRef.current) {
@@ -803,8 +809,14 @@ export default function App() {
           newParams.gain = Math.max(0.1, Math.min(30.0, newParams.gain));
           setParams(newParams);
         }
+      } catch (err: any) {
+        console.error("Error en masterización inteligente:", err);
+        alert(`Error al ejecutar masterización: ${err?.message || 'Error inesperado'}`);
+      } finally {
         setIsSmartAdjusting(false);
-    }, 100);
+        setSmartMasterPhase(null);
+      }
+    }, 50);
   };
 
   const handleAddReference = (ref: ReferenceTrack) => {
@@ -1282,6 +1294,7 @@ export default function App() {
                   analysisStats={fileStats} 
                   onSmartMaster={handleSmartMaster}
                   isSmartAdjusting={isSmartAdjusting}
+                  smartMasterPhase={smartMasterPhase}
                   selection={selection}
                   activeTrackId={activeTrackId}
                   onSelectTrack={handleSelectTrack}
