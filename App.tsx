@@ -569,6 +569,7 @@ export default function App() {
     for (let i = 0; i < tracks.length; i++) {
       const track = tracks[i];
       const targetSessionId = `bulk_${track.id}_${Date.now().toString(36)}`;
+      setBulkProgress({ current: i + 1, total: tracks.length, trackName: track.name });
       try {
         setTrackMasterMap(prev => ({
           ...prev,
@@ -628,13 +629,20 @@ export default function App() {
     setBulkProgress(null);
 
     // Build BulkMasteringSummary
-    if (results.length > 0) {
+    {
       const totalTracks = tracks.length;
       const completedTracks = results.length;
-      const avgOrigLUFS = results.reduce((acc, r) => acc + (r.before.integratedLUFS || -14), 0) / results.length;
-      const avgMasterLUFS = results.reduce((acc, r) => acc + (r.after.integratedLUFS || -14), 0) / results.length;
-      const maxTP = Math.max(...results.map(r => r.after.truePeakDbTP || -1.0));
-      const avgLRA = results.reduce((acc, r) => acc + (r.after.dynamicRangeLRA || 8.0), 0) / results.length;
+      const resultCount = Math.max(1, results.length);
+      const avgOrigLUFS = results.length > 0
+        ? results.reduce((acc, r) => acc + (r.before.integratedLUFS || -14), 0) / resultCount
+        : 0;
+      const avgMasterLUFS = results.length > 0
+        ? results.reduce((acc, r) => acc + (r.after.integratedLUFS || -14), 0) / resultCount
+        : 0;
+      const maxTP = results.length > 0 ? Math.max(...results.map(r => r.after.truePeakDbTP || -1.0)) : 0;
+      const avgLRA = results.length > 0
+        ? results.reduce((acc, r) => acc + (r.after.dynamicRangeLRA || 8.0), 0) / resultCount
+        : 0;
       const vocalCount = results.filter(r => r.vocalReport && r.vocalReport.original.vocalSectionsCount > 0).length;
       const instCount = results.length - vocalCount;
 

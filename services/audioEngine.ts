@@ -2842,7 +2842,10 @@ export class AudioEngine {
     const baseLinearGain = candidateParams.gain;
     const baseDb = 20 * Math.log10(Math.max(1e-4, baseLinearGain));
 
-    const stepOffsets = [0.0, 0.75, 1.50, 2.25, 3.00];
+    // Begin below the estimated target so a dense or peak-heavy song always
+    // gets a chance to establish a clean baseline. Starting at 0 dB and only
+    // moving upward made L0 a hard failure instead of a search boundary.
+    const stepOffsets = [-3.00, -2.25, -1.50, -0.75, 0.0, 0.75, 1.50, 2.25, 3.00];
     const testedLevels: TestedLoudnessLevel[] = [];
     let selectedParams = JSON.parse(JSON.stringify(candidateParams)) as MasteringChainParams;
     let bestBuffer: AudioBuffer = rawBuffer;
@@ -2856,7 +2859,9 @@ export class AudioEngine {
 
     for (let i = 0; i < stepOffsets.length; i++) {
       const offset = stepOffsets[i];
-      const levelName = `L${i} (${offset >= 0 ? '+' : ''}${offset.toFixed(2)} dB)`;
+      const levelName = offset < 0
+        ? `Safety ${offset.toFixed(2)} dB`
+        : `L${Math.round(offset / 0.75)} (+${offset.toFixed(2)} dB)`;
       const testParams: MasteringChainParams = JSON.parse(JSON.stringify(candidateParams));
       testParams.gain = baseLinearGain * Math.pow(10, offset / 20);
 
@@ -2927,7 +2932,7 @@ export class AudioEngine {
     }
 
     const availableCleanHeadroomDb = Math.max(0, parseFloat((origMetrics.truePeakDbTP - (-1.0)).toFixed(2)));
-    const usedCleanHeadroomDb = parseFloat((bestGainOffset).toFixed(2));
+    const usedCleanHeadroomDb = Math.max(0, parseFloat((bestGainOffset).toFixed(2)));
     const sweetSpotNote = `Sweet-spot de sonoridad limpia en ${selectedFinalLUFS.toFixed(1)} LUFS-I (ganancia explorada: ${bestGainOffset >= 0 ? '+' : ''}${bestGainOffset.toFixed(2)} dB, GR limitador: ${bestLimiterGR.toFixed(2)} dB). Preservación dinámica: Δ Crest ${bestCrestDelta >= 0 ? '+' : ''}${bestCrestDelta.toFixed(2)} dB, Δ LRA ${bestLraDelta >= 0 ? '+' : ''}${bestLraDelta.toFixed(2)} LU.`;
 
     const explorationRecord: LoudnessExplorationRecord = {
