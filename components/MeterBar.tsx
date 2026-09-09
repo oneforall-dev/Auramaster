@@ -75,7 +75,7 @@ export const MeterBar: React.FC<MeterBarProps> = React.memo(({ skin = 'modern' }
             <div className="flex items-center gap-2 shrink-0">
                 <span className="text-[10px] font-bold text-slate-500 w-8 shrink-0 tracking-wider">LUFS</span>
                 <span className="text-[9px] font-mono font-semibold px-2 py-0.5 rounded-full border bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
-                    TARGET: -14.0 LUFS-I | -1.0 dBTP
+                    ADAPTIVE TARGET | TP ≤ -1.2 / -1.5 dBTP
                 </span>
             </div>
             

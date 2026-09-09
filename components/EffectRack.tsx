@@ -295,7 +295,7 @@ const EffectRack: React.FC<EffectRackProps> = ({ params, onChange, tracks, onTra
                                     smartMasterPhase === 'complete' ? (lang === 'es' ? '¡Masterización completada!' : 'Mastering complete!') :
                                     (lang === 'es' ? 'Optimizando masterización adaptativa...' : 'Optimizing adaptive master...')
                                   ) : (
-                                    lang === 'es' ? 'Balancea stems, fase y masteriza a -14 LUFS.' : 'Auto-balances stems and masters to -14 LUFS.'
+                                    lang === 'es' ? 'Balancea stems, fase y busca el loudness comercial seguro de cada canción.' : 'Balances stems, phase and finds each song’s safe commercial loudness.'
                                   )}
                               </span>
                           </div>
@@ -364,7 +364,7 @@ const EffectRack: React.FC<EffectRackProps> = ({ params, onChange, tracks, onTra
                                   </div>
                                   <div className="flex flex-col items-start">
                                       <span className="text-xs font-bold text-slate-100">Spotify & Apple Music</span>
-                                      <span className="text-[10px] text-slate-400 font-mono">-14.0 LUFS / -1.0 dBTP</span>
+                                      <span className="text-[10px] text-slate-400 font-mono">Loudness adaptativo · TP protegido</span>
                                   </div>
                                </div>
                                {!hasLufsIssue ? <CheckCircle2 size={15} className="text-emerald-400" /> : <Wand2 size={14} className="text-slate-400"/>}
