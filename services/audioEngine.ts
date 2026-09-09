@@ -1396,6 +1396,26 @@ export class AudioEngine {
     let masteredBuffer = bestBuffer;
     newParams = bestParams;
 
+    const selectedPassBLevel = pipelineResult.loudnessExploration?.testedLoudnessLevels.find(
+      level => level.variantId === pipelineResult.loudnessExploration?.selectedVariantId
+    );
+    if (!selectedPassBLevel) {
+      throw new Error('Falta la telemetría de la variante Pass B seleccionada.');
+    }
+    const selectedLimiterState: LimiterState = selectedPassBLevel.limiterGR >= 0.05 && (selectedPassBLevel.samplesLimited ?? 0) > 0
+      ? 'ACTIVE'
+      : 'ARMED_NO_GAIN_REDUCTION';
+    this.lastLimiterTelemetry = {
+      limiterEnabled: true,
+      limiterCeiling: selectedPassBLevel.ceilingDbTP ?? newParams.limiter.threshold,
+      maxGainReduction: selectedPassBLevel.limiterGR,
+      averageGainReduction: 0,
+      samplesLimited: selectedPassBLevel.samplesLimited ?? 0,
+      finalTruePeak: selectedPassBLevel.truePeakDbTP,
+      state: selectedLimiterState,
+      statusText: selectedLimiterState
+    };
+
     // Stage 5B: FUENTE ÚNICA DE VERDAD (EXPORTAR WAV REAL, REABRIR DETERMINISTA Y MEDIR SOBRE EL ARCHIVO)
     onPhaseChange?.('validate');
     if (this.currentSessionId !== runSessionId) throw new Error('La canción cambió durante el mastering.');
@@ -1613,7 +1633,9 @@ export class AudioEngine {
       limiterTelemetry: mathComparison?.limiterTelemetry || this.lastLimiterTelemetry || undefined,
       decisions,
       appliedParams: newParams,
-      targetMet: reportConsistencyCheck.passed && !delivery.unusedCleanHeadroomFlag,
+      targetMet: reportConsistencyCheck.passed
+        && !delivery.unusedCleanHeadroomFlag
+        && !(mathComparison?.isOriginalPreservedWithoutMastering && winningCandidate.id !== 'candidate_a'),
       statusNote: mathComparison?.isOriginalPreservedWithoutMastering
         ? `Original Preservado — Sin Masterización Sustancial (MQS: ${bestMqs?.totalScore ?? 84}/100) | ${finalMeasuredLUFS.toFixed(1)} LUFS-I · TP: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`
         : isFallbackApplied
@@ -2857,9 +2879,9 @@ export class AudioEngine {
       } else if (crestDelta < -1.8) {
         approved = false;
         rejectionReason = `Degradación de transientes / Crest Factor reducido en ${Math.abs(crestDelta).toFixed(2)} dB`;
-      } else if (metrics.dynamicRangeLRA < 4.0 || lraDelta < -3.0) {
+      } else if (lraDelta < -3.0) {
         approved = false;
-        rejectionReason = `Aplastamiento dinámico (LRA final ${metrics.dynamicRangeLRA.toFixed(1)} LU)`;
+        rejectionReason = `Aplastamiento dinámico relativo (LRA final ${metrics.dynamicRangeLRA.toFixed(1)} LU, Δ ${lraDelta.toFixed(1)} LU)`;
       } else if (limiterGR > 2.2) {
         approved = false;
         rejectionReason = `Compresión de limitador excesiva (${limiterGR.toFixed(2)} dB GR > 2.2 dB)`;
@@ -2898,6 +2920,10 @@ export class AudioEngine {
         }
         break; // Stop at first failing loudness tier
       }
+    }
+
+    if (!testedLevels.some(level => level.approved)) {
+      throw new Error(`PASS_A_NO_APPROVED_VARIANT (${candidateType}): ${testedLevels.map(level => `${level.levelName}: ${level.rejectionReason || 'rechazado'}`).join(' | ')}`);
     }
 
     const availableCleanHeadroomDb = Math.max(0, parseFloat((origMetrics.truePeakDbTP - (-1.0)).toFixed(2)));
