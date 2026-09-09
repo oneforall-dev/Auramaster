@@ -1157,6 +1157,8 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                   }`}>
                     {result.mathematicalComparison.isOriginalPreservedWithoutMastering
                       ? '✓ ORIGEN PRESERVADO'
+                      : result.mathematicalComparison.classification === 'TECHNICAL_TRANSPARENT_DELIVERY'
+                        ? '✓ ENTREGA VERIFICADA'
                       : '✓ DSP VERIFICADO'}
                   </span>
                 </div>
@@ -1394,6 +1396,8 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                   <div className="font-bold text-xs">
                     {result.mathematicalComparison.isOriginalPreservedWithoutMastering
                       ? 'Dictamen de Integridad: Mezcla Original Preservada'
+                      : result.mathematicalComparison.classification === 'TECHNICAL_TRANSPARENT_DELIVERY'
+                        ? 'Dictamen de Integridad: Entrega Técnica Transparente Aprobada'
                       : 'Dictamen de Integridad: Masterización Sustancial Aprobada'}
                   </div>
                   <p className="text-[11px] opacity-90 leading-relaxed font-sans">

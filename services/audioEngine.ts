@@ -5344,6 +5344,7 @@ export class AudioEngine {
       statusLabel?: string;
       limiterState?: LimiterState;
       samplesAffected?: number;
+      activeTimeSeconds?: number;
       peakReductionOrBoostDb?: number;
     }[] = [];
 
@@ -5497,6 +5498,7 @@ export class AudioEngine {
       actionDescription: limiterActionDesc,
       measuredResultDescription: `True Peak final: ${telemetry.finalTruePeak.toFixed(1)} dBTP. Reducción: ${hasMeasurableGr ? `-${telemetry.maxGainReduction.toFixed(2)} dB` : '0.00 dB'}. Muestras afectadas: ${telemetry.samplesLimited}.`,
       samplesAffected: telemetry.samplesLimited,
+      activeTimeSeconds: telemetry.samplesLimited / Math.max(1, sampleRate),
       peakReductionOrBoostDb: limiterImpactDb
     });
 
@@ -5658,12 +5660,19 @@ export class AudioEngine {
     let afterMetrics = masteredBuffer ? await onMetricsUpdate(masteredBuffer) : null;
     let finalVocal = masteredBuffer ? await this.analyzeVocalProfile(masteredBuffer) : origVocal;
 
-    if (origVocal?.vocalDetection?.classification === 'INSTRUMENTAL') {
+    // A vocal-protection verdict is only meaningful when the detector found
+    // actual vocal-active blocks. Running the relative masker math with an
+    // empty vocal set can falsely report masking on an unchanged stereo image.
+    const noReliableVocalBlocks = origVocal.vocalSectionsCount === 0;
+    if (origVocal?.vocalDetection?.classification === 'INSTRUMENTAL' || noReliableVocalBlocks) {
+      const isConfirmedInstrumental = origVocal?.vocalDetection?.classification === 'INSTRUMENTAL';
       const instrumentalReport: VocalProtectionReport = {
         original: origVocal,
         final: finalVocal,
         vocalStatus: 'approved',
-        statusLabel: 'Modo Instrumental — Protección de Foco Melódico Activa',
+        statusLabel: isConfirmedInstrumental
+          ? 'Modo Instrumental — Protección de Foco Melódico Activa'
+          : 'Auditoría Vocal No Aplicable — Sin Voz Detectada',
         relativePresenceDeltaDb: 0,
         vocalDeltaDb: 0,
         lowEndDeltaDb: 0,
@@ -5676,7 +5685,7 @@ export class AudioEngine {
         maxRelativeDeltaDb: 0,
         vocalBodyPreserved: true,
         intelligibilityPreserved: true,
-        maskingElementDetected: 'Ninguno (Modo Instrumental)',
+        maskingElementDetected: isConfirmedInstrumental ? 'Ninguno (Modo Instrumental)' : 'Ninguno (sin bloques vocales fiables)',
         deEsserApplied: false,
         exactDeEsserFreq: undefined,
         deEsserReductionDb: 0,
@@ -5689,17 +5698,25 @@ export class AudioEngine {
         monoCompatibilityPreserved: true,
         safetyLimitReached: false,
         recommendedMixAdjustment: undefined,
-        sectionsSummary: 'Pista instrumental: 0 bloques vocales analizados. Procesamiento vocal específico desactivado.',
+        sectionsSummary: isConfirmedInstrumental
+          ? 'Pista instrumental: 0 bloques vocales analizados. Procesamiento vocal específico desactivado.'
+          : 'No se detectaron bloques vocales fiables. La auditoría de protección vocal se omite para evitar falsos positivos.',
         iterationsPerformed: 0,
         responsibleStagesIdentified: [],
-        dspAdjustmentsSummary: ['Modo instrumental: procesamiento específico de voz desactivado. Protección de foco melódico activa.'],
+        dspAdjustmentsSummary: [isConfirmedInstrumental
+          ? 'Modo instrumental: procesamiento específico de voz desactivado. Protección de foco melódico activa.'
+          : 'Procesamiento vocal específico desactivado porque no se detectaron bloques vocales fiables.'],
         measuredAudioDeltas: undefined,
         sideStereoStatus: 'centered_stable',
         verdict: 'OPTIMAL',
-        summaryNote: 'Pista clasificada como instrumental. Se preserva el balance dinámico y espectral sin alteraciones vocales artificiales.',
+        summaryNote: isConfirmedInstrumental
+          ? 'Pista clasificada como instrumental. Se preserva el balance dinámico y espectral sin alteraciones vocales artificiales.'
+          : 'Auditoría vocal omitida: no hay bloques vocales fiables suficientes para emitir un dictamen.',
         vocalDetection: origVocal.vocalDetection
       };
-      decisions.push('Modo Instrumental: procesamiento vocal específico omitido para proteger la integridad melódica natural.');
+      decisions.push(isConfirmedInstrumental
+        ? 'Modo Instrumental: procesamiento vocal específico omitido para proteger la integridad melódica natural.'
+        : 'Auditoría Vocal: no se detectaron bloques vocales fiables; se omite el dictamen para evitar falsos positivos.');
       return {
         masteredBuffer,
         afterMetrics,
@@ -6044,8 +6061,10 @@ export class AudioEngine {
     // Log decisions
     if (dspAdjustmentsSummary.length > 0) {
       decisions.push(`Protección Vocal Activa (${iterationsPerformed} iteraciones): ${dspAdjustmentsSummary.join(' | ')}`);
-    } else {
+    } else if (vocalStatus === 'approved') {
       decisions.push(`Protección Vocal Inteligente: balance relativo óptimo comprobado en audio renderizado (Δ máx: ${deltas.maxRelativeDeltaDb.toFixed(2)} dB ≤ 0.30 dB).`);
+    } else {
+      decisions.push(`Auditoría de Protección Vocal: ${summaryNote}`);
     }
 
     const uniqueStages = Array.from(new Set(responsibleStagesIdentified));
