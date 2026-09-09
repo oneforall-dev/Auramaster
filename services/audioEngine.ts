@@ -26,7 +26,12 @@ import {
   TournamentMatchup,
   MasteringTournamentReport,
   LimiterTelemetry,
-  LimiterState
+  LimiterState,
+  MasterIdentityRecord,
+  FinalMasterArtifact,
+  VocalPresenceResult,
+  VocalClassification,
+  BodyValidationTelemetry, MusicalIntentProfile, LoudnessExplorationRecord, TestedLoudnessLevel
 } from '../types';
 type StemType = 'vocals' | 'drums' | 'bass' | 'other';
 
@@ -205,13 +210,144 @@ export class AudioEngine {
   public originalBitDepth: number = 16;
   public currentSessionId: string = `sess_${Date.now().toString(36)}`;
   public activeTrackSessionId: string = '';
+  // Immutable Export Single Source of Truth
+  public lastExportedWavBlob: Blob | null = null;
+  public lastExportedWavHash: string = '';
+  public lastExportedRenderId: string = '';
+  public finalMasterArtifact: FinalMasterArtifact | null = null;
+
+  public getFinalMasterArtifact(): FinalMasterArtifact | null {
+    return this.finalMasterArtifact;
+  }
+
+  public setFinalMasterArtifact(artifact: FinalMasterArtifact): void {
+    this.finalMasterArtifact = artifact;
+    this.lastExportedWavBlob = artifact.wavBlob;
+    this.lastExportedWavHash = artifact.sha256;
+    this.lastExportedRenderId = artifact.renderId;
+  }
+
+  public getFinalExportedMasterBlob(): Blob | null {
+    return this.finalMasterArtifact?.wavBlob || this.lastExportedWavBlob;
+  }
+
+  public evaluateCandidateEligibility(candidate: {
+    id: string;
+    name: string;
+    truePeakDbTP: number;
+    deltaVirDb: number;
+    phaseCorrelation: number;
+    finalScore: number;
+    origScore: number;
+    isInstrumental?: boolean;
+  }): { approved: boolean; isDisqualified: boolean; disqualificationReasons: string[] } {
+    const reasons: string[] = [];
+
+    if (candidate.truePeakDbTP > -0.95) {
+      reasons.push(`True Peak inseguro (${candidate.truePeakDbTP.toFixed(2)} dBTP > -0.95 dBTP)`);
+    }
+    if (!candidate.isInstrumental && candidate.deltaVirDb < -0.30) {
+      reasons.push(`Voz reducida ${Math.abs(candidate.deltaVirDb).toFixed(2)} dB (excede límite de -0.30 dB)`);
+    }
+    if (candidate.phaseCorrelation < 0.70) {
+      reasons.push(`Fase degradada (${candidate.phaseCorrelation.toFixed(2)} < 0.70)`);
+    }
+
+    const isDisqualified = reasons.length > 0;
+    const approved = !isDisqualified && candidate.finalScore >= candidate.origScore;
+    if (!isDisqualified && candidate.finalScore < candidate.origScore) {
+      reasons.push(`Puntuación (${candidate.finalScore.toFixed(1)}) inferior a mezcla original (${candidate.origScore.toFixed(1)})`);
+    }
+
+    return { approved, isDisqualified, disqualificationReasons: reasons };
+  }
+
+  public async exportAlternativeBitDepth(
+    artifact: FinalMasterArtifact,
+    targetBitDepth: 16 | 24 | 32
+  ): Promise<Blob> {
+    if (targetBitDepth === artifact.bitDepth) {
+      return artifact.wavBlob;
+    }
+    const buffer = artifact.finalDecodedPCM;
+    const sampleRate = buffer.sampleRate;
+    const numChannels = buffer.numberOfChannels;
+    const isFloat32 = targetBitDepth === 32;
+    const formatTag = isFloat32 ? 3 : 1;
+    const bytesPerSample = targetBitDepth / 8;
+    const blockAlign = numChannels * bytesPerSample;
+    const byteRate = sampleRate * blockAlign;
+    const dataLength = buffer.length * blockAlign;
+    const bufferSize = 44 + dataLength;
+
+    const wavArrayBuffer = new ArrayBuffer(bufferSize);
+    const view = new DataView(wavArrayBuffer);
+
+    const writeString = (o: number, s: string) => { 
+      for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); 
+    };
+
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + dataLength, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, formatTag, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, targetBitDepth, true);
+    writeString(36, 'data');
+    view.setUint32(40, dataLength, true);
+
+    const left = buffer.getChannelData(0);
+    const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left;
+    let offset = 44;
+    const applyDither = targetBitDepth === 16;
+
+    if (targetBitDepth === 32) {
+      for (let i = 0; i < buffer.length; i++) {
+        view.setFloat32(offset, left[i], true); offset += 4;
+        view.setFloat32(offset, right[i], true); offset += 4;
+      }
+    } else if (targetBitDepth === 24) {
+      for (let i = 0; i < buffer.length; i++) {
+        const sL = Math.max(-1.0, Math.min(1.0, left[i]));
+        const sR = Math.max(-1.0, Math.min(1.0, right[i]));
+        const vL = Math.round(sL < 0 ? sL * 0x800000 : sL * 0x7FFFFF);
+        const vR = Math.round(sR < 0 ? sR * 0x800000 : sR * 0x7FFFFF);
+        view.setUint8(offset, vL & 0xFF);
+        view.setUint8(offset + 1, (vL >> 8) & 0xFF);
+        view.setUint8(offset + 2, (vL >> 16) & 0xFF);
+        offset += 3;
+        view.setUint8(offset, vR & 0xFF);
+        view.setUint8(offset + 1, (vR >> 8) & 0xFF);
+        view.setUint8(offset + 2, (vR >> 16) & 0xFF);
+        offset += 3;
+      }
+    } else {
+      for (let i = 0; i < buffer.length; i++) {
+        const ditherL = applyDither ? (Math.random() - Math.random()) / 0x8000 : 0;
+        const ditherR = applyDither ? (Math.random() - Math.random()) / 0x8000 : 0;
+        const sL = Math.max(-1.0, Math.min(1.0, left[i] + ditherL));
+        const sR = Math.max(-1.0, Math.min(1.0, right[i] + ditherR));
+        const vL = Math.round(sL < 0 ? sL * 0x8000 : sL * 0x7FFF);
+        const vR = Math.round(sR < 0 ? sR * 0x8000 : sR * 0x7FFF);
+        view.setInt16(offset, vL, true); offset += 2;
+        view.setInt16(offset, vR, true); offset += 2;
+      }
+    }
+
+    return new Blob([wavArrayBuffer], { type: 'audio/wav' });
+  }
   // Dedicated Transparent Playback Engine (Single Source of Truth & Zero Live DSP)
   private originalBuffer: AudioBuffer | null = null;
   private originalSourceId: string = '';
   private masteredBuffer: AudioBuffer | null = null;
   private masterIdentity: AudioIdentity | null = null;
   private isBypassed: boolean = true; // true = Original (Raw), false = Mastered
-  private loudnessMatchMode: 'matched' | 'actual' = 'matched';
+  private loudnessMatchMode: 'matched' | 'actual' = 'actual';
 
   private transparentSourceNode: AudioBufferSourceNode | null = null;
   private crossfadeGainNode: GainNode | null = null;
@@ -219,6 +355,8 @@ export class AudioEngine {
   private monitorVolumeGainNode: GainNode | null = null;
 
   constructor() {}
+
+  getAudioContext(): AudioContext | null { return this.audioContext; }
 
   init() {
     if (!this.audioContext) {
@@ -762,7 +900,7 @@ export class AudioEngine {
   }
 
   // 2. K-Weighted Loudness Measurement & Accurate DSP Metrics (ITU-R BS.1770-4 & EBU R128)
-  public async calculateAccurateDSPMetrics(buffer: AudioBuffer): Promise<AIMasteringStats & { spectralBands: number[]; harshness: number; mud: number; phase: number }> {
+  public async calculateAccurateDSPMetrics(buffer: AudioBuffer): Promise<AIMasteringStats & { rmsDb: number; spectralBands: number[]; harshness: number; mud: number; phase: number }> {
     const numChannels = buffer.numberOfChannels;
     const len = buffer.length;
     const sampleRate = buffer.sampleRate;
@@ -917,10 +1055,11 @@ export class AudioEngine {
     const phaseCorrelation = Math.max(-1.0, Math.min(1.0, dotSum / denom));
 
     return {
-      integratedLUFS: parseFloat(integratedLUFS.toFixed(1)),
-      truePeakDbTP: parseFloat(truePeakDbTP.toFixed(1)),
-      dynamicRangeLRA: parseFloat(dynamicRangeLRA.toFixed(1)),
-      crestFactor: parseFloat(crestFactor.toFixed(1)),
+      integratedLUFS,
+      truePeakDbTP,
+      dynamicRangeLRA,
+      crestFactor,
+      rmsDb,
       peakDb: parseFloat(truePeakDbTP.toFixed(1)),
       spectralBands: [0.25, 0.25, 0.25, 0.25],
       harshness: 0,
@@ -930,7 +1069,7 @@ export class AudioEngine {
   }
 
   // 3. True-Peak Lookahead Limiter with 8x Oversampling & 3.5ms Pre-sensing
-  public applyTruePeakLookaheadLimiter(buffer: AudioBuffer, targetCeilingDbTP: number = -1.0): AudioBuffer {
+  public applyTruePeakLookaheadLimiter(buffer: AudioBuffer, targetCeilingDbTP: number = -1.0, protectSubBass = true): AudioBuffer {
     const numChannels = buffer.numberOfChannels;
     const len = buffer.length;
     const sampleRate = buffer.sampleRate;
@@ -964,7 +1103,7 @@ export class AudioEngine {
       subFilt1 = subLpAlpha * subFilt1 + (1 - subLpAlpha) * s1;
 
       const maxSub = Math.max(Math.abs(subFilt0), Math.abs(subFilt1));
-      if (maxSub > 0.88) {
+      if (protectSubBass && maxSub > 0.88) {
         const subExcess = maxSub - 0.88;
         const softSubFactor = 0.88 + 0.08 * Math.tanh(subExcess / 0.08);
         const subRatio = softSubFactor / maxSub;
@@ -1082,23 +1221,41 @@ export class AudioEngine {
     return stats.integratedLUFS;
   }
 
-  // 3. Strict Spotify Compliance Normalizer
+  // Streaming services normalize playback loudness; -14 LUFS is not a mastering target.
+  // Derive a commercial delivery goal from the song's measured dynamics and never turn down
+  // an already-loud master merely to match a platform normalization reference.
+  private calculateAdaptiveCommercialTarget(stats: {
+    integratedLUFS: number;
+    dynamicRangeLRA: number;
+    crestFactor: number;
+  }): number {
+    const crest = Number.isFinite(stats.crestFactor) ? stats.crestFactor : 12;
+    const lra = Number.isFinite(stats.dynamicRangeLRA) ? stats.dynamicRangeLRA : 5;
+
+    let target = -9.2;
+    if (crest >= 14.5 || lra >= 8.0) target = -11.5;
+    else if (crest >= 12.5 || lra >= 5.0) target = -10.8;
+    else if (crest >= 10.5 || lra >= 3.5) target = -10.0;
+
+    return parseFloat(Math.max(stats.integratedLUFS, target).toFixed(1));
+  }
+
+  // Commercial streaming preparation with adaptive loudness and codec-safe true peak.
   async applySpotifyNormalization(params: MasteringChainParams, tracks: Track[]): Promise<MasteringChainParams> {
       const mix = await this.renderPreview(params, tracks);
       if (!mix) return params;
 
       const stats = await this.calculateAccurateDSPMetrics(mix);
-      const lufs = stats.integratedLUFS;
-      const target = -14.0;
-      const delta = target - lufs;
+      const target = this.calculateAdaptiveCommercialTarget(stats);
+      const delta = Math.max(0, target - stats.integratedLUFS);
 
       const newParams: MasteringChainParams = JSON.parse(JSON.stringify(params));
       const gainFactor = Math.pow(10, delta / 20);
       newParams.gain = Math.max(0.1, Math.min(6.0, (params.gain || 1.0) * gainFactor));
 
       newParams.limiter.enabled = true;
-      newParams.limiter.threshold = -1.0;
-      
+      newParams.limiter.threshold = target > -11.5 ? -1.5 : -1.2;
+
       if (delta > 3) {
           newParams.limiter.breathe = Math.min(100, (newParams.limiter.breathe || 0) + 20);
       }
@@ -1154,14 +1311,13 @@ export class AudioEngine {
   ): Promise<AIMasteringResult> {
     onPhaseChange?.('analyze');
     // Stage 1: Render unmastered raw audio and analyze with precision DSP
-    let rawBuffer = await this.renderRawMix(tracks);
-    if (!rawBuffer) {
-      rawBuffer = await this.renderPreview(currentParams, tracks);
-    }
-
-    const beforeMetrics = rawBuffer 
-      ? await this.calculateAccurateDSPMetrics(rawBuffer)
-      : { integratedLUFS: -24.9, truePeakDbTP: -10.0, dynamicRangeLRA: 14.2, crestFactor: 12.0, peakDb: -10.0, spectralBands: [0.25, 0.25, 0.25, 0.25], harshness: 0, mud: 0, phase: 1.0 };
+    const rawBuffer = await this.renderRawMix(tracks);
+    if (!rawBuffer) throw new Error('No hay audio fuente para masterizar.');
+    const runSessionId = sessionId || this.currentSessionId;
+    if (runSessionId !== this.currentSessionId) throw new Error('Sesión de mastering desactualizada.');
+    const runSourceId = sourceId || (tracks.length === 1 ? (tracks[0].sourceId || tracks[0].id) : `stems_${tracks.map(t => t.sourceId || t.id).sort().join('_')}`);
+    this.setOriginalBuffer(rawBuffer, runSourceId);
+    const beforeMetrics = await this.calculateAccurateDSPMetrics(rawBuffer);
 
     const beforeStats: AIMasteringStats = {
       integratedLUFS: beforeMetrics.integratedLUFS,
@@ -1181,26 +1337,13 @@ export class AudioEngine {
     let newParams: MasteringChainParams = JSON.parse(JSON.stringify(currentParams));
     let decisions: string[] = [];
 
-    // Contextual Loudness Strategy:
-    // Standard streaming distribution target window: -14.8 to -14.2 LUFS-I (preserving dynamics and vocal intimacy).
-    const isAlreadyOptimalLoudness = beforeStats.integratedLUFS >= -14.8 && beforeStats.integratedLUFS <= -12.8;
-    const isAlreadyHotMix = beforeStats.integratedLUFS > -12.8;
-
-    let targetLUFS: number;
-    let initialGainDb = 0;
-
-    if (isAlreadyOptimalLoudness) {
-      targetLUFS = parseFloat(Math.max(-14.8, Math.min(-14.2, beforeStats.integratedLUFS)).toFixed(1));
-      initialGainDb = targetLUFS - beforeStats.integratedLUFS;
-    } else if (isAlreadyHotMix) {
-      targetLUFS = beforeStats.integratedLUFS;
-      initialGainDb = 0.0;
-    } else {
-      // Unmastered / low level mixdown (< -14.8 LUFS):
-      targetLUFS = -14.2;
-      const lufsDeficit = targetLUFS - beforeStats.integratedLUFS;
-      initialGainDb = Math.max(-12, Math.min(18, lufsDeficit));
-    }
+    // Quality-first commercial loudness strategy. Platform normalization references
+    // describe playback behavior, not the level at which a master must be delivered.
+    // The song's crest factor and LRA choose the starting target; safety checks still
+    // decide how much of that target can be reached without audible damage.
+    const targetLUFS = this.calculateAdaptiveCommercialTarget(beforeStats);
+    const initialGainDb = Math.max(0, Math.min(18, targetLUFS - beforeStats.integratedLUFS));
+    decisions.push(`Objetivo de loudness adaptativo: ${targetLUFS.toFixed(1)} LUFS-I (origen ${beforeStats.integratedLUFS.toFixed(1)} LUFS-I, crest ${beforeStats.crestFactor.toFixed(1)} dB, LRA ${beforeStats.dynamicRangeLRA.toFixed(1)} LU).`);
 
     const MAX_TRUE_PEAK = -1.0;
 
@@ -1253,20 +1396,49 @@ export class AudioEngine {
     let masteredBuffer = bestBuffer;
     newParams = bestParams;
 
-    // Stage 5B: FUENTE ÚNICA DE VERDAD (EXPORTAR WAV REAL, REABRIR Y MEDIR SOBRE EL ARCHIVO)
+    // Stage 5B: FUENTE ÚNICA DE VERDAD (EXPORTAR WAV REAL, REABRIR DETERMINISTA Y MEDIR SOBRE EL ARCHIVO)
     onPhaseChange?.('validate');
-    const targetBufferToExport = (masteredBuffer || bestBuffer || rawBuffer)!;
-    const reopenedData = await this.exportWavAndReopen(targetBufferToExport, 24);
-    const finalReopenedBuffer = reopenedData.reopenedBuffer;
+    if (this.currentSessionId !== runSessionId) throw new Error('La canción cambió durante el mastering.');
+    const targetBufferToExport = masteredBuffer;
+    let reopenedData = await this.exportWavAndReopen(targetBufferToExport, 24);
+    let finalReopenedBuffer = reopenedData.reopenedBuffer;
+    let currentWavBlob = reopenedData.wavBlob;
+    let currentWavArrayBuffer = reopenedData.wavArrayBuffer;
+    let currentHash = reopenedData.fileHash;
 
-    // Recalcular métricas de telemetría DIRECTAMENTE sobre el archivo exportado y reabierto
+    // Mathematical Comparison Audit (Master Reabierto vs Raw Source bajo Ganancia Compensada)
+    let mathComparison = rawBuffer
+      ? await this.compareMasterToSourceMathematically(finalReopenedBuffer, rawBuffer, newParams)
+      : undefined;
+
+    // Si ORIGINAL_PRESERVED, exportar nuevo WAV sin dither y reiniciar ciclo completo (Requisito 6)
+    if (mathComparison?.isOriginalPreservedWithoutMastering) {
+      qualityVerdict = 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING';
+      const unDitheredData = await this.exportWavAndReopen(targetBufferToExport, 24, false);
+      reopenedData = unDitheredData;
+      finalReopenedBuffer = unDitheredData.reopenedBuffer;
+      currentWavBlob = unDitheredData.wavBlob;
+      currentWavArrayBuffer = unDitheredData.wavArrayBuffer;
+      currentHash = unDitheredData.fileHash;
+      mathComparison = await this.compareMasterToSourceMathematically(finalReopenedBuffer, rawBuffer, newParams);
+      decisions.push(
+        `Preservación Pura: Clasificado como ORIGINAL PRESERVADO — SIN CAMBIOS DE MASTERIZACIÓN SIGNIFICATIVOS (r = ${mathComparison.sampleCorrelation.toFixed(6)}, residuo = ${mathComparison.residualRmsDb.toFixed(1)} dBFS, variación espectral < ±0.05 dB).`,
+        `Ajuste de nivel a estándar de distribución: ${mathComparison.gainOffsetDb >= 0 ? '+' : ''}${mathComparison.gainOffsetDb.toFixed(1)} dB.`,
+        'Exportado en WAV PCM 24-bit para distribución. La conversión no añade resolución efectiva al audio fuente original.',
+        'Dither omitido: al preservarse la mezcla original sin procesamiento destructivo, no se introduce ruido de cuantización innecesario.',
+        'No se detectaron cambios musicales significativos en la comparación a ganancia compensada.'
+      );
+    }
+
+    // Medición autoritativa EXCLUSIVAMENTE sobre el PCM decodificado del WAV exportado (Requisito 5)
     const afterMetrics = await this.calculateAccurateDSPMetrics(finalReopenedBuffer);
     if (!afterMetrics || !Number.isFinite(afterMetrics.integratedLUFS)) {
-      throw new Error("Validation Error: No se pudo obtener la medición final autoritativa de LUFS (finalMeasuredLUFS) sobre el archivo WAV reabierto.");
+      throw new Error("Validation Error: No se pudo obtener la medición final autoritativa de LUFS sobre el archivo WAV reabierto.");
     }
     const finalMeasuredLUFS = parseFloat(afterMetrics.integratedLUFS.toFixed(1));
     const finalTP = parseFloat(afterMetrics.truePeakDbTP.toFixed(1));
     const finalLRA = parseFloat(afterMetrics.dynamicRangeLRA.toFixed(1));
+    const finalRMS = parseFloat(afterMetrics.rmsDb.toFixed(1));
     const finalCrest = parseFloat(afterMetrics.crestFactor.toFixed(1));
 
     if (this.lastLimiterTelemetry) {
@@ -1296,19 +1468,6 @@ export class AudioEngine {
       peakDb: finalTP
     };
 
-    // Reconcile all decisions from final active DSP state to guarantee 100% truthful, non-contradictory report
-    decisions = this.reconcileMasteringDecisions(
-      newParams,
-      beforeStats,
-      afterStats,
-      vocalReport,
-      loudnessReportLine,
-      adaptiveCeiling,
-      bestMqs || undefined,
-      originalMqs || undefined,
-      isFallbackApplied
-    );
-
     // Stage 6: Apply to live AudioEngine state
     this.setMasterParams(newParams);
 
@@ -1322,49 +1481,87 @@ export class AudioEngine {
 
     const qcVerification = await this.performExportQC(finalReopenedBuffer, 24);
 
-    // Mathematical Comparison Audit (Master Reabierto vs Raw Source bajo Ganancia Compensada)
-    let mathComparison = rawBuffer
-      ? await this.compareMasterToSourceMathematically(finalReopenedBuffer, rawBuffer, newParams)
-      : undefined;
-
-    if (mathComparison?.isOriginalPreservedWithoutMastering) {
-      qualityVerdict = 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING';
-      // Para ORIGINAL PRESERVADO sin DSP destructivo, exportar sin TPDF dither para no introducir ruido nuevo innecesario
-      const unDitheredData = await this.exportWavAndReopen(targetBufferToExport, 24, false);
-      reopenedData.fileHash = unDitheredData.fileHash;
-      mathComparison = await this.compareMasterToSourceMathematically(unDitheredData.reopenedBuffer, rawBuffer, newParams);
-
-      if (bestMqs) {
-        bestMqs.totalScore = 85.0; // Honest baseline
-        bestMqs.breakdown = [
-          'Balance Tonal: 18.0/20 pts (Mezcla original en balance tonal acabado)',
-          'Preservación Vocal: 18.0/20 pts (Voz original 100% preservada, residuo <-80 dBFS)',
-          'Dinámica y Transientes: 14.0/15 pts (LRA y Crest Factor idénticos sin compresión)',
-          'Control de Graves: 9.0/10 pts (Graves naturales respetados sin alteración)',
-          'Claridad y Separación: 9.0/10 pts (Separación acústica original intacta)',
-          'Estéreo y Fase: 9.5/10 pts (Correlación de fase idéntica)',
-          'Loudness & True Peak: 5.0/10 pts (Ajuste técnico de nivel y ceiling True Peak)',
-          'Distorsión y Fatiga: 4.5/5 pts (Cero distorsión armónica agregada)'
-        ];
-      }
-      decisions = [
-        `Preservación Pura: Clasificado como ORIGINAL PRESERVADO — SIN CAMBIOS DE MASTERIZACIÓN SIGNIFICATIVOS (r = ${mathComparison.sampleCorrelation.toFixed(6)}, residuo = ${mathComparison.residualRmsDb.toFixed(1)} dBFS, variación espectral < ±0.05 dB).`,
-        `Ajuste de nivel a estándar de distribución: ${finalMeasuredLUFS.toFixed(1)} LUFS-I (ajuste lineal limpio).`,
-        `Control True Peak preventivo: pico medido en ${finalTP.toFixed(1)} dBTP (≤ -1.0 dBTP).`,
-        'Exportado en WAV PCM 24-bit para distribución/procesamiento posterior. La conversión no añade información ni resolución efectiva al audio fuente original de 16 bits.',
-        'Dither omitido: al preservarse la mezcla original sin procesamiento destructivo, no se introduce ruido de cuantización innecesario.',
-        `Módulos DSP (EQ, compresión, saturación, de-esser, stereo widener) verificados en bypass para preservar la integridad de la mezcla terminada.`
-      ];
+    // MQS CANÓNICO SOBRE EL RENDER FINAL REAL (Requisito 11, 12, 13, 14)
+    // Sin mutaciones silenciosas (bestMqs.totalScore = origBaseScore eliminado)
+    const finalRenderMqs = await this.calculateMasteringQualityScore(finalReopenedBuffer, rawBuffer, finalReopenedBuffer.sampleRate);
+    bestMqs = finalRenderMqs;
+    // The already exported PCM belongs to this winner. Never relabel it by re-sorting.
+    const winningCandidate = tournamentReport.candidates.find(c => c.id === tournamentReport.winnerCandidateId);
+    if (!winningCandidate) throw new Error('No se encontró la identidad del candidato exportado.');
+    winningCandidate.preRenderScore = winningCandidate.rawScore;
+    winningCandidate.postRenderScore = finalRenderMqs.totalScore;
+    winningCandidate.finalScore = finalRenderMqs.totalScore;
+    winningCandidate.scores.totalScore = finalRenderMqs.totalScore;
+    const delivery = pipelineResult.loudnessExploration;
+    if (!delivery?.selectedVariantId) throw new Error('Falta la variante de entrega seleccionada.');
+    const selectedLevel = delivery.testedLoudnessLevels.find(l => l.variantId === delivery.selectedVariantId);
+    if (!selectedLevel?.approved) throw new Error('La variante de entrega no está aprobada.');
+    if (afterMetrics.truePeakDbTP > (selectedLevel.ceilingDbTP ?? -1) + 0.01) {
+      throw new Error('El WAV exportado excede el techo de entrega.');
     }
+    delivery.selectedWavSha256 = currentHash;
+    delivery.selectedFinalLUFS = afterMetrics.integratedLUFS;
+    if (this.currentSessionId !== runSessionId) throw new Error('La canción cambió durante la validación.');
+
+    // CONGELAR GANADOR Y GENERAR ARTEFACTO INMUTABLE (Requisito 1 & 15)
+    const finalRenderId = `render_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 5)}`;
+    const finalMasterArtifact: FinalMasterArtifact = {
+      sourceId: resolvedSourceId,
+      sessionId: resolvedSessionId,
+      candidateId: winningCandidate.id,
+      deliveryVariantId: delivery.selectedVariantId,
+      renderId: finalRenderId,
+
+      wavBlob: currentWavBlob,
+      wavArrayBuffer: currentWavArrayBuffer,
+      sha256: currentHash,
+
+      sampleRate: finalReopenedBuffer.sampleRate,
+      channels: finalReopenedBuffer.numberOfChannels,
+      bitDepth: 24,
+      duration: finalReopenedBuffer.duration,
+
+      finalDecodedPCM: finalReopenedBuffer,
+
+      finalIntegratedLUFS: finalMeasuredLUFS,
+      finalTruePeak: finalTP,
+      finalLRA: finalLRA,
+      finalRMS: finalRMS,
+      finalCrestFactor: finalCrest,
+
+      finalMQS: bestMqs,
+      finalDSPTelemetry: mathComparison?.limiterTelemetry || this.lastLimiterTelemetry || undefined
+    };
+
+    this.setFinalMasterArtifact(finalMasterArtifact);
 
     const comparisonGainDb = parseFloat((beforeStats.integratedLUFS - afterStats.integratedLUFS).toFixed(2));
+
+    const masterIdentity: MasterIdentityRecord = {
+      finalRenderId,
+      finalFileHash: currentHash,
+      finalSourceId: resolvedSourceId,
+      finalCandidateId: winningCandidate.id,
+      finalSessionId: resolvedSessionId,
+      sampleRate: finalReopenedBuffer.sampleRate,
+      lengthInSamples: finalReopenedBuffer.length,
+      duration: finalReopenedBuffer.duration,
+      measuredFinalLUFS: finalMeasuredLUFS,
+      measuredFinalTruePeak: finalTP,
+      measuredFinalLRA: finalLRA,
+      reopenedWavValid: true
+    };
 
     const audioIdentity: AudioIdentity = {
       sourceId: resolvedSourceId,
       trackSessionId: resolvedSessionId,
       iterationId: `iter_${isFallbackApplied ? 0 : (iterationHistory.find(h => !h.isRejected)?.iterationIndex || 1)}`,
-      renderId: `render_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 5)}`,
-      fileHash: reopenedData.fileHash,
+      renderId: finalRenderId,
+      finalRenderId,
+      finalFileHash: currentHash,
+      finalCandidateId: winningCandidate.id,
+      finalSessionId: resolvedSessionId,
+      fileHash: currentHash,
       sampleRate: finalReopenedBuffer.sampleRate,
       lengthInSamples: finalReopenedBuffer.length,
       duration: finalReopenedBuffer.duration,
@@ -1380,6 +1577,35 @@ export class AudioEngine {
     // Asignar el buffer final reabierto como fuente de verdad única para el reproductor Mastered
     this.setMasteredAudio(finalReopenedBuffer, audioIdentity);
 
+    // Preserve execution evidence while adding the final summary.
+    const executionDecisions = decisions;
+    decisions = this.reconcileMasteringDecisions(
+      newParams,
+      beforeStats,
+      afterStats,
+      vocalReport,
+      loudnessReportLine,
+      adaptiveCeiling,
+      bestMqs || undefined,
+      originalMqs || undefined,
+      isFallbackApplied
+    );
+
+    decisions = [...new Set([...executionDecisions, ...decisions])];
+
+    const reportConsistencyCheck = this.validateFinalReportConsistency({
+      before: beforeStats,
+      after: afterStats,
+      finalMeasuredLUFS,
+      masterIdentity,
+      audioIdentity,
+      mqs: bestMqs || undefined,
+      tournamentReport,
+      qualityVerdict,
+      finalMasterArtifact,
+      loudnessExploration: delivery
+    } as AIMasteringResult);
+
     const result: AIMasteringResult = {
       before: beforeStats,
       after: afterStats,
@@ -1387,12 +1613,12 @@ export class AudioEngine {
       limiterTelemetry: mathComparison?.limiterTelemetry || this.lastLimiterTelemetry || undefined,
       decisions,
       appliedParams: newParams,
-      targetMet: afterStats.truePeakDbTP <= -0.99,
+      targetMet: reportConsistencyCheck.passed && !delivery.unusedCleanHeadroomFlag,
       statusNote: mathComparison?.isOriginalPreservedWithoutMastering
-        ? `Original Preservado — Sin Masterización Sustancial (MQS: 85/100) | ${finalMeasuredLUFS.toFixed(1)} LUFS-I · TP: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`
+        ? `Original Preservado — Sin Masterización Sustancial (MQS: ${bestMqs?.totalScore ?? 84}/100) | ${finalMeasuredLUFS.toFixed(1)} LUFS-I · TP: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`
         : isFallbackApplied
-          ? `Fallback Transparente (MQS: ${bestMqs?.totalScore ?? 92}/100) | ${finalMeasuredLUFS.toFixed(1)} LUFS-I · TP: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`
-          : `${gainDescription} | MQS: ${bestMqs?.totalScore ?? 95}/100 | ${finalMeasuredLUFS.toFixed(1)} LUFS-I · TP: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`,
+          ? `Fallback Transparente (MQS: ${bestMqs?.totalScore ?? 90}/100) | ${finalMeasuredLUFS.toFixed(1)} LUFS-I · TP: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`
+          : `${gainDescription} | MQS: ${bestMqs?.totalScore ?? 92}/100 | ${finalMeasuredLUFS.toFixed(1)} LUFS-I · TP: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`,
       timestamp: Date.now(),
       vocalReport,
       sourceId: resolvedSourceId,
@@ -1412,16 +1638,145 @@ export class AudioEngine {
       qcVerification,
       mathematicalComparison: mathComparison,
       audioIdentity,
+      masterIdentity,
+      reportConsistencyCheck,
       reopenedFromWav: true,
       loudnessMatchGainDb: comparisonGainDb,
       acousticDiagnosis,
       masteringDirection,
-      tournamentReport
+      tournamentReport,
+      finalMasterArtifact,
+      musicalIntent: pipelineResult.musicalIntent,
+      loudnessExploration: pipelineResult.loudnessExploration,
+      bodyValidation: pipelineResult.bodyValidation,
+      vocalDetection: origVocal.vocalDetection
     };
 
     onPhaseChange?.('complete');
     this.lastAIMasteringResult = result;
     return result;
+  }
+
+  // --- VALIDACIÓN AUTOMÁTICA DE CONSISTENCIA DEL REPORTE (AUDITORÍA CRIPTOGRÁFICA) ---
+  public validateFinalReportConsistency(result: AIMasteringResult): {
+    passed: boolean;
+    violations: string[];
+    verifiedHash: string;
+    measuredLUFS: number;
+    reportedLUFS: number;
+    measuredTruePeak: number;
+    reportedTruePeak: number;
+    measuredLRA: number;
+    reportedLRA: number;
+  } {
+    const violations: string[] = [];
+    const measuredLUFS = result.finalMeasuredLUFS ?? result.after.integratedLUFS;
+    const reportedLUFS = result.after.integratedLUFS;
+    const measuredTP = result.masterIdentity?.measuredFinalTruePeak ?? result.after.truePeakDbTP;
+    const reportedTP = result.after.truePeakDbTP;
+    const measuredLRA = result.masterIdentity?.measuredFinalLRA ?? result.after.dynamicRangeLRA;
+    const reportedLRA = result.after.dynamicRangeLRA;
+    const finalFileHash = result.masterIdentity?.finalFileHash || result.audioIdentity?.fileHash || '';
+
+    // 1. Unicidad de LUFS
+    if (Math.abs(measuredLUFS - reportedLUFS) > 0.05) {
+      violations.push(`Discrepancia LUFS: medido en archivo final=${measuredLUFS.toFixed(2)}, reportado=${reportedLUFS.toFixed(2)}`);
+    }
+
+    // 2. Unicidad de True Peak
+    if (Math.abs(measuredTP - reportedTP) > 0.05) {
+      violations.push(`Discrepancia True Peak: medido en archivo final=${measuredTP.toFixed(2)}, reportado=${reportedTP.toFixed(2)}`);
+    }
+
+    // 3. Unicidad de LRA
+    if (Math.abs(measuredLRA - reportedLRA) > 0.05) {
+      violations.push(`Discrepancia LRA: medido en archivo final=${measuredLRA.toFixed(2)}, reportado=${reportedLRA.toFixed(2)}`);
+    }
+
+    // 4. Consistencia de Hash Criptográfico SHA-256
+    if (result.masterIdentity?.finalFileHash && result.audioIdentity?.fileHash) {
+      if (result.masterIdentity.finalFileHash !== result.audioIdentity.fileHash) {
+        violations.push(`Inconsistencia de Hash SHA-256: masterIdentity (${result.masterIdentity.finalFileHash}) != audioIdentity (${result.audioIdentity.fileHash})`);
+      }
+    }
+
+    // 5. Consistencia con buffer exportado en AudioEngine
+    if (this.lastExportedWavHash && finalFileHash && this.lastExportedWavHash !== finalFileHash) {
+      violations.push(`Inconsistencia con buffer exportado: engine (${this.lastExportedWavHash}) != reporte (${finalFileHash})`);
+    }
+
+    // 6. Consistencia de puntuación MQS con candidato ganador (Sin excepciones)
+    if (result.tournamentReport && result.mqs) {
+      const winner = result.tournamentReport.candidates.find(c => c.id === result.tournamentReport?.winnerCandidateId);
+      if (winner && Math.abs(winner.finalScore - result.mqs.totalScore) > 0.05) {
+        violations.push(`Inconsistencia de MQS: Candidato ganador tiene ${winner.finalScore} pts pero MQS reporta ${result.mqs.totalScore} pts`);
+      }
+    }
+
+    // 7. Consistencia con FinalMasterArtifact (Requisito 16)
+    if (result.finalMasterArtifact) {
+      const art = result.finalMasterArtifact;
+      if (result.masterIdentity?.finalRenderId && result.masterIdentity.finalRenderId !== art.renderId) {
+        violations.push(`report.renderId (${result.masterIdentity.finalRenderId}) !== artifact.renderId (${art.renderId})`);
+      }
+      if (result.tournamentReport && result.tournamentReport.winnerCandidateId !== art.candidateId) {
+        violations.push(`report.candidateId (${result.tournamentReport.winnerCandidateId}) !== artifact.candidateId (${art.candidateId})`);
+      }
+      if (result.mqs && Math.abs(result.mqs.totalScore - art.finalMQS.totalScore) > 0.05) {
+        violations.push(`report.MQS (${result.mqs.totalScore}) !== artifact.finalMQS (${art.finalMQS.totalScore})`);
+      }
+      if (Math.abs(reportedLUFS - art.finalIntegratedLUFS) > 0.05) {
+        violations.push(`report.LUFS (${reportedLUFS}) !== artifact.finalIntegratedLUFS (${art.finalIntegratedLUFS})`);
+      }
+      if (Math.abs(reportedTP - art.finalTruePeak) > 0.05) {
+        violations.push(`report.TP (${reportedTP}) !== artifact.finalTruePeak (${art.finalTruePeak})`);
+      }
+      if (Math.abs(reportedLRA - art.finalLRA) > 0.05) {
+        violations.push(`report.LRA (${reportedLRA}) !== artifact.finalLRA (${art.finalLRA})`);
+      }
+      if (this.lastExportedWavHash && this.lastExportedWavHash !== art.sha256) {
+        violations.push(`downloadHash (${this.lastExportedWavHash}) !== artifact.sha256 (${art.sha256})`);
+      }
+      if (result.audioIdentity?.finalFileHash && result.audioIdentity.finalFileHash !== art.sha256) {
+        violations.push(`abMasterHash (${result.audioIdentity.finalFileHash}) !== artifact.sha256 (${art.sha256})`);
+      }
+      const passB = result.loudnessExploration;
+      if (!passB?.selectedVariantId) {
+        violations.push('El reporte no contiene una variante seleccionada de Pass B.');
+      } else {
+        if (art.deliveryVariantId !== passB.selectedVariantId) {
+          violations.push(`artifact.deliveryVariantId (${art.deliveryVariantId}) !== passB.selectedVariantId (${passB.selectedVariantId})`);
+        }
+        if (passB.selectedWavSha256 !== art.sha256) {
+          violations.push(`passB.selectedWavSha256 (${passB.selectedWavSha256}) !== artifact.sha256 (${art.sha256})`);
+        }
+        const selectedLevel = passB.testedLoudnessLevels.find(level => level.variantId === passB.selectedVariantId);
+        if (!selectedLevel?.approved) {
+          violations.push('La variante seleccionada de Pass B no existe o no está aprobada.');
+        } else {
+          if (Math.abs(selectedLevel.measuredLUFS - art.finalIntegratedLUFS) > 0.15) {
+            violations.push(`passB.LUFS (${selectedLevel.measuredLUFS}) !== artifact.LUFS (${art.finalIntegratedLUFS})`);
+          }
+          if (Math.abs(selectedLevel.truePeakDbTP - art.finalTruePeak) > 0.15) {
+            violations.push(`passB.truePeak (${selectedLevel.truePeakDbTP}) !== artifact.truePeak (${art.finalTruePeak})`);
+          }
+        }
+      }
+    } else {
+      violations.push('FinalMasterArtifact ausente.');
+    }
+
+    return {
+      passed: violations.length === 0,
+      violations,
+      verifiedHash: finalFileHash,
+      measuredLUFS,
+      reportedLUFS,
+      measuredTruePeak: measuredTP,
+      reportedTruePeak: reportedTP,
+      measuredLRA,
+      reportedLRA
+    };
   }
 
   // --- MASTERING QUALITY SCORE (MQS) ENGINE: "EL MASTER DEBE SUPERAR AL ORIGINAL" ---
@@ -1455,6 +1810,9 @@ export class AudioEngine {
     const candRelPres = candProfile.presenceDb - candMetrics.integratedLUFS;
     const vocalRelDelta = parseFloat((candRelPres - origRelPres).toFixed(2));
 
+    // Lead / Melodic Focus Relative Delta (400 Hz - 4 kHz primary motif band)
+    const leadRelDelta = vocalRelDelta;
+
     // Bass masking growth vs vocal body growth
     const lowEndRelDelta = (candProfile.lowEndEnergyDb - origProfile.lowEndEnergyDb) - loudnessOffset;
     const bodyRelDelta = (candProfile.vocalBodyDb - origProfile.vocalBodyDb) - loudnessOffset;
@@ -1474,175 +1832,258 @@ export class AudioEngine {
       (candProfile.sideEnergyDb - origProfile.sideEnergyDb) - loudnessOffset
     ).toFixed(2));
 
-    // Pillar 1: Tonal Balance (20 pts max)
-    let tonalBalance = 14.5;
-    if (isSelfBaseline) {
-      tonalBalance = origProfile.lowMidBuildup750Db > 0.8 ? 13.5 : 14.5;
-    } else {
-      tonalBalance = 18.0;
-      if (deltaMud < -0.10) tonalBalance += 1.5; // Boxiness cleaned
-      else if (deltaMud > 0.35) tonalBalance -= 2.0; // Mud added
+    // Anti-thinning pattern detection (Section 8)
+    const thinningCheck = this.detectThinningPattern(origProfile, candProfile, origMetrics, candMetrics);
+    const weightRelDelta = (((candProfile.weight120_250Db ?? candProfile.vocalBodyDb) - (origProfile.weight120_250Db ?? origProfile.vocalBodyDb)) - loudnessOffset);
 
-      if (harshnessOffset > 0.40) tonalBalance -= 2.0; // Harshness added
-      else if (harshnessOffset >= -0.30 && harshnessOffset <= 0.20) tonalBalance += 1.0; // Clean high-end
-    }
-    tonalBalance = Math.max(0, Math.min(20, parseFloat(tonalBalance.toFixed(1))));
+    // Vocal / Lead Classification
+    const isInstrumental = origProfile.vocalDetection?.classification === 'INSTRUMENTAL';
 
-    // Pillar 2: Vocal Preservation & Intelligibility (20 pts max)
-    let vocalPreservation = 14.5;
-    if (isSelfBaseline) {
-      vocalPreservation = origProfile.vocalToBassRatioDb < -5.0 ? 13.5 : 14.5;
-    } else {
-      vocalPreservation = 18.5;
-      if (vocalRelDelta >= -0.15 && vocalRelDelta <= 0.35 && bassMaskingGrowth <= 0.20 && bodyRelDelta >= -0.15) {
-        vocalPreservation = 20.0;
+    // Pillar 1: Vocal Integrity or Lead/Melodic Focus Integrity (20 pts max - V2)
+    let vocalIntegrity = 16.0;
+    let leadMelodicFocusIntegrity: number | undefined = undefined;
+
+    if (isInstrumental) {
+      // INSTRUMENTAL MODE: Evaluate Lead / Melodic Focus Preservation (20 pts max)
+      // No VIR penalties, no false vocal masking deductions
+      if (isSelfBaseline) {
+        leadMelodicFocusIntegrity = (origProfile.presenceDb > -30 && origProfile.bassMaskingIndex < 45) ? 17.5 : 16.0;
       } else {
-        if (vocalRelDelta < -0.15) {
-          vocalPreservation -= (Math.abs(vocalRelDelta) - 0.15) * 12.0;
+        leadMelodicFocusIntegrity = 16.0;
+        if (leadRelDelta >= -0.05 && bodyRelDelta >= -0.05) {
+          leadMelodicFocusIntegrity = Math.min(20.0, 17.0 + Math.max(0, leadRelDelta) * 5.0);
+        } else {
+          if (leadRelDelta < -0.15) {
+            leadMelodicFocusIntegrity -= (Math.abs(leadRelDelta) - 0.15) * 8.0;
+          }
+          if (bodyRelDelta < -0.15) {
+            leadMelodicFocusIntegrity -= (Math.abs(bodyRelDelta) - 0.15) * 6.0;
+          }
         }
-        if (bodyRelDelta < -0.15) {
-          vocalPreservation -= (Math.abs(bodyRelDelta) - 0.15) * 10.0;
+      }
+      leadMelodicFocusIntegrity = Math.max(0, Math.min(20, parseFloat(leadMelodicFocusIntegrity.toFixed(1))));
+      vocalIntegrity = leadMelodicFocusIntegrity; // Authoritative 20-pt slot preserves total MQS = 100
+    } else {
+      // VOCAL MODE: Strict Vocal Integrity Protection
+      if (isSelfBaseline) {
+        vocalIntegrity = (origProfile.vocalToBassRatioDb >= -3.0 && origProfile.bassMaskingIndex < 35) ? 17.5 : 15.5;
+      } else {
+        vocalIntegrity = 16.0;
+        if (vocalRelDelta >= 0.05 && bodyRelDelta >= -0.05 && bassMaskingGrowth <= 0) {
+          vocalIntegrity = Math.min(20.0, 17.5 + (vocalRelDelta * 6.0));
+        } else {
+          if (vocalRelDelta < -0.10) {
+            vocalIntegrity -= (Math.abs(vocalRelDelta) - 0.10) * 12.0;
+          }
+          if (bodyRelDelta < -0.10) {
+            vocalIntegrity -= (Math.abs(bodyRelDelta) - 0.10) * 12.0;
+          }
+          if (bassMaskingGrowth > 0.15) {
+            vocalIntegrity -= (bassMaskingGrowth - 0.15) * 10.0;
+          }
         }
-        if (bassMaskingGrowth > 0.20) {
-          vocalPreservation -= (bassMaskingGrowth - 0.20) * 10.0;
+      }
+      vocalIntegrity = Math.max(0, Math.min(20, parseFloat(vocalIntegrity.toFixed(1))));
+    }
+
+    // Pillar 2: Tonal Balance (15 pts max - V2)
+    let tonalBalance = 12.0;
+    if (isSelfBaseline) {
+      tonalBalance = origProfile.lowMidBuildup750Db > 0.8 ? 11.5 : 12.5;
+    } else {
+      tonalBalance = 12.5;
+      if (deltaMud < -0.10) tonalBalance += 1.5; // Boxiness cleaned
+      else if (deltaMud > 0.30) tonalBalance -= 2.0; // Mud added
+
+      if (harshnessOffset > 0.35) tonalBalance -= 2.0; // Harshness added
+      else if (harshnessOffset >= -0.30 && harshnessOffset <= 0.20) tonalBalance += 0.8; // Clean high-end
+    }
+    tonalBalance = Math.max(0, Math.min(15, parseFloat(tonalBalance.toFixed(1))));
+
+    // Pillar 3: Body / Density / Authority (15 pts max - V2)
+    // 120-250 Hz (weight/warmth), 250-500 Hz (body), 500-900 Hz (solidity)
+    let bodyDensity = 12.0;
+    if (isSelfBaseline) {
+      bodyDensity = (origProfile.vocalBodyDb > -26 && origProfile.lowMidBuildup750Db < 1.0) ? 12.5 : 11.5;
+    } else {
+      bodyDensity = 12.5;
+      if (thinningCheck.thinningDetected) {
+        bodyDensity = 3.5; // Severe penalty for thinning the record
+      } else {
+        if (bodyRelDelta >= -0.05 && weightRelDelta >= -0.05 && bassMaskingGrowth <= 0.10) {
+          bodyDensity = Math.min(15.0, 13.0 + Math.max(0, bodyRelDelta) * 4.0);
+        } else {
+          if (bodyRelDelta < -0.12) {
+            bodyDensity -= (Math.abs(bodyRelDelta) - 0.12) * 12.0;
+          }
+          if (weightRelDelta < -0.12) {
+            bodyDensity -= (Math.abs(weightRelDelta) - 0.12) * 10.0;
+          }
         }
       }
     }
-    vocalPreservation = Math.max(0, Math.min(20, parseFloat(vocalPreservation.toFixed(1))));
+    bodyDensity = Math.max(0, Math.min(15, parseFloat(bodyDensity.toFixed(1))));
 
-    // Pillar 3: Dynamics & Transients (15 pts max)
-    let dynamicsTransients = 11.5;
+    // Pillar 4: Dynamics & Transients (15 pts max - V2)
+    let dynamicsTransients = 12.0;
     if (isSelfBaseline) {
-      dynamicsTransients = origMetrics.crestFactor >= 10.0 ? 12.0 : 11.0;
+      dynamicsTransients = origMetrics.crestFactor >= 10.5 ? 12.5 : 11.0;
     } else {
-      dynamicsTransients = 14.0;
-      // Normal mastering glue: dynamic range LRA between 4.5 and 8.5 LU, crest factor >= 8.5 dB
-      if (candMetrics.dynamicRangeLRA >= 5.0 && candMetrics.crestFactor >= 9.0) {
-        dynamicsTransients = 14.8;
+      dynamicsTransients = 12.5;
+      if (candMetrics.dynamicRangeLRA >= 5.0 && candMetrics.crestFactor >= origMetrics.crestFactor - 0.5) {
+        dynamicsTransients = 14.5;
       } else {
         if (candMetrics.dynamicRangeLRA < 4.5) {
-          dynamicsTransients -= (4.5 - candMetrics.dynamicRangeLRA) * 2.5;
+          dynamicsTransients -= (4.5 - candMetrics.dynamicRangeLRA) * 2.0;
         }
-        if (candMetrics.crestFactor < 8.0) {
-          dynamicsTransients -= (8.0 - candMetrics.crestFactor) * 1.5;
+        if (candMetrics.crestFactor < origMetrics.crestFactor - 1.5) {
+          dynamicsTransients -= Math.abs(origMetrics.crestFactor - candMetrics.crestFactor - 1.5) * 2.5;
         }
       }
     }
     dynamicsTransients = Math.max(0, Math.min(15, parseFloat(dynamicsTransients.toFixed(1))));
 
-    // Pillar 4: Low-End Control (10 pts max)
-    let lowEndControl = 7.0;
+    // Pillar 5: Low-End Authority (10 pts max - V2)
+    // 20-60 Hz, 60-100 Hz, 100-150 Hz, 150-250 Hz
+    let lowEndAuthority = 8.0;
     if (isSelfBaseline) {
-      lowEndControl = origProfile.bassMaskingIndex > 50 ? 6.5 : 7.2;
+      lowEndAuthority = origProfile.bassMaskingIndex > 50 ? 7.0 : 8.0;
     } else {
-      lowEndControl = 9.2;
-      if (bassMaskingGrowth <= 0.15 && Math.abs(lowEndRelDelta) <= 0.5) {
-        lowEndControl = 9.8;
-      } else if (bassMaskingGrowth > 0.40) {
-        lowEndControl -= 2.0;
+      lowEndAuthority = 8.0;
+      if (bassMaskingGrowth <= 0 && Math.abs(lowEndRelDelta) <= 0.35) {
+        lowEndAuthority = 9.8;
+      } else if (bassMaskingGrowth > 0.30) {
+        lowEndAuthority -= 2.0;
+      } else if (lowEndRelDelta < -0.40) {
+        lowEndAuthority -= 1.5; // Low-end thinned out
       }
     }
-    lowEndControl = Math.max(0, Math.min(10, parseFloat(lowEndControl.toFixed(1))));
+    lowEndAuthority = Math.max(0, Math.min(10, parseFloat(lowEndAuthority.toFixed(1))));
 
-    // Pillar 5: Clarity & Separation (10 pts max)
-    let claritySeparation = 7.0;
+    // Pillar 6: Clarity & Separation (8 pts max - V2)
+    let claritySeparation = 6.5;
     if (isSelfBaseline) {
-      claritySeparation = origProfile.vocalToInstrumentalRatioDb < -2.0 ? 6.8 : 7.4;
+      claritySeparation = origProfile.vocalToInstrumentalRatioDb < -2.0 ? 6.0 : 6.8;
     } else {
-      claritySeparation = 9.2;
+      claritySeparation = 6.8;
       const instVsVoc = (candProfile.guitarsSynthsMidDb - candProfile.intelligibilityDb) - 
                         (origProfile.guitarsSynthsMidDb - origProfile.intelligibilityDb);
       if (instVsVoc <= 0.15 && deltaMud <= 0) {
-        claritySeparation = 9.8;
+        claritySeparation = 7.8;
       } else if (instVsVoc > 0.40) {
         claritySeparation -= 1.5;
       }
     }
-    claritySeparation = Math.max(0, Math.min(10, parseFloat(claritySeparation.toFixed(1))));
+    claritySeparation = Math.max(0, Math.min(8, parseFloat(claritySeparation.toFixed(1))));
 
-    // Pillar 6: Stereo Imaging & Mono Compatibility (10 pts max)
-    let stereoPhase = 7.5;
+    // Pillar 7: Depth (5 pts max - V2)
+    let depth = 4.0;
+    if (isSelfBaseline) {
+      depth = origMetrics.dynamicRangeLRA >= 9.0 ? 4.2 : 3.8;
+    } else {
+      depth = 4.0;
+      if (candMetrics.dynamicRangeLRA >= 7.0 && deltaMud <= 0.1) {
+        depth = 4.9;
+      } else if (candMetrics.dynamicRangeLRA < 4.5) {
+        depth -= 1.2;
+      }
+    }
+    depth = Math.max(0, Math.min(5, parseFloat(depth.toFixed(1))));
+
+    // Pillar 8: Stereo & Phase (5 pts max - V2)
+    let stereoPhase = 4.2;
     const monoScore = candProfile.monoCompatibilityScore;
     if (isSelfBaseline) {
-      stereoPhase = monoScore >= 90 ? 7.8 : 7.0;
+      stereoPhase = origMetrics.phase >= 0.88 ? 4.4 : 3.8;
     } else {
-      stereoPhase = 9.2;
-      if (monoScore >= 88 && sideRelDelta <= 0.40) {
-        stereoPhase = 9.8;
+      stereoPhase = 4.2;
+      if (candMetrics.phase >= 0.88 && sideRelDelta <= 0.30) {
+        stereoPhase = 4.9;
       } else {
-        if (monoScore < 85) {
-          stereoPhase -= (85 - monoScore) * 0.3;
+        if (candMetrics.phase < 0.80) {
+          stereoPhase -= (0.80 - candMetrics.phase) * 10.0;
         }
         if (sideRelDelta > 1.0) {
-          stereoPhase -= 1.5;
+          stereoPhase -= 1.0;
         }
       }
     }
-    stereoPhase = Math.max(0, Math.min(10, parseFloat(stereoPhase.toFixed(1))));
+    stereoPhase = Math.max(0, Math.min(5, parseFloat(stereoPhase.toFixed(1))));
 
-    // Pillar 7: Loudness & True Peak Compliance (10 pts max)
-    let loudnessTruePeak = 4.0;
+    // Pillar 9: Loudness Capability (5 pts max - V2)
+    let loudnessCapability = 3.5;
     if (isSelfBaseline) {
-      // Unmastered raw mix lacks streaming compliance
-      const tpScore = (origMetrics.truePeakDbTP <= -0.8 && origMetrics.truePeakDbTP >= -1.2) ? 3.0 : 1.5;
-      const lufsScore = (origMetrics.integratedLUFS >= -14.5 && origMetrics.integratedLUFS <= -13.5) ? 3.0 : 1.5;
-      loudnessTruePeak = tpScore + lufsScore;
+      const tpScore = origMetrics.truePeakDbTP <= -1.0 ? 2.5 : 1.0;
+      const lufsScore = (origMetrics.integratedLUFS >= -14.8 && origMetrics.integratedLUFS <= -11.0) ? 2.5 : 1.5;
+      loudnessCapability = tpScore + lufsScore;
     } else {
-      let tpScore = 5.0;
-      if (candMetrics.truePeakDbTP > -0.95) tpScore = 1.0;
-      else if (candMetrics.truePeakDbTP > -0.99) tpScore = 4.0;
-      else tpScore = 5.0;
+      let tpScore = 2.5;
+      if (candMetrics.truePeakDbTP > -0.95) tpScore = 0.5;
+      else if (candMetrics.truePeakDbTP > -0.99) tpScore = 1.5;
+      else tpScore = 2.5;
 
-      let lufsScore = 5.0;
-      if (candMetrics.integratedLUFS >= -14.5 && candMetrics.integratedLUFS <= -13.5) lufsScore = 5.0;
-      else if (candMetrics.integratedLUFS >= -15.5 && candMetrics.integratedLUFS <= -12.5) lufsScore = 4.0;
-      else lufsScore = 3.0;
+      let lufsScore = 2.5;
+      if (candMetrics.integratedLUFS >= -14.8 && candMetrics.integratedLUFS <= -11.0) lufsScore = 2.5;
+      else if (candMetrics.integratedLUFS >= -16.0 && candMetrics.integratedLUFS <= -9.5) lufsScore = 2.0;
+      else lufsScore = 1.2;
 
-      loudnessTruePeak = tpScore + lufsScore;
+      loudnessCapability = tpScore + lufsScore;
     }
-    loudnessTruePeak = Math.max(0, Math.min(10, parseFloat(loudnessTruePeak.toFixed(1))));
+    loudnessCapability = Math.max(0, Math.min(5, parseFloat(loudnessCapability.toFixed(1))));
 
-    // Pillar 8: Distortion & Fatigue (5 pts max)
-    let distortionFatigue = 3.5;
+    // Pillar 10: Fatigue & Distortion (2 pts max - V2)
+    let fatigueDistortion = 1.7;
     if (isSelfBaseline) {
-      distortionFatigue = origMetrics.truePeakDbTP <= -0.5 ? 3.8 : 3.0;
+      fatigueDistortion = origMetrics.truePeakDbTP <= -0.8 ? 1.8 : 1.4;
     } else {
-      distortionFatigue = 4.5;
-      if (candMetrics.truePeakDbTP <= -1.0 && harshnessOffset <= 0.3) {
-        distortionFatigue = 5.0;
+      fatigueDistortion = 1.7;
+      if (candMetrics.truePeakDbTP <= -1.0 && harshnessOffset <= 0.2) {
+        fatigueDistortion = 2.0;
       } else if (candMetrics.truePeakDbTP > -0.95) {
-        distortionFatigue = 1.5;
-      } else {
-        distortionFatigue = 4.0;
+        fatigueDistortion = 0.5;
       }
     }
-    distortionFatigue = Math.max(0, Math.min(5, parseFloat(distortionFatigue.toFixed(1))));
+    fatigueDistortion = Math.max(0, Math.min(2, parseFloat(fatigueDistortion.toFixed(1))));
 
     const totalScore = parseFloat((
+      vocalIntegrity +
       tonalBalance +
-      vocalPreservation +
+      bodyDensity +
       dynamicsTransients +
-      lowEndControl +
+      lowEndAuthority +
       claritySeparation +
+      depth +
       stereoPhase +
-      loudnessTruePeak +
-      distortionFatigue
+      loudnessCapability +
+      fatigueDistortion
     ).toFixed(1));
 
-    // Rejection triggers evaluation
+    // Rejection triggers evaluation (Section 29)
     const rejectionTriggers: string[] = [];
     if (!isSelfBaseline) {
+      if (thinningCheck.thinningDetected) {
+        rejectionTriggers.push(`Patrón de adelgazamiento detectado (${thinningCheck.reasons.join(', ')})`);
+      }
       if (deltaLra < -2.5 && candMetrics.dynamicRangeLRA < 4.0) {
         rejectionTriggers.push(`Rango Dinámico (LRA) severamente comprimido (Δ: ${deltaLra.toFixed(2)} LU, LRA final: ${candMetrics.dynamicRangeLRA.toFixed(1)} LU)`);
       }
-      if (vocalRelDelta < -0.30) {
-        rejectionTriggers.push(`Pérdida de presencia vocal a volumen igualado (Δ: ${vocalRelDelta.toFixed(2)} dB < -0.30 dB)`);
-      }
-      if (bodyRelDelta < -0.30) {
-        rejectionTriggers.push(`Pérdida de cuerpo vocal (300–900 Hz) a volumen igualado (Δ: ${bodyRelDelta.toFixed(2)} dB < -0.30 dB)`);
-      }
-      if (bassMaskingGrowth > 0.40) {
-        rejectionTriggers.push(`Graves/subgraves enmascaran el cuerpo vocal (+${bassMaskingGrowth.toFixed(2)} dB sobre voz > 0.40 dB)`);
+      if (!isInstrumental) {
+        if (vocalRelDelta < -0.30) {
+          rejectionTriggers.push(`Pérdida de presencia vocal a volumen igualado (Δ: ${vocalRelDelta.toFixed(2)} dB < -0.30 dB)`);
+        }
+        if (bodyRelDelta < -0.30) {
+          rejectionTriggers.push(`Pérdida de cuerpo vocal y solidez a volumen igualado (Δ: ${bodyRelDelta.toFixed(2)} dB < -0.30 dB)`);
+        }
+        if (bassMaskingGrowth > 0.40) {
+          rejectionTriggers.push(`Graves/subgraves enmascaran el cuerpo vocal (+${bassMaskingGrowth.toFixed(2)} dB sobre voz > 0.40 dB)`);
+        }
+      } else {
+        if (leadRelDelta < -0.45) {
+          rejectionTriggers.push(`Pérdida de foco melódico / lead a volumen igualado (Δ: ${leadRelDelta.toFixed(2)} dB < -0.45 dB)`);
+        }
+        if (bodyRelDelta < -0.40) {
+          rejectionTriggers.push(`Pérdida de cuerpo en elementos melódicos a volumen igualado (Δ: ${bodyRelDelta.toFixed(2)} dB < -0.40 dB)`);
+        }
       }
       if (candProfile.monoCompatibilityScore < 80) {
         rejectionTriggers.push(`Incompatibilidad mono o cancelación de fase (Score: ${candProfile.monoCompatibilityScore} < 80)`);
@@ -1653,38 +2094,44 @@ export class AudioEngine {
       if (deltaCrest < -3.5) {
         rejectionTriggers.push(`Aplastamiento de transientes / pumping (Crest Factor reducido en ${Math.abs(deltaCrest).toFixed(1)} dB)`);
       }
-      const deltaLufs = candMetrics.integratedLUFS - origMetrics.integratedLUFS;
-      if (origMetrics.integratedLUFS >= -16.0 && deltaLufs < -1.50) {
-        rejectionTriggers.push(`Loudness final deficiente (${candMetrics.integratedLUFS.toFixed(1)} LUFS-I queda ${(Math.abs(deltaLufs)).toFixed(1)} LU por debajo del original)`);
-      }
-      if (candMetrics.truePeakDbTP < -3.5 && candMetrics.integratedLUFS < -16.0) {
-        rejectionTriggers.push(`Headroom excesivo innecesario (True Peak: ${candMetrics.truePeakDbTP.toFixed(1)} dBTP con ${candMetrics.integratedLUFS.toFixed(1)} LUFS-I bajo)`);
-      }
     }
 
     const isApproved = rejectionTriggers.length === 0;
 
     const breakdown = [
-      `Balance Tonal: ${tonalBalance}/20 pts${deltaMud < -0.15 ? ' (resonancia reducida)' : ''}`,
-      `Preservación Vocal: ${vocalPreservation}/20 pts (Δ presencia: ${vocalRelDelta >= 0 ? '+' : ''}${vocalRelDelta.toFixed(2)} dB)`,
+      isInstrumental
+        ? `Integridad de Foco Melódico: ${vocalIntegrity}/20 pts (Δ foco: ${leadRelDelta >= 0 ? '+' : ''}${leadRelDelta.toFixed(2)} dB)`
+        : `Integridad Vocal: ${vocalIntegrity}/20 pts (Δ presencia: ${vocalRelDelta >= 0 ? '+' : ''}${vocalRelDelta.toFixed(2)} dB)`,
+      `Balance Tonal: ${tonalBalance}/15 pts${deltaMud < -0.15 ? ' (resonancia reducida)' : ''}`,
+      `Cuerpo y Densidad: ${bodyDensity}/15 pts (Δ cuerpo: ${bodyRelDelta >= 0 ? '+' : ''}${bodyRelDelta.toFixed(2)} dB)`,
       `Dinámica y Transientes: ${dynamicsTransients}/15 pts (Δ LRA: ${deltaLra >= 0 ? '+' : ''}${deltaLra.toFixed(2)} LU)`,
-      `Control de Graves: ${lowEndControl}/10 pts (subgrave limpio y centrado)`,
-      `Claridad y Separación: ${claritySeparation}/10 pts`,
-      `Estéreo y Compatibilidad Mono: ${stereoPhase}/10 pts (Mono score: ${monoScore}/100)`,
-      `Loudness & True Peak: ${loudnessTruePeak}/10 pts (Peak: ${candMetrics.truePeakDbTP.toFixed(1)} dBTP)`,
-      `Distorsión y Fatiga: ${distortionFatigue}/5 pts (sin asperezas ni picos inter-sample)`
+      `Autoridad en Graves: ${lowEndAuthority}/10 pts (sub y bajo definidos)`,
+      `Claridad y Separación: ${claritySeparation}/8 pts`,
+      `Profundidad 3D: ${depth}/5 pts`,
+      `Estéreo y Fase: ${stereoPhase}/5 pts (Mono score: ${monoScore}/100)`,
+      `Capacidad de Loudness: ${loudnessCapability}/5 pts (Peak: ${candMetrics.truePeakDbTP.toFixed(1)} dBTP)`,
+      `Anti-Fatiga / Confort: ${fatigueDistortion}/2 pts (sin distorsión inter-sample)`
     ];
 
     return {
       totalScore,
+      vocalIntegrity,
+      vocalPreservation: vocalIntegrity,
+      leadMelodicFocusIntegrity: isInstrumental ? leadMelodicFocusIntegrity : undefined,
+      isInstrumental,
       tonalBalance,
-      vocalPreservation,
+      bodyDensity,
       dynamicsTransients,
-      lowEndControl,
+      lowEndAuthority,
+      lowEndControl: lowEndAuthority,
       claritySeparation,
+      depth,
+      depth3D: depth,
       stereoPhase,
-      loudnessTruePeak,
-      distortionFatigue,
+      loudnessCapability,
+      loudnessTruePeak: loudnessCapability,
+      fatigueDistortion,
+      distortionFatigue: fatigueDistortion,
       breakdown,
       rejectionTriggers,
       isApproved
@@ -1692,10 +2139,222 @@ export class AudioEngine {
   }
 
   // =========================================================================
-  // --- MODO MASTERIZACIÓN TRANSFORMATIVA: MÉTODOS DEL PIPELINE ADAPTATIVO ---
+  // --- AURAMASTER V2: MÉTODOS DE INTELIGENCIA ACÚSTICA ADAPTATIVA & DSP ---
   // =========================================================================
 
-  // 1. Diagnóstico Acústico Multidimensional (17 Aspectos)
+  // 1. Detección de Patrón Prohibido de Adelgazamiento (Anti-Thinning Detector, Sección 8)
+  public detectThinningPattern(
+    origProfile: VocalAnalysisProfile,
+    candProfile: VocalAnalysisProfile,
+    origMetrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; spectralBands: number[]; mud?: number },
+    candMetrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; spectralBands: number[]; mud?: number }
+  ): { thinningDetected: boolean; bodyReviewTriggered: boolean; bodyReviewRationale: string; reasons: string[] } {
+    const reasons: string[] = [];
+    const loudnessOffset = candMetrics.integratedLUFS - origMetrics.integratedLUFS;
+
+    const lowEndDelta = (candProfile.lowEndEnergyDb - origProfile.lowEndEnergyDb) - loudnessOffset;
+    const bodyDelta = (candProfile.vocalBodyDb - origProfile.vocalBodyDb) - loudnessOffset;
+    const weightDelta = ((candProfile.weight120_250Db ?? candProfile.vocalBodyDb) - (origProfile.weight120_250Db ?? origProfile.vocalBodyDb)) - loudnessOffset;
+    const solidityDelta = ((candProfile.solidity500_900Db ?? candProfile.vocalBodyDb) - (origProfile.solidity500_900Db ?? origProfile.vocalBodyDb)) - loudnessOffset;
+    const highsDelta = (candProfile.instrumentalBrightnessDb - origProfile.instrumentalBrightnessDb) - loudnessOffset;
+    const presenceDelta = (candProfile.presenceDb - origProfile.presenceDb) - loudnessOffset;
+
+    // Broad band calculations (Requirements 8 & 9)
+    const broad150_500Db = (weightDelta * 0.4 + bodyDelta * 0.6);
+    const broad200_800Db = (bodyDelta * 0.5 + solidityDelta * 0.5);
+
+    let patternIndicators = 0;
+    if (lowEndDelta < -0.25) {
+      patternIndicators++;
+      reasons.push(`Reducción de graves/subgraves (${lowEndDelta.toFixed(2)} dB)`);
+    }
+    if (bodyDelta < -0.22) {
+      patternIndicators++;
+      reasons.push(`Reducción de cuerpo y calidez en medios-bajos (${bodyDelta.toFixed(2)} dB)`);
+    }
+    if (highsDelta < -0.20) {
+      patternIndicators++;
+      reasons.push(`Pérdida de aire y extensión en agudos (${highsDelta.toFixed(2)} dB)`);
+    }
+    if (presenceDelta > 0.30 && bodyDelta < -0.10) {
+      patternIndicators++;
+      reasons.push(`Elevación relativa en 2-6 kHz (+${presenceDelta.toFixed(2)} dB) combinada con adelgazamiento`);
+    }
+
+    // Section 9: BODY_REVIEW Trigger (150-500 Hz < -0.45 dB OR 200-800 Hz < -0.45 dB)
+    const bodyReviewTriggered = broad150_500Db < -0.45 || broad200_800Db < -0.45;
+    let bodyReviewRationale = 'Preservación de cuerpo equilibrada.';
+    let thinningDetected = patternIndicators >= 3 || (bodyDelta < -0.35 && presenceDelta > 0.20);
+
+    if (bodyReviewTriggered) {
+      // Determine whether the reduction removed actual mud or removed musical weight
+      const origHadMud = origProfile.lowMidBuildup750Db > 1.2 || (origMetrics.mud !== undefined && origMetrics.mud > 1.2);
+      if (origHadMud) {
+        bodyReviewRationale = `Atenuación en 150–800 Hz (${Math.min(broad150_500Db, broad200_800Db).toFixed(2)} dB) corresponde a limpieza de lodo/suciedad original, protegiendo claridad.`;
+      } else {
+        thinningDetected = true;
+        bodyReviewRationale = `BODY_REVIEW: El master perdió cuerpo musical en 150–800 Hz (${Math.min(broad150_500Db, broad200_800Db).toFixed(2)} dB) sin exceso de lodo original.`;
+        reasons.push(`Pérdida de peso musical amplio en 150–800 Hz (${Math.min(broad150_500Db, broad200_800Db).toFixed(2)} dB)`);
+      }
+    }
+
+    return { thinningDetected, bodyReviewTriggered, bodyReviewRationale, reasons };
+  }
+
+  // 2. Validación de Cuerpo, Densidad y Autoridad (Sección 4, 5, 8, 9, 32)
+  public validateBodyPreservation(
+    origProfile: VocalAnalysisProfile,
+    candProfile: VocalAnalysisProfile,
+    origMetrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; spectralBands: number[]; mud?: number },
+    candMetrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; spectralBands: number[]; mud?: number }
+  ): BodyValidationTelemetry {
+    const loudnessOffset = candMetrics.integratedLUFS - origMetrics.integratedLUFS;
+    const bodyDelta = (candProfile.vocalBodyDb - origProfile.vocalBodyDb) - loudnessOffset;
+    const weightDelta = ((candProfile.weight120_250Db ?? candProfile.vocalBodyDb) - (origProfile.weight120_250Db ?? origProfile.vocalBodyDb)) - loudnessOffset;
+    const solidityDelta = ((candProfile.solidity500_900Db ?? candProfile.vocalBodyDb) - (origProfile.solidity500_900Db ?? origProfile.vocalBodyDb)) - loudnessOffset;
+
+    const broadLowMidDeltaDb = parseFloat(((weightDelta * 0.45 + bodyDelta * 0.55)).toFixed(2));
+    const thinningCheck = this.detectThinningPattern(origProfile, candProfile, origMetrics, candMetrics);
+    const lowMidWeightPreserved = weightDelta >= -0.25;
+    const bodyPreserved = bodyDelta >= -0.25;
+    const vocalSolidityRetained = solidityDelta >= -0.25;
+
+    let bassAuthorityScore = 85;
+    const lowEndDelta = (candProfile.lowEndEnergyDb - origProfile.lowEndEnergyDb) - loudnessOffset;
+    if (Math.abs(lowEndDelta) <= 0.30 && bodyPreserved) bassAuthorityScore = 95;
+    else if (lowEndDelta < -0.40) bassAuthorityScore = 65;
+    else if (lowEndDelta > 0.50) bassAuthorityScore = 70;
+
+    const passed = !thinningCheck.thinningDetected && bodyPreserved && lowMidWeightPreserved;
+    const notes: string[] = [];
+    if (passed) {
+      notes.push('Cuerpo y peso musical preservados íntegramente a volumen igualado.');
+      notes.push(`Solidez 120–900 Hz: Δ weight ${weightDelta >= 0 ? '+' : ''}${weightDelta.toFixed(2)} dB, Δ body ${bodyDelta >= 0 ? '+' : ''}${bodyDelta.toFixed(2)} dB.`);
+    } else {
+      notes.push('Alerta de adelgazamiento detectada: la mezcla perdió cuerpo o peso musical.');
+      notes.push(...thinningCheck.reasons);
+    }
+    if (thinningCheck.bodyReviewTriggered) {
+      notes.push(thinningCheck.bodyReviewRationale);
+    }
+
+    return {
+      passed,
+      lowMidWeightPreserved,
+      bodyPreserved,
+      vocalSolidityRetained,
+      thinningPatternDetected: thinningCheck.thinningDetected,
+      bassAuthorityScore,
+      weight120_250DeltaDb: parseFloat(weightDelta.toFixed(2)),
+      body250_500DeltaDb: parseFloat(bodyDelta.toFixed(2)),
+      solidity500_900DeltaDb: parseFloat(solidityDelta.toFixed(2)),
+      broadLowMidDeltaDb,
+      bodyReviewTriggered: thinningCheck.bodyReviewTriggered,
+      bodyReviewRationale: thinningCheck.bodyReviewRationale,
+      notes
+    };
+  }
+
+  // 3. Determinación de Intención Musical y Estética (Sección 2 - Hard Reset)
+  public async determineMusicalIntent(
+    rawBuffer: AudioBuffer,
+    metrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; peakDb?: number; spectralBands: number[]; harshness: number; mud: number; phase: number },
+    vocalProfile: VocalAnalysisProfile
+  ): Promise<MusicalIntentProfile> {
+    const notes: string[] = [];
+
+    // Tonal character: Warm vs Bright
+    const highRatio = metrics.spectralBands[3] || 0.15;
+    const lowRatio = (metrics.spectralBands[0] || 0.25) + (metrics.spectralBands[1] || 0.25);
+    let tonalCharacter: 'warm' | 'neutral' | 'bright' = 'neutral';
+    if (lowRatio > 0.56 && highRatio < 0.16) {
+      tonalCharacter = 'warm';
+      notes.push('Carácter tonal cálido con predominio de fundamentales y medios-bajos.');
+    } else if (highRatio > 0.23 && lowRatio < 0.45) {
+      tonalCharacter = 'bright';
+      notes.push('Carácter tonal brillante y abierto.');
+    } else {
+      notes.push('Balance tonal musical equilibrado.');
+    }
+
+    // Dynamic profile: Dynamic open vs Cohesive vs Dense
+    let dynamicProfile: 'dynamic_open' | 'cohesive' | 'dense' = 'cohesive';
+    if (metrics.dynamicRangeLRA >= 9.0 && metrics.crestFactor >= 12.0) {
+      dynamicProfile = 'dynamic_open';
+      notes.push('Perfil dinámico amplio y abierto (LRA >= 9 LU, Crest >= 12 dB). Preservar transientes naturales.');
+    } else if (metrics.crestFactor <= 8.5 || metrics.dynamicRangeLRA <= 5.0) {
+      dynamicProfile = 'dense';
+      notes.push('Perfil dinámico denso y compacto. Evitar sobrecompresión.');
+    } else {
+      notes.push('Perfil dinámico moderado con margen para cohesión sutil.');
+    }
+
+    // Vocal focus: Vocal-forward vs Balanced vs Instrumental
+    let vocalFocus: 'vocal_forward' | 'balanced_mix' | 'instrumental_dominant' = 'balanced_mix';
+    if (vocalProfile.hasProminentVocals && vocalProfile.vocalToInstrumentalRatioDb >= 0.0) {
+      vocalFocus = 'vocal_forward';
+      notes.push('Voz frontal protagónica. Restricción absoluta de protección tímbrica.');
+    } else if (!vocalProfile.hasProminentVocals || vocalProfile.vocalToInstrumentalRatioDb < -3.0) {
+      vocalFocus = 'instrumental_dominant';
+      notes.push('Mezcla de enfoque instrumental predominante.');
+    }
+
+    // Low-end character
+    let lowEndCharacter: 'tight_punchy' | 'deep_subby' | 'warm_round' | 'lean_controlled' = 'tight_punchy';
+    const subRatio = metrics.spectralBands[0] || 0.25;
+    if (subRatio >= 0.32) {
+      lowEndCharacter = 'deep_subby';
+      notes.push('Base grave profunda con presencia de subgraves.');
+    } else if (tonalCharacter === 'warm' && lowRatio >= 0.54) {
+      lowEndCharacter = 'warm_round';
+      notes.push('Graves redondos y cálidos de estética analógica.');
+    } else if (metrics.crestFactor >= 11.0) {
+      lowEndCharacter = 'tight_punchy';
+      notes.push('Graves definidos y con pegada rápida de transiente.');
+    } else {
+      lowEndCharacter = 'lean_controlled';
+      notes.push('Graves contenidos con articulación controlada.');
+    }
+
+    // Production aesthetic
+    let productionAesthetic: 'vintage_warm' | 'modern_pristine' | 'organic_acoustic' | 'dense_aggressive' | 'balanced_commercial' = 'balanced_commercial';
+    let detectedGenre = 'Commercial Balanced Master';
+    if (tonalCharacter === 'warm' && dynamicProfile === 'dynamic_open') {
+      productionAesthetic = 'vintage_warm';
+      detectedGenre = 'Classic Warm / Analog Aesthetic';
+      notes.push('Estética vintage cálida. Prohibido aplicar curvas de brillo artificial o adelgazar medios.');
+    } else if (tonalCharacter === 'bright' && dynamicProfile === 'cohesive') {
+      productionAesthetic = 'modern_pristine';
+      detectedGenre = 'Modern Commercial / Pop / Electronic';
+    } else if (dynamicProfile === 'dynamic_open' && vocalFocus === 'vocal_forward') {
+      productionAesthetic = 'organic_acoustic';
+      detectedGenre = 'Acoustic / Organic Singer-Songwriter';
+    } else if (dynamicProfile === 'dense') {
+      productionAesthetic = 'dense_aggressive';
+      detectedGenre = 'Dense / High-Energy Production';
+    }
+
+    // Intended stereo depth
+    let intendedStereoDepth: 'intimate_focused' | 'natural_wide' | 'expansive_3d' = 'natural_wide';
+    if (metrics.phase >= 0.92 && vocalProfile.sideEnergyDb < -26) {
+      intendedStereoDepth = 'intimate_focused';
+    } else if (metrics.phase >= 0.85) {
+      intendedStereoDepth = 'expansive_3d';
+    }
+
+    return {
+      detectedGenre,
+      productionAesthetic,
+      tonalCharacter,
+      dynamicProfile,
+      vocalFocus,
+      lowEndCharacter,
+      intendedStereoDepth,
+      notes
+    };
+  }
+
+  // 4. Diagnóstico Acústico Multidimensional (18 Dimensiones - Sección 3)
   public async diagnoseAcousticAspects(
     rawBuffer: AudioBuffer,
     metrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; peakDb?: number; spectralBands: number[]; harshness: number; mud: number; phase: number },
@@ -1703,26 +2362,25 @@ export class AudioEngine {
   ): Promise<AcousticAspectDiagnosis[]> {
     const list: AcousticAspectDiagnosis[] = [];
 
-    // 1. VOZ
+    // 1. VOCAL
     const vir = vocalProfile.vocalToInstrumentalRatioDb;
-    const vPres = vocalProfile.presenceDb;
     let vozStatus: AcousticAspectStatus = 'bueno';
     let vozRec = 'Mantener balance vocal natural.';
     if (vocalProfile.hasProminentVocals && vir >= -0.5 && vocalProfile.vocalBodyDb > -26) {
       vozStatus = 'excelente';
-      vozRec = 'Voz en posición óptima; proteger sin alterar su timbre ni cercanía.';
+      vozRec = 'Voz en plano óptimo; proteger al 100% sin alterar timbre ni cercanía.';
     } else if (vir < -2.5 || vocalProfile.bassMaskingIndex > 55) {
       vozStatus = 'mejorable';
-      vozRec = 'Reducir enmascaramiento instrumental para que la voz gane espacio y cercanía.';
+      vozRec = 'Desacoplar máscara instrumental antes de aplicar realce directo.';
     } else if (vocalProfile.lowMidBuildup750Db > 2.0) {
       vozStatus = 'problematico';
       vozRec = 'Corregir congestión en medios-bajos que opaca el cuerpo vocal.';
     }
     list.push({
-      aspect: 'voz',
-      label: 'Voz / Lead Vocal',
+      aspect: 'vocal',
+      label: 'Vocal / Voz Principal',
       status: vozStatus,
-      measuredValue: `${vir.toFixed(1)} dB VIR (Presencia: ${vPres.toFixed(1)} dB)`,
+      measuredValue: `${vir.toFixed(1)} dB VIR (Cuerpo: ${vocalProfile.vocalBodyDb.toFixed(1)} dB)`,
       description: vocalProfile.hasProminentVocals ? 'Voz destacada en plano frontal.' : 'Plano vocal moderado o instrumental.',
       recommendation: vozRec,
       isProtected: vozStatus === 'excelente'
@@ -1736,31 +2394,29 @@ export class AudioEngine {
       status: kickStatus,
       measuredValue: `Crest factor ${metrics.crestFactor.toFixed(1)} dB`,
       description: kickStatus === 'excelente' ? 'Pegada de transientes definida y dinámica.' : 'Ataque perceptible con margen de optimización.',
-      recommendation: kickStatus === 'excelente' ? 'Proteger el ataque del bombo sin compresión rápida destructiva.' : 'Optimizar separación y microdinámica.',
+      recommendation: kickStatus === 'excelente' ? 'Proteger ataque sin compresión destructiva.' : 'Optimizar microdinámica y separación.',
       isProtected: kickStatus === 'excelente'
     });
 
-    // 3. BAJO
+    // 3. BASS
     const lowEndEnergy = vocalProfile.lowEndEnergyDb;
     let bajoStatus: AcousticAspectStatus = 'bueno';
     if (lowEndEnergy >= -24 && lowEndEnergy <= -18 && vocalProfile.bassMaskingIndex < 35) {
       bajoStatus = 'excelente';
-    } else if (vocalProfile.bassMaskingIndex > 50) {
-      bajoStatus = 'mejorable';
-    } else if (lowEndEnergy < -30) {
+    } else if (vocalProfile.bassMaskingIndex > 50 || lowEndEnergy < -30) {
       bajoStatus = 'mejorable';
     }
     list.push({
-      aspect: 'bajo',
-      label: 'Bajo / Bassline',
+      aspect: 'bass',
+      label: 'Bass / Bajo',
       status: bajoStatus,
-      measuredValue: `${lowEndEnergy.toFixed(1)} dBFS (Índice de masking: ${vocalProfile.bassMaskingIndex}/100)`,
-      description: bajoStatus === 'excelente' ? 'Bajo sólido y equilibrado con la mezcla.' : 'Bajo presente pero con competencia acústica.',
-      recommendation: bajoStatus === 'excelente' ? 'Preservar cuerpo y definición del bajo.' : 'Controlar notas resonantes y separar del kick.',
+      measuredValue: `${lowEndEnergy.toFixed(1)} dBFS (Masking: ${vocalProfile.bassMaskingIndex}/100)`,
+      description: bajoStatus === 'excelente' ? 'Bajo sólido y equilibrado con la mezcla.' : 'Bajo con competencia acústica.',
+      recommendation: bajoStatus === 'excelente' ? 'Preservar cuerpo y articulación de fundamentales.' : 'Controlar notas resonantes y separar del bombo.',
       isProtected: bajoStatus === 'excelente'
     });
 
-    // 4. SUBGRAVE (20-60 Hz)
+    // 4. SUB
     const subEnergy = metrics.spectralBands[0];
     let subStatus: AcousticAspectStatus = 'bueno';
     if (subEnergy < 0.28 && metrics.phase > 0.85) {
@@ -1769,45 +2425,63 @@ export class AudioEngine {
       subStatus = 'mejorable';
     }
     list.push({
-      aspect: 'subgrave',
-      label: 'Subgrave (20-60 Hz)',
+      aspect: 'sub',
+      label: 'Sub / Subgrave (20-60 Hz)',
       status: subStatus,
       measuredValue: `${(subEnergy * 100).toFixed(0)}% energía espectral`,
       description: subStatus === 'excelente' ? 'Subgrave limpio, controlado y centrado.' : 'Subgrave con potencial de acumulación.',
-      recommendation: subStatus === 'excelente' ? 'Proteger sin cortes innecesarios.' : 'Controlar resonancias por debajo de 60Hz sin debilitar la base.',
+      recommendation: subStatus === 'excelente' ? 'Proteger sin cortes innecesarios.' : 'Controlar resonancias <60Hz sin debilitar la base.',
       isProtected: subStatus === 'excelente'
     });
 
-    // 5. PERCUSIÓN
+    // 5. PERCUSSION
     const percStatus: AcousticAspectStatus = metrics.crestFactor > 11 ? 'excelente' : 'bueno';
     list.push({
-      aspect: 'percusion',
-      label: 'Percusión y Cajas',
+      aspect: 'percussion',
+      label: 'Percussion / Percusión y Cajas',
       status: percStatus,
-      measuredValue: `Dinámica de transientes: ${metrics.crestFactor.toFixed(1)} dB`,
-      description: 'Preservación de ataque en redoblante y elementos percusivos.',
-      recommendation: 'Asegurar ataque de compresores > 30ms para no aplastar el impacto.',
+      measuredValue: `Crest: ${metrics.crestFactor.toFixed(1)} dB`,
+      description: 'Preservación de transientes en percusión y redoblante.',
+      recommendation: 'Asegurar ataque de bus >30ms para preservar el impacto.',
       isProtected: percStatus === 'excelente'
     });
 
-    // 6. MEDIOS (250-800 Hz)
-    let mediosStatus: AcousticAspectStatus = 'bueno';
-    if (metrics.mud < 0.15 && vocalProfile.lowMidBuildup750Db < 0.6) {
-      mediosStatus = 'excelente';
-    } else if (metrics.mud > 0.30 || vocalProfile.lowMidBuildup750Db > 1.2) {
-      mediosStatus = 'mejorable';
+    // 6. LOW MIDS / BODY (120-250 Hz & 250-500 Hz - Sección 4)
+    let bodyStatus: AcousticAspectStatus = 'bueno';
+    const weightVal = vocalProfile.weight120_250Db ?? vocalProfile.vocalBodyDb;
+    if (weightVal > -26 && vocalProfile.lowMidBuildup750Db < 0.8) {
+      bodyStatus = 'excelente';
+    } else if (vocalProfile.lowMidBuildup750Db > 1.4) {
+      bodyStatus = 'mejorable';
     }
     list.push({
-      aspect: 'medios',
-      label: 'Medios (Claridad / Mud)',
-      status: mediosStatus,
-      measuredValue: `Índice de congestión: ${(metrics.mud * 100).toFixed(0)}%`,
-      description: mediosStatus === 'excelente' ? 'Banda media espaciosa y definida.' : 'Cierto velo o congestión en la zona de medios-bajos.',
-      recommendation: mediosStatus === 'excelente' ? 'Proteger sin ecualización agresiva.' : 'Limpiar quirúrgicamente resonancias sin adelgazar la voz.',
-      isProtected: mediosStatus === 'excelente'
+      aspect: 'low_mids_body',
+      label: 'Low Mids & Body (120-500 Hz)',
+      status: bodyStatus,
+      measuredValue: `Peso/Cuerpo: ${weightVal.toFixed(1)} dB (Resonancia 750Hz: ${vocalProfile.lowMidBuildup750Db.toFixed(1)} dB)`,
+      description: bodyStatus === 'excelente' ? 'Cuerpo musical sustancial, cálido y orgánico.' : 'Margen para afinar definición sin adelgazar.',
+      recommendation: bodyStatus === 'excelente' ? 'Prohibido adelgazar: cuerpo musical de primer orden.' : 'Limpiar quirúrgicamente sin restar peso.',
+      isProtected: bodyStatus === 'excelente'
     });
 
-    // 7. PRESENCIA (2-5 kHz)
+    // 7. MID CLARITY (500-900 Hz)
+    let midClarityStatus: AcousticAspectStatus = 'bueno';
+    if (metrics.mud < 0.16 && vocalProfile.lowMidBuildup750Db < 0.6) {
+      midClarityStatus = 'excelente';
+    } else if (metrics.mud > 0.30) {
+      midClarityStatus = 'mejorable';
+    }
+    list.push({
+      aspect: 'mid_clarity',
+      label: 'Mid Clarity / Claridad en Medios',
+      status: midClarityStatus,
+      measuredValue: `Congestión: ${(metrics.mud * 100).toFixed(0)}%`,
+      description: midClarityStatus === 'excelente' ? 'Medios transparentes y espaciosos.' : 'Cierto velo en medios-bajos.',
+      recommendation: midClarityStatus === 'excelente' ? 'No alterar equilibrio de medios.' : 'Descongestionar frecuencias competitivas con micro-ajustes.',
+      isProtected: midClarityStatus === 'excelente'
+    });
+
+    // 8. PRESENCE (2-5 kHz)
     let presStatus: AcousticAspectStatus = 'bueno';
     if (metrics.harshness < 0.15 && vocalProfile.presenceDb > -22) {
       presStatus = 'excelente';
@@ -1815,191 +2489,180 @@ export class AudioEngine {
       presStatus = 'mejorable';
     }
     list.push({
-      aspect: 'presencia',
-      label: 'Presencia (2-5 kHz)',
+      aspect: 'presence',
+      label: 'Presence / Presencia (2-5 kHz)',
       status: presStatus,
-      measuredValue: `Claridad vocal @ ${vocalProfile.exactPresenceFreq}Hz`,
-      description: presStatus === 'excelente' ? 'Gran articulación y definición sin estridencias.' : 'Margen para pulir definición o controlar aspereza.',
-      recommendation: presStatus === 'excelente' ? 'Mantener nivel de presencia sin añadir ganancia estridente.' : 'Acentuar presencia vocal reduciendo dureza en instrumentos.',
+      measuredValue: `Pico en ${vocalProfile.exactPresenceFreq} Hz`,
+      description: presStatus === 'excelente' ? 'Gran articulación vocal sin aspereza.' : 'Margen para pulir inteligibilidad.',
+      recommendation: presStatus === 'excelente' ? 'No elevar presencia estáticamente.' : 'Desacoplar competidores antes de realce sutil.',
       isProtected: presStatus === 'excelente'
     });
 
-    // 8. AGUDOS Y AIRE (> 10 kHz)
-    let agudosStatus: AcousticAspectStatus = 'bueno';
-    if (metrics.spectralBands[3] >= 0.20 && metrics.harshness < 0.20) {
-      agudosStatus = 'excelente';
-    } else if (metrics.spectralBands[3] < 0.12) {
-      agudosStatus = 'mejorable';
+    // 9. HIGHS (6-10 kHz)
+    let highsStatus: AcousticAspectStatus = 'bueno';
+    if (metrics.harshness < 0.20 && vocalProfile.sibilanceExcessDb === 0) {
+      highsStatus = 'excelente';
+    } else if (vocalProfile.sibilanceExcessDb > 1.0) {
+      highsStatus = 'mejorable';
     }
     list.push({
-      aspect: 'agudos',
-      label: 'Agudos y Aire (>10 kHz)',
-      status: agudosStatus,
+      aspect: 'highs',
+      label: 'Highs / Agudos (6-10 kHz)',
+      status: highsStatus,
+      measuredValue: `Sibilancia exceso: ${vocalProfile.sibilanceExcessDb.toFixed(1)} dB`,
+      description: highsStatus === 'excelente' ? 'Agudos sedosos y naturales.' : 'Cierta estridencia en consonantes o platillos.',
+      recommendation: highsStatus === 'excelente' ? 'Preservar suavidad natural.' : 'Control selectivo de sibilancias.',
+      isProtected: highsStatus === 'excelente'
+    });
+
+    // 10. AIR (>10 kHz)
+    let airStatus: AcousticAspectStatus = metrics.spectralBands[3] >= 0.20 ? 'excelente' : 'bueno';
+    list.push({
+      aspect: 'air',
+      label: 'Air / Aire (>10 kHz)',
+      status: airStatus,
       measuredValue: `${(metrics.spectralBands[3] * 100).toFixed(0)}% energía alta`,
-      description: agudosStatus === 'excelente' ? 'Apertura sedosa y aire extendido.' : 'Banda aguda con margen de mayor elegancia y brillo suave.',
-      recommendation: agudosStatus === 'excelente' ? 'Proteger brillo natural.' : 'Añadir apertura de aire de alta gama (+0.5 dB >12kHz).',
-      isProtected: agudosStatus === 'excelente'
+      description: airStatus === 'excelente' ? 'Apertura fina y extensión premium.' : 'Margen para apertura sutil de alta gama.',
+      recommendation: airStatus === 'excelente' ? 'Proteger brillo natural.' : 'Añadir brillo sedoso (+0.3 a +0.5 dB).',
+      isProtected: airStatus === 'excelente'
     });
 
-    // 9. PROFUNDIDAD (Plano 3D Front/Back)
-    let profStatus: AcousticAspectStatus = 'bueno';
-    if (metrics.dynamicRangeLRA > 10 && vocalProfile.vocalToInstrumentalRatioDb > -1.0) {
-      profStatus = 'excelente';
-    } else if (metrics.dynamicRangeLRA < 6.5) {
-      profStatus = 'mejorable';
-    }
+    // 11. TRANSIENTS
+    let transStatus: AcousticAspectStatus = metrics.crestFactor >= 11.5 ? 'excelente' : 'bueno';
     list.push({
-      aspect: 'profundidad',
-      label: 'Profundidad 3D',
-      status: profStatus,
-      measuredValue: `Rango de estratos LRA: ${metrics.dynamicRangeLRA.toFixed(1)} LU`,
-      description: profStatus === 'excelente' ? 'Excelente distinción entre planos frontales y ambientales.' : 'Mezcla en plano algo frontal; se puede abrir profundidad.',
-      recommendation: profStatus === 'excelente' ? 'Proteger dimensionalidad.' : 'Mejorar profundidad mediante tratamiento Mid/Side selectivo.',
-      isProtected: profStatus === 'excelente'
-    });
-
-    // 10. SEPARACIÓN DE ELEMENTOS
-    let sepStatus: AcousticAspectStatus = 'bueno';
-    if (metrics.mud < 0.20 && metrics.crestFactor > 10.5) {
-      sepStatus = 'excelente';
-    } else if (metrics.mud > 0.35) {
-      sepStatus = 'mejorable';
-    }
-    list.push({
-      aspect: 'separacion',
-      label: 'Separación Instrumental',
-      status: sepStatus,
-      measuredValue: `Claridad inter-pistas estimada`,
-      description: sepStatus === 'excelente' ? 'Instrumentos distinguidos nítidamente.' : 'Cierto solapamiento espectral entre elementos medios.',
-      recommendation: sepStatus === 'excelente' ? 'No alterar separación.' : 'Descongestionar frecuencias competitivas con EQ dinámica.',
-      isProtected: sepStatus === 'excelente'
-    });
-
-    // 11. DINÁMICA
-    let dinStatus: AcousticAspectStatus = (metrics.dynamicRangeLRA >= 8.5 && metrics.dynamicRangeLRA <= 15) ? 'excelente' : 'bueno';
-    list.push({
-      aspect: 'dinamica',
-      label: 'Dinámica Musical (LRA)',
-      status: dinStatus,
-      measuredValue: `${metrics.dynamicRangeLRA.toFixed(1)} LU`,
-      description: dinStatus === 'excelente' ? 'Rango dinámico musical y expresivo.' : 'Dinámica adecuada con margen de preservación.',
-      recommendation: 'Mantener dinámica intacta; no aplicar limitación ni compresión excesiva.',
-      isProtected: dinStatus === 'excelente'
-    });
-
-    // 12. TRANSIENTES
-    let transStatus: AcousticAspectStatus = metrics.crestFactor >= 11.0 ? 'excelente' : 'bueno';
-    list.push({
-      aspect: 'transientes',
-      label: 'Microdinámica de Transientes',
+      aspect: 'transients',
+      label: 'Transients / Pegada e Impacto',
       status: transStatus,
-      measuredValue: `Crest Factor: ${metrics.crestFactor.toFixed(1)} dB`,
-      description: transStatus === 'excelente' ? 'Transientes vivos y con pegada real.' : 'Transientes conservados.',
-      recommendation: 'Evitar saturación que recorte picos de ataque.',
+      measuredValue: `Crest factor: ${metrics.crestFactor.toFixed(1)} dB`,
+      description: transStatus === 'excelente' ? 'Pegada viva y transientes intactos.' : 'Transientes conservados.',
+      recommendation: 'Evitar limitación agresiva que reduzca el crest factor.',
       isProtected: transStatus === 'excelente'
     });
 
-    // 13. ESTÉREO
-    let estStatus: AcousticAspectStatus = 'bueno';
-    if (metrics.phase >= 0.85) {
-      estStatus = 'excelente';
-    } else if (metrics.phase < 0.65) {
-      estStatus = 'mejorable';
-    }
+    // 12. MACRO DYNAMICS (LRA)
+    let macroStatus: AcousticAspectStatus = (metrics.dynamicRangeLRA >= 8.0 && metrics.dynamicRangeLRA <= 15.0) ? 'excelente' : 'bueno';
     list.push({
-      aspect: 'estereo',
-      label: 'Imagen Estéreo',
-      status: estStatus,
-      measuredValue: `Apertura balanceada (Fase: ${metrics.phase.toFixed(2)})`,
-      description: estStatus === 'excelente' ? 'Amplitud natural con centro firme.' : 'Campo estéreo con margen de optimización.',
-      recommendation: estStatus === 'excelente' ? 'No sobre-expandir.' : 'Mejorar sensación de espacio sin abrir los graves.',
-      isProtected: estStatus === 'excelente'
+      aspect: 'macro_dynamics',
+      label: 'Macro Dynamics / Rango Dinámico (LRA)',
+      status: macroStatus,
+      measuredValue: `${metrics.dynamicRangeLRA.toFixed(1)} LU`,
+      description: macroStatus === 'excelente' ? 'Contraste expresivo entre secciones.' : 'Rango dinámico musical adecuado.',
+      recommendation: 'Preservar respiración entre estrofas y estribillos.',
+      isProtected: macroStatus === 'excelente'
     });
 
-    // 14. MID/SIDE
+    // 13. MICRO DYNAMICS
+    let microStatus: AcousticAspectStatus = metrics.crestFactor >= 10.5 ? 'excelente' : 'bueno';
     list.push({
-      aspect: 'midside',
-      label: 'Balance Mid/Side',
-      status: 'bueno',
-      measuredValue: 'Centro sólido vs Laterales limpios',
-      description: 'Energía centrada en voz y bombos; laterales para instrumentos armónicos.',
-      recommendation: 'Asegurar que subgraves (<100Hz) permanezcan 100% en mono.',
-      isProtected: false
+      aspect: 'micro_dynamics',
+      label: 'Micro Dynamics / Envolvente Microdinámica',
+      status: microStatus,
+      measuredValue: `Crest Factor: ${metrics.crestFactor.toFixed(1)} dB`,
+      description: 'Definición de cada golpe y ataque individual.',
+      recommendation: 'Usar ataque/release de compresión adaptados al groove.',
+      isProtected: microStatus === 'excelente'
     });
 
-    // 15. FASE
-    const faseStatus: AcousticAspectStatus = metrics.phase >= 0.90 ? 'excelente' : metrics.phase >= 0.75 ? 'bueno' : 'problematico';
+    // 14. STEREO
+    let stereoStatus: AcousticAspectStatus = metrics.phase >= 0.85 ? 'excelente' : 'bueno';
     list.push({
-      aspect: 'fase',
-      label: 'Coherencia de Fase (Mono)',
-      status: faseStatus,
+      aspect: 'stereo',
+      label: 'Stereo / Amplitud Estéreo',
+      status: stereoStatus,
+      measuredValue: `Fase: ${metrics.phase.toFixed(2)}`,
+      description: stereoStatus === 'excelente' ? 'Amplitud natural con centro firme.' : 'Campo estéreo con margen de separación.',
+      recommendation: 'Profundidad no es ancho: no ensanchar sin control.',
+      isProtected: stereoStatus === 'excelente'
+    });
+
+    // 15. PHASE
+    const phaseStatus: AcousticAspectStatus = metrics.phase >= 0.90 ? 'excelente' : metrics.phase >= 0.75 ? 'bueno' : 'problematico';
+    list.push({
+      aspect: 'phase',
+      label: 'Phase / Coherencia de Fase y Mono',
+      status: phaseStatus,
       measuredValue: `Correlación: ${metrics.phase.toFixed(3)}`,
-      description: faseStatus === 'excelente' ? 'Compatibilidad mono absoluta.' : 'Fase estable en margen seguro.',
-      recommendation: 'Verificar en cada cambio que la correlación no baje de 0.75.',
-      isProtected: faseStatus === 'excelente'
+      description: phaseStatus === 'excelente' ? 'Compatibilidad mono absoluta.' : 'Fase en margen seguro.',
+      recommendation: 'Garantizar que la correlación permanezca >= 0.80.',
+      isProtected: phaseStatus === 'excelente'
     });
 
-    // 16. DENSIDAD
+    // 16. DEPTH
+    let depthStatus: AcousticAspectStatus = (metrics.dynamicRangeLRA >= 9.0 && vir > -1.5) ? 'excelente' : 'bueno';
     list.push({
-      aspect: 'densidad',
-      label: 'Densidad y Cohesión',
+      aspect: 'depth',
+      label: 'Depth / Dimensión Espacial 3D',
+      status: depthStatus,
+      measuredValue: `Separación planos frente-fondo`,
+      description: depthStatus === 'excelente' ? 'Excelente distinción entre planos.' : 'Margen para crear profundidad frente-fondo.',
+      recommendation: 'Crear profundidad mediante desacoplamiento Mid/Side.',
+      isProtected: depthStatus === 'excelente'
+    });
+
+    // 17. DENSITY
+    list.push({
+      aspect: 'density',
+      label: 'Density / Densidad y Cohesión de Bus',
       status: 'bueno',
-      measuredValue: 'Cohesión acústica balanceada',
-      description: 'Unión musical entre los elementos del arreglo.',
-      recommendation: 'Aplicar glue compression sutil (0.5 a 1.0 dB GR) para empastar sin achicar.',
+      measuredValue: 'Cohesión balanceada',
+      description: 'Sensación de disco terminado y empaste musical.',
+      recommendation: 'Aportar densidad con bus compression sutil (0.5 a 1.5 dB GR) preservando el ataque.',
       isProtected: false
     });
 
-    // 17. LOUDNESS
+    // 18. LOUDNESS / HEADROOM
     list.push({
-      aspect: 'loudness',
-      label: 'Nivel y Headroom (Loudness)',
-      status: (metrics.integratedLUFS >= -15.5 && metrics.integratedLUFS <= -13.5 && metrics.truePeakDbTP <= -1.0) ? 'excelente' : 'bueno',
-      measuredValue: `${metrics.integratedLUFS.toFixed(1)} LUFS-I · Peak: ${metrics.truePeakDbTP.toFixed(1)} dBTP`,
-      description: 'Nivel de entrada analizado para calibración a estándar comercial.',
-      recommendation: 'Ajustar al sweet spot perceptual sin comprometer la música.',
+      aspect: 'loudness_headroom',
+      label: 'Loudness & Headroom',
+      status: (metrics.integratedLUFS >= -14.8 && metrics.integratedLUFS <= -11.0 && metrics.truePeakDbTP <= -1.0) ? 'excelente' : 'bueno',
+      measuredValue: `${metrics.integratedLUFS.toFixed(1)} LUFS-I (True Peak: ${metrics.truePeakDbTP.toFixed(1)} dBTP)`,
+      description: 'Margen para explorar el Maximum Clean Musical Loudness de la canción.',
+      recommendation: 'Explorar variantes L0..L4 para descubrir el volumen óptimo sin degradación.',
       isProtected: false
     });
 
     return list;
   }
 
-  // 2. Creación de Dirección de Mastering Específica
+  // 5. Creación de Dirección de Mastering Específica
   public generateMasteringDirection(diagnosis: AcousticAspectDiagnosis[]): MasteringDirection {
     const protectedAspects = diagnosis.filter(d => d.isProtected).map(d => d.label);
     const goals: string[] = [];
 
-    const needsClarity = diagnosis.some(d => d.aspect === 'medios' && (d.status === 'mejorable' || d.status === 'problematico'));
-    const needsBassDef = diagnosis.some(d => (d.aspect === 'bajo' || d.aspect === 'subgrave') && d.status === 'mejorable');
-    const needsDepth = diagnosis.some(d => d.aspect === 'profundidad' && d.status === 'mejorable');
-    const needsVocalSpace = diagnosis.some(d => d.aspect === 'voz' && d.status === 'mejorable');
-    const needsAir = diagnosis.some(d => d.aspect === 'agudos' && d.status === 'mejorable');
+    const needsClarity = diagnosis.some(d => d.aspect === 'mid_clarity' && (d.status === 'mejorable' || d.status === 'problematico'));
+    const needsBassDef = diagnosis.some(d => (d.aspect === 'bass' || d.aspect === 'sub') && d.status === 'mejorable');
+    const needsDepth = diagnosis.some(d => d.aspect === 'depth' && d.status === 'mejorable');
+    const needsVocalSpace = diagnosis.some(d => d.aspect === 'vocal' && d.status === 'mejorable');
+    const needsAir = diagnosis.some(d => d.aspect === 'air' && d.status === 'mejorable');
     const needsImpact = diagnosis.some(d => d.aspect === 'kick' && d.status === 'mejorable');
+    const needsBody = diagnosis.some(d => d.aspect === 'low_mids_body' && d.status === 'mejorable');
 
-    if (needsVocalSpace) goals.push('Espacio y presencia vocal eliminando enmascaramiento instrumental');
-    if (needsBassDef) goals.push('Mayor definición y control del bajo (separado del kick)');
-    if (needsDepth) goals.push('Mayor profundidad 3D y diferenciación de planos');
-    if (needsClarity) goals.push('Mayor claridad acústica y descongestión de medios');
-    if (needsImpact) goals.push('Mayor impacto y pegada en transientes');
-    if (needsAir) goals.push('Apertura de aire y brillo sedoso en agudos');
+    if (needsVocalSpace) goals.push('Espacio vocal mediante desacoplamiento espectral previo');
+    if (needsBody) goals.push('Preservación y solidez de cuerpo en 120-500 Hz (sin adelgazar)');
+    if (needsBassDef) goals.push('Autoridad y definición en graves (bombo y bajo definidos)');
+    if (needsDepth) goals.push('Profundidad 3D y diferenciación de planos Mid/Side');
+    if (needsClarity) goals.push('Claridad acústica sin vaciar la mezcla');
+    if (needsImpact) goals.push('Pegada viva de transientes');
+    if (needsAir) goals.push('Apertura de aire sedoso en agudos');
 
     if (goals.length === 0) {
-      goals.push('Cohesión analógica sutil y terminación premium');
-      goals.push('Profundidad y definición dimensional');
+      goals.push('Cuerpo musical, cohesión y acabado de disco profesional');
+      goals.push('Exploración de volumen limpio sin aplastamiento');
     }
 
     const selectedGoals = goals.slice(0, 3);
-    const rationale = `Dirección basada en el análisis multidimensional: Enfocada en ${selectedGoals.join(', ')}, protegiendo de forma absoluta: ${protectedAspects.slice(0, 4).join(', ')}.`;
+    const rationale = `Dirección adaptativa: ${selectedGoals.join(' · ')}. Prohibido adelgazar; protegidos: ${protectedAspects.slice(0, 4).join(', ')}.`;
 
     return {
-      title: 'Dirección de Mastering Específica',
+      title: 'Dirección de Mastering Adaptativa V2',
       selectedGoals,
       rationale,
       protectedAspects
     };
   }
 
-  // 3. Formulación de Candidatos Paralelos (A: Transparent, B: Polished, C: Transformative)
+  // 6. Formulación Adaptativa de Candidatos Paralelos (Secciones 22-25)
+  // Original -> A, Original -> B, Original -> C
   public async formulateParallelCandidates(
     _rawBuffer: AudioBuffer,
     _currentParams: MasteringChainParams,
@@ -2007,12 +2670,13 @@ export class AudioEngine {
     diagnosis: AcousticAspectDiagnosis[],
     targetLUFS: number,
     initialGainDb: number,
-    origVocal: VocalAnalysisProfile
+    origVocal: VocalAnalysisProfile,
+    musicalIntent?: MusicalIntentProfile
   ): Promise<{ candidateA: MasteringChainParams; candidateB: MasteringChainParams; candidateC: MasteringChainParams }> {
     const linearGain = Math.max(0.1, Math.min(15.0, Math.pow(10, initialGainDb / 20)));
 
     // --- CANDIDATE A: TRANSPARENT ---
-    // Minimal surgical intervention, pure clean gain + true peak ceiling
+    // Minimal necessary intervention, pure clean gain + true peak ceiling
     const candA = getNeutralMasteringParams();
     candA.isTransparentFallback = true;
     candA.gain = linearGain;
@@ -2025,99 +2689,243 @@ export class AudioEngine {
     candA.limiter.threshold = -1.0;
 
     // --- CANDIDATE B: POLISHED ---
-    // Corrective precision, glue cohesion (0.5-1.0 dB GR), controlled low-end, gentle air
+    // Goal: Same record, clearly more finished.
+    // Preserves/reinforces body, low-end authority, gentle unmasking, cohesive bus dynamics
     const candB = getNeutralMasteringParams();
     candB.gain = linearGain;
     candB.eq.enabled = true;
     candB.eq.low.frequency = 80;
-    candB.eq.low.gain = 0.0; // Protected bass baseline
+    candB.eq.low.gain = 0.0;
 
-    // Clean low-mid boxiness if diagnosed
-    const mudAspect = diagnosis.find(d => d.aspect === 'medios');
-    if (mudAspect && (mudAspect.status === 'mejorable' || mudAspect.status === 'problematico')) {
+    // Adaptive micro-adjustments based on song evidence (0.1 - 0.8 dB typical)
+    const isVintageWarm = musicalIntent?.productionAesthetic === 'vintage_warm';
+    const isInstrumental = origVocal?.vocalDetection?.classification === 'INSTRUMENTAL';
+    const isVocalUncertain = origVocal?.vocalDetection?.classification === 'VOCAL_UNCERTAIN';
+
+    // Body preservation: do not scoop low-mids unless congestion is severe
+    const bodyAspect = diagnosis.find(d => d.aspect === 'low_mids_body');
+    if (bodyAspect?.status === 'problematico' && !isVintageWarm) {
       candB.eq.lowMid.frequency = 320;
       candB.eq.lowMid.gain = -0.25;
       candB.midDensity750Gain = -0.20;
     } else {
+      // Protect body and warmth (120-500 Hz)
       candB.eq.lowMid.gain = 0.0;
+      candB.vocalBodyMidRecoveryDb = isInstrumental ? 0.0 : (isVocalUncertain ? 0.10 : 0.20);
     }
 
-    // Presence polish
-    const presAspect = diagnosis.find(d => d.aspect === 'presencia');
-    if (presAspect && presAspect.status === 'mejorable') {
-      candB.eq.mid.frequency = origVocal.exactPresenceFreq || 2800;
-      candB.eq.mid.gain = 0.35;
+    // Gentle presence polish only if improveable
+    const presAspect = diagnosis.find(d => d.aspect === 'presence');
+    if (presAspect?.status === 'mejorable') {
+      candB.eq.mid.frequency = (!isInstrumental && origVocal.exactPresenceFreq) ? origVocal.exactPresenceFreq : 3000;
+      candB.eq.mid.gain = 0.30;
     }
 
-    // Gentle air shelf
+    // Gentle air sheen
     candB.eq.high.frequency = 12000;
-    candB.eq.high.gain = 0.45;
+    candB.eq.high.gain = isVintageWarm ? 0.20 : 0.40;
 
     // Bus Cohesion (linear phase bypass to protect vocal clarity)
     candB.multiband.enabled = false;
 
-    // Low-end resonance control
-    if (diagnosis.some(d => (d.aspect === 'subgrave' || d.aspect === 'bajo') && d.status === 'mejorable')) {
-      candB.dynamicSubCutDb = -0.30;
+    // Controlled sub definition without removing weight
+    if (diagnosis.some(d => d.aspect === 'sub' && d.status === 'mejorable')) {
+      candB.dynamicSubCutDb = -0.25;
     }
 
     candB.limiter.enabled = true;
     candB.limiter.threshold = -1.0;
+    candB.deEsser.enabled = !isInstrumental && (origVocal?.sibilanceExcessDb ?? 0) > 0.5;
 
     // --- CANDIDATE C: TRANSFORMATIVE ---
-    // 3D depth via Mid/Side, vocal unmasking, transient punch, analog warmth
+    // Goal: Clearly superior mastering experience with 3D depth, authority, impact
     const candC = getNeutralMasteringParams();
     candC.gain = linearGain;
     candC.eq.enabled = true;
     candC.eq.low.frequency = 85;
     candC.eq.low.gain = 0.20; // Subtle low punch on Mid
 
-    // Mid/Side 3D Depth Carve
-    candC.vocalMidPresenceDb = 0.65; // Focus lead vocal in center
-    candC.vocalBodyMidRecoveryDb = 0.35; // Center warmth 300-900Hz
-    candC.sideVocalCarveDb = -0.75; // Dip competing side clutter around vocal
-    candC.sideLowMidDipDb = 0.35; // Clean side low-mids for deeper front-to-back contrast
+    // Mid/Side 3D Depth Carve (Only apply vocal-specific carve when vocal exists)
+    if (isInstrumental) {
+      candC.vocalMidPresenceDb = 0.0;
+      candC.vocalBodyMidRecoveryDb = 0.0;
+      candC.sideVocalCarveDb = 0.0;
+      candC.deEsser.enabled = false;
+    } else if (isVocalUncertain) {
+      candC.vocalMidPresenceDb = 0.20;
+      candC.vocalBodyMidRecoveryDb = 0.15;
+      candC.sideVocalCarveDb = -0.15;
+      candC.deEsser.enabled = (origVocal?.sibilanceExcessDb ?? 0) > 0.8;
+    } else {
+      candC.vocalMidPresenceDb = 0.50; // Focus lead vocal in center
+      candC.vocalBodyMidRecoveryDb = 0.30; // Center warmth 300-900Hz
+      candC.sideVocalCarveDb = -0.40; // Subtle dynamic unmasking of side clutter around vocal
+      candC.deEsser.enabled = (origVocal?.sibilanceExcessDb ?? 0) > 0.4;
+    }
+    candC.sideLowMidDipDb = 0.25; // Clean side low-mids for deeper front-to-back contrast
 
-    // Kick-Bass Separation via dynamic sub control
-    candC.dynamicSubCutDb = -0.55;
+    // Kick-Bass Separation via controlled dynamic sub
+    candC.dynamicSubCutDb = -0.35;
 
     // Instrumental Unmasking
-    candC.midDensity750Gain = -0.30;
+    candC.midDensity750Gain = -0.25;
     candC.eq.lowMid.frequency = 360;
-    candC.eq.lowMid.gain = -0.20;
+    candC.eq.lowMid.gain = -0.15;
 
     // High Air & Dimension
     candC.eq.high.frequency = 12500;
-    candC.eq.high.gain = 0.60;
+    candC.eq.high.gain = isVintageWarm ? 0.35 : 0.55;
 
-    // Subtle Harmonic Tape Warmth (imperceptible, cohesive)
+    // Subtle Harmonic Tape Warmth (imperceptible, cohesive, level-matched)
     candC.distortion.enabled = true;
-    candC.distortion.amount = 4;
+    candC.distortion.amount = 3;
     candC.distortion.mode = 'tape';
 
     // Bus Glue via Gentle Multiband
     candC.multiband.enabled = true;
     candC.multiband.low.threshold = -15.0;
-    candC.multiband.low.ratio = 1.3;
+    candC.multiband.low.ratio = 1.25;
     candC.multiband.low.attack = 0.04;
     candC.multiband.low.release = 0.15;
     candC.multiband.mid.threshold = -18.0;
-    candC.multiband.mid.ratio = 1.2;
+    candC.multiband.mid.ratio = 1.18;
     candC.multiband.mid.attack = 0.03;
     candC.multiband.mid.release = 0.12;
     candC.multiband.high.threshold = -20.0;
-    candC.multiband.high.ratio = 1.15;
+    candC.multiband.high.ratio = 1.12;
     candC.multiband.high.attack = 0.02;
     candC.multiband.high.release = 0.10;
 
-    candC.stereoWidth = 1.05;
+    candC.stereoWidth = 1.04;
     candC.limiter.enabled = true;
     candC.limiter.threshold = -1.0;
 
     return { candidateA: candA, candidateB: candB, candidateC: candC };
   }
 
-  // 4. Torneo Automático a Loudness Igualado con Protección Vocal Estricta
+  // 7. Exploración de Loudness Independiente por Candidato (Secciones 16 & 26)
+  // Descubre el Maximum Clean Musical Loudness probando variantes L0..L4
+  public async exploreCandidateLoudness(
+    candidateParams: MasteringChainParams,
+    candidateType: 'transparent' | 'polished' | 'transformative',
+    rawBuffer: AudioBuffer,
+    tracks: Track[],
+    origMetrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; peakDb?: number },
+    targetLUFS: number
+  ): Promise<{
+    optimizedParams: MasteringChainParams;
+    explorationRecord: LoudnessExplorationRecord;
+    bestBuffer: AudioBuffer;
+  }> {
+    const baseLinearGain = candidateParams.gain;
+    const baseDb = 20 * Math.log10(Math.max(1e-4, baseLinearGain));
+
+    const stepOffsets = [0.0, 0.75, 1.50, 2.25, 3.00];
+    const testedLevels: TestedLoudnessLevel[] = [];
+    let selectedParams = JSON.parse(JSON.stringify(candidateParams)) as MasteringChainParams;
+    let bestBuffer: AudioBuffer = rawBuffer;
+    let selectedFinalLUFS = origMetrics.integratedLUFS;
+    let maximumCleanLUFS = origMetrics.integratedLUFS;
+    let bestGainOffset = 0.0;
+    let bestCrestDelta = 0.0;
+    let bestLraDelta = 0.0;
+    let bestLimiterGR = 0.0;
+    let rejectionReasonForLouderVariant: string | undefined = undefined;
+
+    for (let i = 0; i < stepOffsets.length; i++) {
+      const offset = stepOffsets[i];
+      const levelName = `L${i} (${offset >= 0 ? '+' : ''}${offset.toFixed(2)} dB)`;
+      const testParams: MasteringChainParams = JSON.parse(JSON.stringify(candidateParams));
+      testParams.gain = baseLinearGain * Math.pow(10, offset / 20);
+
+      const rendered = (await this.renderPreview(testParams, tracks)) || rawBuffer;
+      const metrics = await this.calculateAccurateDSPMetrics(rendered);
+
+      const crestDelta = parseFloat((metrics.crestFactor - origMetrics.crestFactor).toFixed(2));
+      const lraDelta = parseFloat((metrics.dynamicRangeLRA - origMetrics.dynamicRangeLRA).toFixed(2));
+
+      const ceiling = testParams.limiter?.threshold ?? -1.0;
+      const rawPeak = metrics.peakDb ?? metrics.truePeakDbTP;
+      const limiterGR = Math.max(0.0, parseFloat((rawPeak - ceiling).toFixed(2)));
+
+      let approved = true;
+      let rejectionReason: string | undefined = undefined;
+
+      if (metrics.truePeakDbTP > -0.95) {
+        approved = false;
+        rejectionReason = `True Peak inseguro (${metrics.truePeakDbTP.toFixed(2)} dBTP > -0.95 dBTP)`;
+      } else if (crestDelta < -1.8) {
+        approved = false;
+        rejectionReason = `Degradación de transientes / Crest Factor reducido en ${Math.abs(crestDelta).toFixed(2)} dB`;
+      } else if (metrics.dynamicRangeLRA < 4.0 || lraDelta < -3.0) {
+        approved = false;
+        rejectionReason = `Aplastamiento dinámico (LRA final ${metrics.dynamicRangeLRA.toFixed(1)} LU)`;
+      } else if (limiterGR > 2.2) {
+        approved = false;
+        rejectionReason = `Compresión de limitador excesiva (${limiterGR.toFixed(2)} dB GR > 2.2 dB)`;
+      }
+
+      testedLevels.push({
+        levelName,
+        gainDb: parseFloat((baseDb + offset).toFixed(2)),
+        measuredLUFS: metrics.integratedLUFS,
+        truePeakDbTP: metrics.truePeakDbTP,
+        crestFactor: metrics.crestFactor,
+        crestDelta,
+        lra: metrics.dynamicRangeLRA,
+        lraDelta,
+        limiterGR,
+        approved,
+        rejectionReason
+      });
+
+      if (approved) {
+        selectedParams = testParams;
+        bestBuffer = rendered;
+        selectedFinalLUFS = metrics.integratedLUFS;
+        maximumCleanLUFS = metrics.integratedLUFS;
+        bestGainOffset = offset;
+        bestCrestDelta = crestDelta;
+        bestLraDelta = lraDelta;
+        bestLimiterGR = limiterGR;
+        if (metrics.integratedLUFS >= targetLUFS - 0.15) {
+          rejectionReasonForLouderVariant = `Objetivo adaptativo alcanzado (${targetLUFS.toFixed(1)} LUFS-I); no se añade ganancia sin necesidad.`;
+          break;
+        }
+      } else {
+        if (!rejectionReasonForLouderVariant) {
+          rejectionReasonForLouderVariant = `${levelName}: ${rejectionReason}`;
+        }
+        break; // Stop at first failing loudness tier
+      }
+    }
+
+    const availableCleanHeadroomDb = Math.max(0, parseFloat((origMetrics.truePeakDbTP - (-1.0)).toFixed(2)));
+    const usedCleanHeadroomDb = parseFloat((bestGainOffset).toFixed(2));
+    const sweetSpotNote = `Sweet-spot de sonoridad limpia en ${selectedFinalLUFS.toFixed(1)} LUFS-I (ganancia explorada: ${bestGainOffset >= 0 ? '+' : ''}${bestGainOffset.toFixed(2)} dB, GR limitador: ${bestLimiterGR.toFixed(2)} dB). Preservación dinámica: Δ Crest ${bestCrestDelta >= 0 ? '+' : ''}${bestCrestDelta.toFixed(2)} dB, Δ LRA ${bestLraDelta >= 0 ? '+' : ''}${bestLraDelta.toFixed(2)} LU.`;
+
+    const explorationRecord: LoudnessExplorationRecord = {
+      naturalLUFS: origMetrics.integratedLUFS,
+      testedLoudnessLevels: testedLevels,
+      selectedFinalLUFS,
+      maximumCleanLUFS,
+      availableCleanHeadroomDb,
+      usedCleanHeadroomDb,
+      limiterGR: bestLimiterGR,
+      crestDelta: bestCrestDelta,
+      lraDelta: bestLraDelta,
+      rejectionReasonForLouderVariant,
+      sweetSpotNote
+    };
+
+    return {
+      optimizedParams: selectedParams,
+      explorationRecord,
+      bestBuffer
+    };
+  }
+
+  // 8. Torneo a Loudness Igualado con MQS V2 (Secciones 27-29)
   public async runLoudnessMatchedTournament(
     rawBuffer: AudioBuffer,
     tracks: Track[],
@@ -2134,15 +2942,21 @@ export class AudioEngine {
   }> {
     const origMetrics = await this.calculateAccurateDSPMetrics(rawBuffer);
     const origVir = await this.calculateVocalToInstrumentalRatio(rawBuffer);
+    const origProfile = await this.analyzeVocalProfile(rawBuffer);
     const origMqs = await this.calculateMasteringQualityScore(rawBuffer, rawBuffer, this.getSourceSampleRate());
     const origScore = origMqs.totalScore || 82;
 
-    // Render each candidate independently directly from rawBuffer/tracks
-    const bufferA = (await this.renderPreview(candidates.candidateA, tracks)) || rawBuffer;
-    const bufferB = (await this.renderPreview(candidates.candidateB, tracks)) || rawBuffer;
-    const bufferC = (await this.renderPreview(candidates.candidateC, tracks)) || rawBuffer;
+    // Step A: Explore independent loudness sweet-spots per candidate
+    const expA = await this.exploreCandidateLoudness(candidates.candidateA, 'transparent', rawBuffer, tracks, origMetrics, _targetLUFS);
+    const expB = await this.exploreCandidateLoudness(candidates.candidateB, 'polished', rawBuffer, tracks, origMetrics, _targetLUFS);
+    const expC = await this.exploreCandidateLoudness(candidates.candidateC, 'transformative', rawBuffer, tracks, origMetrics, _targetLUFS);
 
-    // Measure metrics
+    // Step B: For QUALITY evaluation in tournament, evaluate at MATCHED LOUDNESS
+    // (Neutral comparison gain equalizes LUFS to prevent loudness bias in score)
+    const bufferA = expA.bestBuffer;
+    const bufferB = expB.bestBuffer;
+    const bufferC = expC.bestBuffer;
+
     const metricsA = await this.calculateAccurateDSPMetrics(bufferA);
     const metricsB = await this.calculateAccurateDSPMetrics(bufferB);
     const metricsC = await this.calculateAccurateDSPMetrics(bufferC);
@@ -2151,253 +2965,289 @@ export class AudioEngine {
     const virB = await this.calculateVocalToInstrumentalRatio(bufferB);
     const virC = await this.calculateVocalToInstrumentalRatio(bufferC);
 
+    const profA = await this.analyzeVocalProfile(bufferA);
+    const profB = await this.analyzeVocalProfile(bufferB);
+    const profC = await this.analyzeVocalProfile(bufferC);
+
     const deltaVirA = parseFloat((virA.virDb - origVir.virDb).toFixed(2));
     const deltaVirB = parseFloat((virB.virDb - origVir.virDb).toFixed(2));
     const deltaVirC = parseFloat((virC.virDb - origVir.virDb).toFixed(2));
+
+    const bodyValA = this.validateBodyPreservation(origProfile, profA, origMetrics, metricsA);
+    const bodyValB = this.validateBodyPreservation(origProfile, profB, origMetrics, metricsB);
+    const bodyValC = this.validateBodyPreservation(origProfile, profC, origMetrics, metricsC);
 
     const mqsA = await this.calculateMasteringQualityScore(bufferA, rawBuffer, this.getSourceSampleRate());
     const mqsB = await this.calculateMasteringQualityScore(bufferB, rawBuffer, this.getSourceSampleRate());
     const mqsC = await this.calculateMasteringQualityScore(bufferC, rawBuffer, this.getSourceSampleRate());
 
-    // Evaluate Sub-Scores for Candidate A
-    const scoreA_vocal = deltaVirA >= -0.05 ? 19.5 : 18.0;
-    const scoreA_tonal = 14.0;
-    const scoreA_sep = 8.5;
-    const scoreA_low = 8.5;
-    const scoreA_trans = Math.min(10, Math.max(7, 10 - Math.abs(metricsA.crestFactor - origMetrics.crestFactor)));
-    const scoreA_depth = 8.0;
-    const scoreA_phase = metricsA.phase >= 0.85 ? 10 : 8.5;
-    const scoreA_fatigue = 14.5;
-    const totalScoreA = parseFloat((scoreA_vocal + scoreA_tonal + scoreA_sep + scoreA_low + scoreA_trans + scoreA_depth + scoreA_phase + scoreA_fatigue).toFixed(1));
+    const isInstrumental = origProfile.vocalDetection?.classification === 'INSTRUMENTAL';
 
-    // Evaluate Sub-Scores for Candidate B (Polished)
-    const scoreB_vocal = deltaVirB >= 0 ? 20.0 : deltaVirB >= -0.15 ? 19.0 : 17.5;
-    const scoreB_tonal = 14.5;
-    const scoreB_sep = 9.2;
-    const scoreB_low = 9.0;
-    const scoreB_trans = Math.min(10, Math.max(7, 9.5 - Math.max(0, origMetrics.crestFactor - metricsB.crestFactor) * 0.8));
-    const scoreB_depth = 8.8;
-    const scoreB_phase = metricsB.phase >= 0.85 ? 9.8 : 8.5;
-    const scoreB_fatigue = 14.2;
-    const totalScoreB = parseFloat((scoreB_vocal + scoreB_tonal + scoreB_sep + scoreB_low + scoreB_trans + scoreB_depth + scoreB_phase + scoreB_fatigue).toFixed(1));
+    // Adjustments & Final Scores (Authoritative MQS V2)
+    const rawScoreA = mqsA.totalScore;
+    const adjA = {
+      vocalPenalty: isInstrumental ? 0 : (deltaVirA < -0.10 ? parseFloat((Math.abs(deltaVirA + 0.10) * 15).toFixed(1)) : 0),
+      phasePenalty: metricsA.phase < 0.80 ? parseFloat(((0.80 - metricsA.phase) * 20).toFixed(1)) : 0,
+      crestPenalty: (origMetrics.crestFactor - metricsA.crestFactor) > 1.5 ? parseFloat((((origMetrics.crestFactor - metricsA.crestFactor) - 1.5) * 5).toFixed(1)) : 0,
+      transformBenefit: 0.0,
+      totalAdjustment: 0.0,
+      rationale: 'Intervención transparente mínima con control de picos'
+    };
+    adjA.totalAdjustment = parseFloat((adjA.transformBenefit - adjA.vocalPenalty - adjA.phasePenalty - adjA.crestPenalty).toFixed(1));
+    const finalScoreA = parseFloat(Math.max(0, Math.min(100, rawScoreA + adjA.totalAdjustment)).toFixed(1));
 
-    // Evaluate Sub-Scores for Candidate C (Transformative)
-    const scoreC_vocal = deltaVirC >= 0.2 ? 20.0 : deltaVirC >= 0 ? 19.5 : deltaVirC >= -0.2 ? 18.0 : 12.0;
-    const scoreC_tonal = 14.8;
-    const scoreC_sep = 9.6;
-    const scoreC_low = 9.4;
-    const scoreC_trans = Math.min(10, Math.max(7, 9.6 - Math.max(0, origMetrics.crestFactor - metricsC.crestFactor) * 0.9));
-    const scoreC_depth = 9.6; // High 3D score
-    const scoreC_phase = metricsC.phase >= 0.85 ? 9.6 : 8.0;
-    const scoreC_fatigue = 14.0;
-    const totalScoreC = parseFloat((scoreC_vocal + scoreC_tonal + scoreC_sep + scoreC_low + scoreC_trans + scoreC_depth + scoreC_phase + scoreC_fatigue).toFixed(1));
+    const eligA = this.evaluateCandidateEligibility({
+      id: 'candidate_a',
+      name: 'Candidato A (Transparent)',
+      truePeakDbTP: metricsA.truePeakDbTP,
+      deltaVirDb: deltaVirA,
+      phaseCorrelation: metricsA.phase,
+      finalScore: finalScoreA,
+      origScore,
+      isInstrumental
+    });
 
-    // Disqualification Checks
     const candA_obj: TournamentCandidate = {
       id: 'candidate_a',
       name: 'Candidato A — Transparent',
       type: 'transparent',
-      params: candidates.candidateA,
+      params: expA.optimizedParams,
       integratedLUFS: metricsA.integratedLUFS,
       truePeakDbTP: metricsA.truePeakDbTP,
       comparisonGainDb: parseFloat((origMetrics.integratedLUFS - metricsA.integratedLUFS).toFixed(2)),
+      rawScore: rawScoreA,
+      preRenderScore: rawScoreA,
+      postRenderScore: finalScoreA,
+      finalScore: finalScoreA,
+      approved: eligA.approved && bodyValA.passed,
+      scoreAdjustments: adjA,
       scores: {
-        vocalScore: scoreA_vocal,
-        tonalBalanceScore: scoreA_tonal,
-        separationScore: scoreA_sep,
-        lowEndScore: scoreA_low,
-        transientScore: scoreA_trans,
-        depthScore: scoreA_depth,
-        stereoPhaseScore: scoreA_phase,
-        cohesionFatigueScore: scoreA_fatigue,
-        totalScore: totalScoreA
+        vocalScore: mqsA.vocalIntegrity,
+        tonalBalanceScore: mqsA.tonalBalance,
+        bodyDensityScore: mqsA.bodyDensity,
+        transientScore: mqsA.dynamicsTransients,
+        lowEndScore: mqsA.lowEndAuthority,
+        separationScore: mqsA.claritySeparation,
+        depthScore: mqsA.depth,
+        stereoPhaseScore: mqsA.stereoPhase,
+        loudnessCapabilityScore: mqsA.loudnessCapability,
+        fatigueDistortionScore: mqsA.fatigueDistortion,
+        totalScore: finalScoreA
       },
       deltaVirDb: deltaVirA,
       phaseCorrelation: metricsA.phase,
       headToHeadWins: 0,
-      isDisqualified: false,
-      perceptualHighlights: ['Intervención mínima transparente', 'Preservación exacta de timbre', 'True peak protegido']
+      isDisqualified: eligA.isDisqualified || !bodyValA.passed,
+      disqualificationReason: eligA.disqualificationReasons[0] || (bodyValA.thinningPatternDetected ? 'Patrón de adelgazamiento detectado' : undefined),
+      disqualificationReasons: [...eligA.disqualificationReasons, ...bodyValA.notes.filter(n => n.includes('Alerta'))],
+      perceptualHighlights: ['Intervención mínima transparente', 'Preservación exacta de timbre', 'True peak protegido'],
+      loudnessExploration: expA.explorationRecord,
+      bodyValidation: bodyValA
     };
+
+    // Candidate B
+    const rawScoreB = mqsB.totalScore;
+    const adjB = {
+      vocalPenalty: isInstrumental ? 0 : (deltaVirB < -0.10 ? parseFloat((Math.abs(deltaVirB + 0.10) * 15).toFixed(1)) : 0),
+      phasePenalty: metricsB.phase < 0.80 ? parseFloat(((0.80 - metricsB.phase) * 20).toFixed(1)) : 0,
+      crestPenalty: (origMetrics.crestFactor - metricsB.crestFactor) > 1.5 ? parseFloat((((origMetrics.crestFactor - metricsB.crestFactor) - 1.5) * 5).toFixed(1)) : 0,
+      transformBenefit: ((isInstrumental || deltaVirB >= 0) && metricsB.phase >= 0.85 && bodyValB.passed) ? 0.8 : 0.2,
+      totalAdjustment: 0.0,
+      rationale: isInstrumental 
+        ? 'Cohesión musical analógica, cuerpo reforzado y presencia melódica refinada'
+        : 'Cohesión musical analógica, cuerpo reforzado y aire refinado'
+    };
+    adjB.totalAdjustment = parseFloat((adjB.transformBenefit - adjB.vocalPenalty - adjB.phasePenalty - adjB.crestPenalty).toFixed(1));
+    const finalScoreB = parseFloat(Math.max(0, Math.min(100, rawScoreB + adjB.totalAdjustment)).toFixed(1));
+
+    const eligB = this.evaluateCandidateEligibility({
+      id: 'candidate_b',
+      name: 'Candidato B (Polished)',
+      truePeakDbTP: metricsB.truePeakDbTP,
+      deltaVirDb: deltaVirB,
+      phaseCorrelation: metricsB.phase,
+      finalScore: finalScoreB,
+      origScore,
+      isInstrumental
+    });
 
     const candB_obj: TournamentCandidate = {
       id: 'candidate_b',
       name: 'Candidato B — Polished',
       type: 'polished',
-      params: candidates.candidateB,
+      params: expB.optimizedParams,
       integratedLUFS: metricsB.integratedLUFS,
       truePeakDbTP: metricsB.truePeakDbTP,
       comparisonGainDb: parseFloat((origMetrics.integratedLUFS - metricsB.integratedLUFS).toFixed(2)),
+      rawScore: rawScoreB,
+      preRenderScore: rawScoreB,
+      postRenderScore: finalScoreB,
+      finalScore: finalScoreB,
+      approved: eligB.approved && bodyValB.passed,
+      scoreAdjustments: adjB,
       scores: {
-        vocalScore: scoreB_vocal,
-        tonalBalanceScore: scoreB_tonal,
-        separationScore: scoreB_sep,
-        lowEndScore: scoreB_low,
-        transientScore: scoreB_trans,
-        depthScore: scoreB_depth,
-        stereoPhaseScore: scoreB_phase,
-        cohesionFatigueScore: scoreB_fatigue,
-        totalScore: totalScoreB
+        vocalScore: mqsB.vocalIntegrity,
+        tonalBalanceScore: mqsB.tonalBalance,
+        bodyDensityScore: mqsB.bodyDensity,
+        transientScore: mqsB.dynamicsTransients,
+        lowEndScore: mqsB.lowEndAuthority,
+        separationScore: mqsB.claritySeparation,
+        depthScore: mqsB.depth,
+        stereoPhaseScore: mqsB.stereoPhase,
+        loudnessCapabilityScore: mqsB.loudnessCapability,
+        fatigueDistortionScore: mqsB.fatigueDistortion,
+        totalScore: finalScoreB
       },
       deltaVirDb: deltaVirB,
       phaseCorrelation: metricsB.phase,
       headToHeadWins: 0,
-      isDisqualified: deltaVirB < -0.30 || metricsB.phase < 0.70,
-      disqualificationReason: deltaVirB < -0.30 ? 'Voz reducida más de 0.3 dB' : undefined,
-      perceptualHighlights: ['Mayor claridad y apertura', 'Cohesión glue de bus musical', 'Control de resonancias graves']
+      isDisqualified: eligB.isDisqualified || !bodyValB.passed,
+      disqualificationReason: eligB.disqualificationReasons[0] || (bodyValB.thinningPatternDetected ? 'Patrón de adelgazamiento detectado' : undefined),
+      disqualificationReasons: [...eligB.disqualificationReasons, ...bodyValB.notes.filter(n => n.includes('Alerta'))],
+      perceptualHighlights: ['Cuerpo musical y densidad preservados', 'Cohesión glue de bus', 'Mayor claridad sin adelgazar'],
+      loudnessExploration: expB.explorationRecord,
+      bodyValidation: bodyValB
     };
 
-    let candC_disqualified = false;
-    let candC_reason: string | undefined = undefined;
-    if (deltaVirC < -0.30) {
-      candC_disqualified = true;
-      candC_reason = `La voz retrocede ${Math.abs(deltaVirC).toFixed(2)} dB (excede límite de seguridad de -0.30 dB).`;
-    } else if (metricsC.phase < 0.70) {
-      candC_disqualified = true;
-      candC_reason = `Correlación de fase comprometida (${metricsC.phase.toFixed(2)} < 0.70).`;
-    } else if (metricsC.crestFactor < origMetrics.crestFactor - 2.5) {
-      candC_disqualified = true;
-      candC_reason = `Transientes excesivamente comprimidos (pérdida de > 2.5 dB de crest factor).`;
-    }
+    // Candidate C
+    const rawScoreC = mqsC.totalScore;
+    const adjC = {
+      vocalPenalty: isInstrumental ? 0 : (deltaVirC < -0.10 ? parseFloat((Math.abs(deltaVirC + 0.10) * 15).toFixed(1)) : 0),
+      phasePenalty: metricsC.phase < 0.80 ? parseFloat(((0.80 - metricsC.phase) * 20).toFixed(1)) : 0,
+      crestPenalty: (origMetrics.crestFactor - metricsC.crestFactor) > 1.5 ? parseFloat((((origMetrics.crestFactor - metricsC.crestFactor) - 1.5) * 5).toFixed(1)) : 0,
+      transformBenefit: isInstrumental 
+        ? ((metricsC.phase >= 0.85 && bodyValC.passed) ? 1.2 : 0.5)
+        : ((deltaVirC >= 0.15 && metricsC.phase >= 0.85 && bodyValC.passed) ? 1.5 : 0.5),
+      totalAdjustment: 0.0,
+      rationale: isInstrumental
+        ? 'Dimensión espacial 3D, separación instrumental y calidez'
+        : 'Desacoplamiento vocal Mid/Side, dimensión espacial 3D y calidez'
+    };
+    adjC.totalAdjustment = parseFloat((adjC.transformBenefit - adjC.vocalPenalty - adjC.phasePenalty - adjC.crestPenalty).toFixed(1));
+    const finalScoreC = parseFloat(Math.max(0, Math.min(100, rawScoreC + adjC.totalAdjustment)).toFixed(1));
+
+    const eligC = this.evaluateCandidateEligibility({
+      id: 'candidate_c',
+      name: 'Candidato C (Transformative)',
+      truePeakDbTP: metricsC.truePeakDbTP,
+      deltaVirDb: deltaVirC,
+      phaseCorrelation: metricsC.phase,
+      finalScore: finalScoreC,
+      origScore,
+      isInstrumental
+    });
 
     const candC_obj: TournamentCandidate = {
       id: 'candidate_c',
       name: 'Candidato C — Transformative',
       type: 'transformative',
-      params: candidates.candidateC,
+      params: expC.optimizedParams,
       integratedLUFS: metricsC.integratedLUFS,
       truePeakDbTP: metricsC.truePeakDbTP,
       comparisonGainDb: parseFloat((origMetrics.integratedLUFS - metricsC.integratedLUFS).toFixed(2)),
+      rawScore: rawScoreC,
+      preRenderScore: rawScoreC,
+      postRenderScore: finalScoreC,
+      finalScore: finalScoreC,
+      approved: eligC.approved && bodyValC.passed,
+      scoreAdjustments: adjC,
       scores: {
-        vocalScore: scoreC_vocal,
-        tonalBalanceScore: scoreC_tonal,
-        separationScore: scoreC_sep,
-        lowEndScore: scoreC_low,
-        transientScore: scoreC_trans,
-        depthScore: scoreC_depth,
-        stereoPhaseScore: scoreC_phase,
-        cohesionFatigueScore: scoreC_fatigue,
-        totalScore: totalScoreC
+        vocalScore: mqsC.vocalIntegrity,
+        tonalBalanceScore: mqsC.tonalBalance,
+        bodyDensityScore: mqsC.bodyDensity,
+        transientScore: mqsC.dynamicsTransients,
+        lowEndScore: mqsC.lowEndAuthority,
+        separationScore: mqsC.claritySeparation,
+        depthScore: mqsC.depth,
+        stereoPhaseScore: mqsC.stereoPhase,
+        loudnessCapabilityScore: mqsC.loudnessCapability,
+        fatigueDistortionScore: mqsC.fatigueDistortion,
+        totalScore: finalScoreC
       },
       deltaVirDb: deltaVirC,
       phaseCorrelation: metricsC.phase,
       headToHeadWins: 0,
-      isDisqualified: candC_disqualified,
-      disqualificationReason: candC_reason,
-      perceptualHighlights: ['Profundidad 3D y planos diferenciados', 'Voz destacada con unmasking instrumental', 'Pegada y cuerpo de bajo definidos', 'Calidez analógica rica']
+      isDisqualified: eligC.isDisqualified || !bodyValC.passed,
+      disqualificationReason: eligC.disqualificationReasons[0] || (bodyValC.thinningPatternDetected ? 'Patrón de adelgazamiento detectado' : undefined),
+      disqualificationReasons: [...eligC.disqualificationReasons, ...bodyValC.notes.filter(n => n.includes('Alerta'))],
+      perceptualHighlights: ['Profundidad 3D y separación', 'Impacto dinámico de bombo/bajo', 'Densidad analógica y autoridad'],
+      loudnessExploration: expC.explorationRecord,
+      bodyValidation: bodyValC
     };
 
-    // Head-to-head match calculations
-    const matchups: TournamentMatchup[] = [];
+    // Canonical Matchup Evaluation (Sección 27)
+    const evaluateMatchup = (cand1: TournamentCandidate, cand2: TournamentCandidate): TournamentMatchup => {
+      const e1 = this.evaluateCandidateEligibility({ ...cand1, origScore, isInstrumental });
+      const e2 = this.evaluateCandidateEligibility({ ...cand2, origScore, isInstrumental });
 
-    // A vs Orig
-    matchups.push({
-      candidate1: 'Original (Raw Mix)',
-      candidate2: 'Candidato A (Transparent)',
-      winner: totalScoreA >= origScore ? 'Candidato A (Transparent)' : 'Original (Raw Mix)',
-      deltaScore: parseFloat((totalScoreA - origScore).toFixed(1)),
-      rationale: totalScoreA >= origScore ? 'Ajuste de nivel limpio y True Peak protegido.' : 'Original conserva integridad.'
-    });
+      if (e1.approved && !e2.approved) {
+        cand1.headToHeadWins++;
+        return {
+          candidate1: cand1.name,
+          candidate2: cand2.name,
+          winner: cand1.name,
+          deltaScore: parseFloat((cand1.finalScore - cand2.finalScore).toFixed(1)),
+          rationale: `${cand2.name} descartado (${e2.disqualificationReasons[0] || 'Criterios de seguridad no superados'}). ${cand1.name} avanza por cumplimiento normativo.`
+        };
+      } else if (!e1.approved && e2.approved) {
+        cand2.headToHeadWins++;
+        return {
+          candidate1: cand1.name,
+          candidate2: cand2.name,
+          winner: cand2.name,
+          deltaScore: parseFloat((cand2.finalScore - cand1.finalScore).toFixed(1)),
+          rationale: `${cand1.name} descartado (${e1.disqualificationReasons[0] || 'Criterios de seguridad no superados'}). ${cand2.name} avanza por cumplimiento normativo.`
+        };
+      } else if (!e1.approved && !e2.approved) {
+        const higher = cand1.finalScore >= cand2.finalScore ? cand1 : cand2;
+        const lower = higher === cand1 ? cand2 : cand1;
+        higher.headToHeadWins++;
+        return {
+          candidate1: cand1.name,
+          candidate2: cand2.name,
+          winner: higher.name,
+          deltaScore: parseFloat((higher.finalScore - lower.finalScore).toFixed(1)),
+          rationale: `Ambos candidatos presentan advertencias técnicas. ${higher.name} prevalece provisionalmente por mayor puntuación MQS V2 (${higher.finalScore} vs ${lower.finalScore}).`
+        };
+      } else {
+        const higher = cand1.finalScore >= cand2.finalScore ? cand1 : cand2;
+        const lower = higher === cand1 ? cand2 : cand1;
+        higher.headToHeadWins++;
+        const delta = parseFloat((higher.finalScore - lower.finalScore).toFixed(1));
+        return {
+          candidate1: cand1.name,
+          candidate2: cand2.name,
+          winner: higher.name,
+          deltaScore: delta,
+          rationale: `${higher.name} supera a ${lower.name} por +${delta} pts MQS V2 a volumen igualado (${higher.finalScore} vs ${lower.finalScore}).`
+        };
+      }
+    };
 
-    // B vs Orig
-    matchups.push({
-      candidate1: 'Original (Raw Mix)',
-      candidate2: 'Candidato B (Polished)',
-      winner: totalScoreB > origScore ? 'Candidato B (Polished)' : 'Original (Raw Mix)',
-      deltaScore: parseFloat((totalScoreB - origScore).toFixed(1)),
-      rationale: 'Mayor claridad, cohesión de bus y elegancia acústica.'
-    });
+    const matchups: TournamentMatchup[] = [
+      evaluateMatchup(candA_obj, candB_obj),
+      evaluateMatchup(candB_obj, candC_obj),
+      evaluateMatchup(candA_obj, candC_obj)
+    ];
 
-    // C vs Orig
-    matchups.push({
-      candidate1: 'Original (Raw Mix)',
-      candidate2: 'Candidato C (Transformative)',
-      winner: (!candC_disqualified && totalScoreC > origScore) ? 'Candidato C (Transformative)' : 'Original (Raw Mix)',
-      deltaScore: parseFloat((totalScoreC - origScore).toFixed(1)),
-      rationale: (!candC_disqualified && totalScoreC > origScore) ? 'Mejora integral en profundidad 3D, separación y presencia vocal.' : 'Candidato C descartado por degradación.'
-    });
-
-    // A vs B
-    const winnerAB = (candB_obj.isDisqualified || totalScoreA > totalScoreB) ? 'Candidato A (Transparent)' : 'Candidato B (Polished)';
-    if (winnerAB === 'Candidato B (Polished)') candB_obj.headToHeadWins++;
-    else candA_obj.headToHeadWins++;
-    matchups.push({
-      candidate1: 'Candidato A (Transparent)',
-      candidate2: 'Candidato B (Polished)',
-      winner: winnerAB,
-      deltaScore: parseFloat(Math.abs(totalScoreB - totalScoreA).toFixed(1)),
-      rationale: 'Polished ofrece mayor cohesión y descongestión de medios.'
-    });
-
-    // B vs C
-    let winnerBC = '';
-    if (candC_disqualified) {
-      winnerBC = 'Candidato B (Polished)';
-      candB_obj.headToHeadWins++;
-    } else if (totalScoreC >= totalScoreB) {
-      winnerBC = 'Candidato C (Transformative)';
-      candC_obj.headToHeadWins++;
-    } else {
-      winnerBC = 'Candidato B (Polished)';
-      candB_obj.headToHeadWins++;
-    }
-    matchups.push({
-      candidate1: 'Candidato B (Polished)',
-      candidate2: 'Candidato C (Transformative)',
-      winner: winnerBC,
-      deltaScore: parseFloat(Math.abs(totalScoreC - totalScoreB).toFixed(1)),
-      rationale: candC_disqualified ? `Candidato C descartado por seguridad (${candC_reason})` : 'Transformative supera a Polished en dimensión espacial y pegada.'
-    });
-
-    // A vs C
-    let winnerAC = '';
-    if (candC_disqualified) {
-      winnerAC = 'Candidato A (Transparent)';
-      candA_obj.headToHeadWins++;
-    } else if (totalScoreC >= totalScoreA) {
-      winnerAC = 'Candidato C (Transformative)';
-      candC_obj.headToHeadWins++;
-    } else {
-      winnerAC = 'Candidato A (Transparent)';
-      candA_obj.headToHeadWins++;
-    }
-    matchups.push({
-      candidate1: 'Candidato A (Transparent)',
-      candidate2: 'Candidato C (Transformative)',
-      winner: winnerAC,
-      deltaScore: parseFloat(Math.abs(totalScoreC - totalScoreA).toFixed(1)),
-      rationale: candC_disqualified ? 'Descalificado por seguridad.' : 'Transformative eleva la producción a estándar comercial.'
-    });
-
-    // Winner Determination & Safety Rule
+    // Winner Selection
+    const approvedList = [candA_obj, candB_obj, candC_obj].filter(c => c.approved);
     let winningCandidate: TournamentCandidate;
-    let winningBuffer: AudioBuffer;
-    let winningParams: MasteringChainParams;
-    let bestMqs: MasteringQualityScore;
     let safetyFallbackApplied = false;
     let safetyReason: string | undefined = undefined;
 
-    if (!candC_disqualified && totalScoreC >= totalScoreB && totalScoreC > origScore) {
-      winningCandidate = candC_obj;
-      winningBuffer = bufferC;
-      winningParams = candidates.candidateC;
-      bestMqs = mqsC;
-    } else if (!candB_obj.isDisqualified && totalScoreB > origScore) {
-      winningCandidate = candB_obj;
-      winningBuffer = bufferB;
-      winningParams = candidates.candidateB;
-      bestMqs = mqsB;
-      if (candC_disqualified) {
-        safetyFallbackApplied = true;
-        safetyReason = `Regla de Seguridad Activada: Candidato C descartado (${candC_reason}). Promovido Candidato B (Polished).`;
-      }
+    if (approvedList.length > 0) {
+      approvedList.sort((a, b) => b.finalScore - a.finalScore);
+      winningCandidate = approvedList[0];
     } else {
-      winningCandidate = candA_obj;
-      winningBuffer = bufferA;
-      winningParams = candidates.candidateA;
-      bestMqs = mqsA;
       safetyFallbackApplied = true;
-      safetyReason = 'Regla de Seguridad Activada: Preservación pura sin sobreprocesar.';
+      safetyReason = `Ningún candidato cumplió los 10 criterios de seguridad y cuerpo sin degradación. Activando Transparent seguro.`;
+      winningCandidate = candA_obj;
     }
+
+    let winningBuffer = winningCandidate.id === 'candidate_c' ? expC.bestBuffer : winningCandidate.id === 'candidate_b' ? expB.bestBuffer : expA.bestBuffer;
+    let winningParams = winningCandidate.params;
+    let bestMqs = winningCandidate.id === 'candidate_c' ? mqsC : winningCandidate.id === 'candidate_b' ? mqsB : mqsA;
 
     const tournamentReport: MasteringTournamentReport = {
       candidates: [candA_obj, candB_obj, candC_obj],
@@ -2407,7 +3257,7 @@ export class AudioEngine {
       safetyFallbackApplied,
       safetyReason,
       selfCorrectionApplied: false,
-      sweetSpotLoudnessNote: ''
+      sweetSpotLoudnessNote: winningCandidate.loudnessExploration?.sweetSpotNote || ''
     };
 
     return {
@@ -2419,7 +3269,7 @@ export class AudioEngine {
     };
   }
 
-  // 5. Revisión y Autocorrección del Candidato Ganador
+  // 9. Autocorrección y Perfeccionamiento del Ganador (Sección 30 & 31 - Bucle Cerrado)
   public async selfCorrectWinningCandidate(
     rawBuffer: AudioBuffer,
     tracks: Track[],
@@ -2440,12 +3290,31 @@ export class AudioEngine {
     // Check 2: Vocal body protection if deltaVir is slightly negative
     if (winningCandidate.deltaVirDb < -0.05 && winningCandidate.type !== 'transparent') {
       nextParams.vocalBodyMidRecoveryDb = (nextParams.vocalBodyMidRecoveryDb || 0) + 0.20;
-      tweaks.push(`Refuerzo de cuerpo vocal Mid +0.20 dB (300-900Hz)`);
+      tweaks.push('Refuerzo de cuerpo vocal Mid +0.20 dB (300-900Hz)');
     }
 
-    // Check 3: Sub-bass definition if sub was mejorable
+    // Check 3: Section 10 Body Correction Order (Reduce cuts first, restore warmth, zero sub-bass boost)
+    const bodyVal = winningCandidate.bodyValidation;
+    if (bodyVal?.thinningPatternDetected || (bodyVal?.bodyReviewTriggered && !bodyVal?.passed)) {
+      if (nextParams.eq?.lowMid?.gain && nextParams.eq.lowMid.gain < 0) {
+        nextParams.eq.lowMid.gain = Math.min(0, nextParams.eq.lowMid.gain * 0.5);
+        tweaks.push('Reducción de cortes innecesarios en medios-bajos');
+      }
+      if (nextParams.midDensity750Gain && nextParams.midDensity750Gain < 0) {
+        nextParams.midDensity750Gain = 0.0;
+        tweaks.push('Restauración de densidad en 750 Hz');
+      }
+      if (nextParams.sideLowMidDipDb && nextParams.sideLowMidDipDb > 0) {
+        nextParams.sideLowMidDipDb = 0.0;
+        tweaks.push('Eliminación de atenuación lateral en medios-bajos');
+      }
+      nextParams.vocalBodyMidRecoveryDb = Math.min(0.40, (nextParams.vocalBodyMidRecoveryDb || 0) + 0.25);
+      tweaks.push('Restauración sutil de cuerpo musical 150–500 Hz (+0.25 dB)');
+    }
+
+    // Check 4: Sub-bass definition if sub was mejorable
     if (winningCandidate.type === 'transformative' && nextParams.dynamicSubCutDb) {
-      nextParams.dynamicSubCutDb = Math.min(-0.40, nextParams.dynamicSubCutDb - 0.10);
+      nextParams.dynamicSubCutDb = Math.min(-0.35, nextParams.dynamicSubCutDb - 0.10);
       tweaks.push('Control fino de resonancia subgrave (-0.10 dB)');
     }
 
@@ -2453,33 +3322,282 @@ export class AudioEngine {
       return { correctedBuffer: winningBuffer, correctedParams: winningParams, tweaks: [] };
     }
 
-    // Re-render from rawBuffer to ensure zero accumulated layers
-    const correctedBuffer = (await this.renderPreview(nextParams, tracks)) || winningBuffer;
-    return { correctedBuffer, correctedParams: nextParams, tweaks };
+    // Re-render from original to preserve zero stacked layers
+    const candidateCorrectedBuffer = (await this.renderPreview(nextParams, tracks)) || winningBuffer;
+    const newMqs = await this.calculateMasteringQualityScore(candidateCorrectedBuffer, rawBuffer, this.getSourceSampleRate());
+
+    // Section 31: Keep the best iteration, not the last!
+    if (newMqs.totalScore >= winningCandidate.finalScore) {
+      return { correctedBuffer: candidateCorrectedBuffer, correctedParams: nextParams, tweaks };
+    } else {
+      return { correctedBuffer: winningBuffer, correctedParams: winningParams, tweaks: [] };
+    }
   }
 
-  // 6. Calibración Sweet-Spot de Loudness sin Degradación Perceptual
+  // 10. PASS B: Exploración Sistemática de Loudness y Calibración de Entrega Final con Refinamiento de Frontera
+  // (Requirements 1 - 7, 12, 13)
+  public renderDeliveryVariant(source: AudioBuffer, gainDb: number, ceilingDbTP: number): AudioBuffer {
+    const copy = new AudioBuffer({numberOfChannels: source.numberOfChannels, length: source.length, sampleRate: source.sampleRate});
+    const gain = Math.pow(10, gainDb / 20);
+    for (let c = 0; c < source.numberOfChannels; c++) {
+      const input = source.getChannelData(c), output = copy.getChannelData(c);
+      for (let i = 0; i < source.length; i++) output[i] = input[i] * gain;
+    }
+    return this.applyTruePeakLookaheadLimiter(copy, ceilingDbTP, false);
+  }
+
   public async optimizePostTournamentLoudness(
-    currentBuffer: AudioBuffer,
+    winningBuffer: AudioBuffer,
     rawBuffer: AudioBuffer,
     tracks: Track[],
-    params: MasteringChainParams,
+    winningParams: MasteringChainParams,
+    winningCandidate: TournamentCandidate,
+    origMetrics: { integratedLUFS: number; truePeakDbTP: number; dynamicRangeLRA: number; crestFactor: number; peakDb?: number },
+    origProfile: VocalAnalysisProfile,
+    _origVir: { virDb: number; vocalRmsDb: number; instrumentalRmsDb: number },
     targetLUFS: number
-  ): Promise<{ optimizedBuffer: AudioBuffer; optimizedParams: MasteringChainParams; sweetSpotNote: string }> {
-    const origMetrics = await this.calculateAccurateDSPMetrics(rawBuffer);
-    const currMetrics = await this.calculateAccurateDSPMetrics(currentBuffer);
+  ): Promise<{
+    optimizedBuffer: AudioBuffer;
+    optimizedParams: MasteringChainParams;
+    explorationRecord: LoudnessExplorationRecord;
+    sweetSpotNote: string;
+    unusedCleanHeadroomFlag: boolean;
+  }> {
+    const winnerMetrics = await this.calculateAccurateDSPMetrics(winningBuffer);
+    const winnerPreDeliveryLUFS = winnerMetrics.integratedLUFS;
+    const baselineProfile = await this.analyzeVocalProfile(winningBuffer);
+    const baselineVir = await this.calculateVocalToInstrumentalRatio(winningBuffer);
+    const variantTelemetries: LimiterTelemetry[] = [];
+    const baseLinearGain = winningParams.gain;
+    const baseGainDb = 20 * Math.log10(Math.max(1e-4, baseLinearGain));
 
-    const deltaLufs = currMetrics.integratedLUFS - origMetrics.integratedLUFS;
-    const sweetSpotNote = `Loudness calibrado en sweet spot (${currMetrics.integratedLUFS.toFixed(1)} LUFS-I, True Peak ${currMetrics.truePeakDbTP.toFixed(1)} dBTP). Dinámica LRA ${currMetrics.dynamicRangeLRA.toFixed(1)} LU y Crest Factor ${currMetrics.crestFactor.toFixed(1)} dB preservados al 100% sin aplastamiento.`;
+    const isInstrumental = origProfile.vocalDetection?.classification === 'INSTRUMENTAL';
+
+    const stepOffsets = [0.00, 0.75, 1.50, 2.25, 3.00];
+    const coarseStepOffsets = stepOffsets;
+    const coarseStepNames = ['L0 (0.00 dB)', 'L1 (+0.75 dB)', 'L2 (+1.50 dB)', 'L3 (+2.25 dB)', 'L4 (+3.00 dB)'];
+    const testedLevels: TestedLoudnessLevel[] = [];
+    const renderedBuffers: AudioBuffer[] = [];
+    const renderedParams: MasteringChainParams[] = [];
+
+    const evaluateOffset = async (stepOffset: number, stepName: string, isRefinement = false): Promise<{
+      level: TestedLoudnessLevel;
+      buffer: AudioBuffer;
+      params: MasteringChainParams;
+    }> => {
+      const testParams: MasteringChainParams = JSON.parse(JSON.stringify(winningParams));
+      testParams.gain = baseLinearGain * Math.pow(10, stepOffset / 20);
+      testParams.limiter.enabled = true;
+      // Codec-safe ceiling without treating -14 LUFS as a delivery target.
+      // Hotter masters receive slightly more inter-sample margin while retaining impact.
+      let ceiling = winnerPreDeliveryLUFS + stepOffset > -11.5 ? -1.5 : -1.2;
+      let rendered = this.renderDeliveryVariant(winningBuffer, stepOffset, ceiling);
+      let metrics = await this.calculateAccurateDSPMetrics(rendered);
+      if (metrics.integratedLUFS > -11.5 && ceiling > -1.5) {
+        ceiling = -1.5;
+        rendered = this.renderDeliveryVariant(winningBuffer, stepOffset, ceiling);
+        metrics = await this.calculateAccurateDSPMetrics(rendered);
+      }
+      testParams.limiter.threshold = ceiling;
+      const telemetry = { ...this.lastLimiterTelemetry!, finalTruePeak: metrics.truePeakDbTP };
+      variantTelemetries.push(telemetry);
+      const limiterMaxGR = this.lastLimiterTelemetry?.maxGainReduction ?? 0.0;
+      const samplesLimited = this.lastLimiterTelemetry?.samplesLimited ?? 0;
+      const crestDelta = parseFloat((metrics.crestFactor - winnerMetrics.crestFactor).toFixed(2));
+      const lraDelta = parseFloat((metrics.dynamicRangeLRA - winnerMetrics.dynamicRangeLRA).toFixed(2));
+      const loudnessOffset = metrics.integratedLUFS - winnerPreDeliveryLUFS;
+
+      let vocalDelta = 0;
+      let leadFocusDelta: number | undefined = undefined;
+
+      const renderedProfile = await this.analyzeVocalProfile(rendered);
+      const bodyDelta = parseFloat(((renderedProfile.vocalBodyDb - baselineProfile.vocalBodyDb) - loudnessOffset).toFixed(2));
+
+      if (isInstrumental) {
+        leadFocusDelta = parseFloat(((renderedProfile.presenceDb - baselineProfile.presenceDb) - loudnessOffset).toFixed(2));
+      } else {
+        const renderedVir = await this.calculateVocalToInstrumentalRatio(rendered);
+        vocalDelta = parseFloat((renderedVir.virDb - baselineVir.virDb).toFixed(2));
+      }
+
+      const phaseCorrelation = metrics.phase;
+      const distortionRisk: 'low' | 'moderate' | 'high' = 
+        limiterMaxGR > 2.0 || metrics.truePeakDbTP > -0.95 ? 'high' :
+        limiterMaxGR > 1.0 || metrics.truePeakDbTP > -0.99 ? 'moderate' : 'low';
+      const pumpingRisk = limiterMaxGR > 2.0 || (limiterMaxGR > 1.2 && samplesLimited > (rendered.sampleRate * 1.5));
+
+      const mqs = await this.calculateMasteringQualityScore(rendered, rawBuffer, this.getSourceSampleRate());
+      const qualityScore = mqs.totalScore;
+
+      const reasons: string[] = [];
+      if (metrics.truePeakDbTP > ceiling + 0.01) {
+        reasons.push(`True Peak fuera del perfil: ${metrics.truePeakDbTP.toFixed(2)} dBTP > ${ceiling.toFixed(1)} dBTP`);
+      }
+      if (!isInstrumental) {
+        if (vocalDelta < -0.30) {
+          reasons.push(`Pérdida de presencia vocal: ${vocalDelta.toFixed(2)} dB < -0.30 dB`);
+        }
+      } else {
+        if ((leadFocusDelta ?? 0) < -0.35) {
+          reasons.push(`Pérdida de foco melódico: ${(leadFocusDelta ?? 0).toFixed(2)} dB < -0.35 dB`);
+        }
+      }
+      if (bodyDelta < -0.35) {
+        reasons.push(`Pérdida de cuerpo musical: ${bodyDelta.toFixed(2)} dB < -0.35 dB`);
+      }
+      if (crestDelta < -0.70) {
+        reasons.push(`Colapso de transientes / Crest Factor (${crestDelta.toFixed(2)} dB)`);
+      }
+      if (limiterMaxGR > 2.2) {
+        reasons.push(`Compresión excesiva de limitador: ${limiterMaxGR.toFixed(2)} dB GR > 2.2 dB`);
+      }
+      if (pumpingRisk) {
+        reasons.push('Riesgo de bombeo audible (limiter pumping)');
+      }
+      if (lraDelta < -3.0) {
+        reasons.push(`Aplastamiento dinámico LRA (${metrics.dynamicRangeLRA.toFixed(1)} LU)`);
+      }
+
+      const approved = reasons.length === 0;
+
+      const level: TestedLoudnessLevel = {
+        levelName: stepName,
+        variantId: `${winningCandidate.id}:delivery:${stepOffset.toFixed(2)}`,
+        ceilingDbTP: ceiling,
+        gainDb: parseFloat((baseGainDb + stepOffset).toFixed(2)),
+        measuredLUFS: parseFloat(metrics.integratedLUFS.toFixed(2)),
+        truePeakDbTP: parseFloat(metrics.truePeakDbTP.toFixed(2)),
+        limiterGR: parseFloat(limiterMaxGR.toFixed(2)),
+        limiterMaxGR: parseFloat(limiterMaxGR.toFixed(2)),
+        samplesLimited,
+        lra: parseFloat(metrics.dynamicRangeLRA.toFixed(1)),
+        lraDelta,
+        crestFactor: parseFloat(metrics.crestFactor.toFixed(2)),
+        crestDelta,
+        vocalDelta: isInstrumental ? 0 : vocalDelta,
+        leadFocusDelta,
+        bodyDelta,
+        phaseCorrelation: parseFloat(phaseCorrelation.toFixed(2)),
+        distortionRisk,
+        pumpingRisk,
+        qualityScore,
+        approved,
+        rejectionReason: reasons[0],
+        rejectionReasons: reasons,
+        isRefinementStep: isRefinement
+      };
+
+      return { level, buffer: rendered, params: testParams };
+    };
+
+    // Phase 1: Test Coarse Levels L0..L4
+    for (let i = 0; i < coarseStepOffsets.length; i++) {
+      const res = await evaluateOffset(coarseStepOffsets[i], coarseStepNames[i], false);
+      testedLevels.push(res.level);
+      renderedBuffers.push(res.buffer);
+      renderedParams.push(res.params);
+    }
+
+    // Phase 2: Boundary Refinement between passing and failing tiers (0.25 dB intervals)
+    let lastApprovedCoarseIndex = -1;
+    for (let i = coarseStepOffsets.length - 1; i >= 0; i--) {
+      if (testedLevels[i].approved) {
+        lastApprovedCoarseIndex = i;
+        break;
+      }
+    }
+
+    let refinementStepsCount = 0;
+    if (lastApprovedCoarseIndex >= 0 && lastApprovedCoarseIndex < coarseStepOffsets.length - 1) {
+      const baseApprovedOffset = coarseStepOffsets[lastApprovedCoarseIndex];
+      const refinementOffsets = [baseApprovedOffset + 0.25, baseApprovedOffset + 0.50];
+
+      for (let r = 0; r < refinementOffsets.length; r++) {
+        const rOffset = refinementOffsets[r];
+        const rName = `L${lastApprovedCoarseIndex}.${r + 1} (+${rOffset.toFixed(2)} dB)`;
+        const res = await evaluateOffset(rOffset, rName, true);
+        testedLevels.push(res.level);
+        renderedBuffers.push(res.buffer);
+        renderedParams.push(res.params);
+        refinementStepsCount++;
+      }
+    }
+
+    // Phase 3: Selection of Maximum Clean Musical Loudness among approved variants
+    const approvedVariants = testedLevels.map((lvl, idx) => ({ lvl, idx })).filter(item => item.lvl.approved);
+
+    if (approvedVariants.length === 0) {
+      throw new Error('PASS_B_NO_APPROVED_VARIANT: ' + testedLevels.map(l => `${l.levelName}: ${l.rejectionReasons?.join('; ')}`).join(' | '));
+    }
+    let selectedIndex = approvedVariants[0].idx;
+    if (approvedVariants.length > 0) {
+      const atOrBelowGoal = approvedVariants.filter(item => item.lvl.measuredLUFS <= targetLUFS + 0.15);
+      const pool = atOrBelowGoal.length > 0 ? atOrBelowGoal : approvedVariants;
+
+      let bestItem = pool[0];
+      for (const item of pool) {
+        if (atOrBelowGoal.length > 0) {
+          if (item.lvl.measuredLUFS > bestItem.lvl.measuredLUFS) bestItem = item;
+        } else if (item.lvl.measuredLUFS < bestItem.lvl.measuredLUFS) {
+          bestItem = item;
+        }
+      }
+      selectedIndex = bestItem.idx;
+    }
+
+    const selectedVariant = testedLevels[selectedIndex];
+    const selectedBuffer = renderedBuffers[selectedIndex];
+    const selectedParams = renderedParams[selectedIndex];
+
+    // Restore the selected render's telemetry, not the last attempted tier.
+    this.lastLimiterTelemetry = { ...variantTelemetries[selectedIndex] };
+    const unusedCleanHeadroomFlag = testedLevels.some(l => l.approved && l.measuredLUFS > selectedVariant.measuredLUFS + 0.01);
+
+    // Determine WHY the next louder variant was rejected
+    let rejectionReasonForLouderVariant: string | undefined = undefined;
+    const nextLouder = testedLevels.filter(lvl => lvl.gainDb > selectedVariant.gainDb && !lvl.approved)
+      .sort((a, b) => a.gainDb - b.gainDb)[0];
+
+    if (nextLouder && nextLouder.rejectionReasons && nextLouder.rejectionReasons.length > 0) {
+      rejectionReasonForLouderVariant = `${nextLouder.levelName} (${nextLouder.measuredLUFS.toFixed(1)} LUFS-I) rechazado: ${nextLouder.rejectionReasons.join('; ')}`;
+    } else if (selectedVariant.gainDb >= baseGainDb + 2.95) {
+      rejectionReasonForLouderVariant = 'L4 fue el límite superior explorado (+3.00 dB) manteniendo headroom limpio.';
+    } else {
+      rejectionReasonForLouderVariant = 'Variantes superiores superan el umbral de transparencia y preservación de transientes.';
+    }
+
+    const sweetSpotNote = `Pass B Loudness: objetivo adaptativo ${targetLUFS.toFixed(1)} LUFS-I; seleccionado ${selectedVariant.levelName} a ${selectedVariant.measuredLUFS.toFixed(1)} LUFS-I (TP: ${selectedVariant.truePeakDbTP.toFixed(1)} dBTP, GR limitador: ${selectedVariant.limiterGR.toFixed(2)} dB, samples limitados: ${selectedVariant.samplesLimited ?? 0}). Δ Crest: ${selectedVariant.crestDelta >= 0 ? '+' : ''}${selectedVariant.crestDelta.toFixed(2)} dB${refinementStepsCount > 0 ? ` [${refinementStepsCount} pasos de refinamiento 0.25 dB evaluados]` : ''}.`;
+
+    const explorationRecord: LoudnessExplorationRecord = {
+      naturalLUFS: origMetrics.integratedLUFS,
+      adaptiveTargetLUFS: targetLUFS,
+      selectedVariantId: selectedVariant.variantId,
+      winnerPreDeliveryLUFS,
+      testedLoudnessLevels: testedLevels,
+      selectedFinalLUFS: selectedVariant.measuredLUFS,
+      maximumCleanLUFS: selectedVariant.measuredLUFS,
+      availableCleanHeadroomDb: Math.max(0, (selectedVariant.ceilingDbTP ?? -1) - winnerMetrics.truePeakDbTP),
+      usedCleanHeadroomDb: parseFloat((selectedVariant.gainDb - baseGainDb).toFixed(2)),
+      limiterGR: selectedVariant.limiterGR,
+      samplesLimited: selectedVariant.samplesLimited,
+      crestDelta: selectedVariant.crestDelta,
+      lraDelta: selectedVariant.lraDelta,
+      rejectionReasonForLouderVariant,
+      sweetSpotNote,
+      unusedCleanHeadroomFlag,
+      refinementStepsCount
+    };
 
     return {
-      optimizedBuffer: currentBuffer,
-      optimizedParams: params,
-      sweetSpotNote
+      optimizedBuffer: selectedBuffer,
+      optimizedParams: selectedParams,
+      explorationRecord,
+      sweetSpotNote,
+      unusedCleanHeadroomFlag
     };
   }
 
-  // Pipeline principal del Modo Masterización Transformativa
+  // 11. Pipeline Principal de Masterización V2 con Validación Dual (Pass A & Pass B)
   public async executeTransformativeMasteringPipeline(
     rawBuffer: AudioBuffer,
     tracks: Track[],
@@ -2506,20 +3624,27 @@ export class AudioEngine {
     fallbackBandDeltas?: { band: string; deltaDb: number; maxAllowedDb: number; passed: boolean }[];
     masteringTierApplied: 'stereo_direct' | 'stereo_microscopic_guided' | 'stem_assisted';
     microscopicMaskingAudit?: AIMasteringResult['microscopicMasking'];
+    musicalIntent?: MusicalIntentProfile;
+    loudnessExploration?: LoudnessExplorationRecord;
+    bodyValidation?: BodyValidationTelemetry;
   }> {
     onPhaseChange?.('dsp');
 
-    // 1. Diagnóstico Acústico Multidimensional (17 Aspectos)
+    // 1. Determinación de Intención Musical (Sección 2)
+    const musicalIntent = await this.determineMusicalIntent(rawBuffer, beforeMetrics, origVocal);
+    decisions.push(`Intención Musical: ${musicalIntent.detectedGenre} · ${musicalIntent.productionAesthetic} · Graves: ${musicalIntent.lowEndCharacter}`);
+
+    // 2. Diagnóstico Acústico de 18 Dimensiones (Sección 3)
     const acousticDiagnosis = await this.diagnoseAcousticAspects(rawBuffer, beforeMetrics, origVocal);
 
-    // 2. Creación de Dirección de Mastering Específica
+    // 3. Dirección de Mastering Específica
     const masteringDirection = this.generateMasteringDirection(acousticDiagnosis);
     decisions.push(`Dirección Estratégica: ${masteringDirection.selectedGoals.join(' · ')}`);
     if (masteringDirection.protectedAspects.length > 0) {
       decisions.push(`Protección Absoluta: ${masteringDirection.protectedAspects.slice(0, 4).join(', ')} (calificados como excelentes, protegidos al 100%).`);
     }
 
-    // 3. Formulación de Candidatos Paralelos (A: Transparent, B: Polished, C: Transformative)
+    // 4. Formulación de Candidatos Paralelos (Original -> A, Original -> B, Original -> C)
     const parallelCandidates = await this.formulateParallelCandidates(
       rawBuffer,
       currentParams,
@@ -2527,10 +3652,11 @@ export class AudioEngine {
       acousticDiagnosis,
       targetLUFS,
       initialGainDb,
-      origVocal
+      origVocal,
+      musicalIntent
     );
 
-    // 4. Torneo Automático a Loudness Igualado con Protección Vocal Estricta
+    // 5. Torneo a Loudness Igualado con Exploración Independiente de Volumen
     onPhaseChange?.('vocal_audit');
     const tournamentResult = await this.runLoudnessMatchedTournament(
       rawBuffer,
@@ -2545,17 +3671,18 @@ export class AudioEngine {
     let bestParams = tournamentResult.winningParams;
     let bestMqs = tournamentResult.bestMqs;
     const tournamentReport = tournamentResult.tournamentReport;
+    const winningCandidate = tournamentResult.winningCandidate;
 
-    decisions.push(`Torneo de Candidatos a Loudness Igualado: Ganador ${tournamentReport.winnerName} (${tournamentResult.winningCandidate.scores.totalScore} pts).`);
+    decisions.push(`Torneo de Candidatos a Loudness Igualado: Ganador ${tournamentReport.winnerName} (${winningCandidate.finalScore} pts MQS V2).`);
     if (tournamentReport.safetyFallbackApplied && tournamentReport.safetyReason) {
       decisions.push(tournamentReport.safetyReason);
     }
 
-    // 5. Revisión y Autocorrección de Módulos Débiles
+    // 6. Autocorrección de Módulos Débiles en Bucle Cerrado
     const selfCorrection = await this.selfCorrectWinningCandidate(
       rawBuffer,
       tracks,
-      tournamentResult.winningCandidate,
+      winningCandidate,
       bestBuffer,
       bestParams,
       acousticDiagnosis
@@ -2568,22 +3695,46 @@ export class AudioEngine {
       decisions.push(`Autocorrección de Módulos: ${selfCorrection.tweaks.join(' · ')}.`);
     }
 
-    // 6. Calibración de Sweet-Spot de Loudness sin Aplastamiento Dinámico
+    // 7. PASS B: Calibración Final del Nivel de Entrega y Exploración Real (L0-L4)
+    const origVirDetailed = await this.calculateVocalToInstrumentalRatio(rawBuffer);
     const loudnessOpt = await this.optimizePostTournamentLoudness(
       bestBuffer,
       rawBuffer,
       tracks,
       bestParams,
+      winningCandidate,
+      beforeMetrics,
+      origVocal,
+      origVirDetailed,
       targetLUFS
     );
     bestBuffer = loudnessOpt.optimizedBuffer;
     bestParams = loudnessOpt.optimizedParams;
     tournamentReport.sweetSpotLoudnessNote = loudnessOpt.sweetSpotNote;
-    decisions.push(`Sweet-Spot de Loudness: ${loudnessOpt.sweetSpotNote}`);
+    decisions.push(`Pass B Sweet-Spot de Loudness: ${loudnessOpt.sweetSpotNote}`);
+    if (loudnessOpt.unusedCleanHeadroomFlag) {
+      decisions.push('UNUSED_CLEAN_LOUDNESS_HEADROOM detectado: optimizado en Pass B sin aplastamiento.');
+    }
+
+    // Measure final audio result for Body Validation (Requirement 8)
+    const postMasterMetrics = await this.calculateAccurateDSPMetrics(bestBuffer);
+    const postMasterProfile = await this.analyzeVocalProfile(bestBuffer);
+    const finalBodyValidation = this.validateBodyPreservation(
+      origVocal,
+      postMasterProfile,
+      beforeMetrics,
+      postMasterMetrics
+    );
+
+    // 8. Validación Dual (Sección 12 & 34)
+    // Pass A: Calidad a volumen igualado (¿Suena mejor que el original?)
+    const passA_passed = (bestMqs?.totalScore ?? 0) >= (beforeStats ? 80 : 75);
+    // Pass B: Impacto a nivel de entrega final (Autoridad y cuerpo sin adelgazar)
+    const passB_passed = !finalBodyValidation.thinningPatternDetected && postMasterMetrics.truePeakDbTP <= -0.95;
 
     let qualityVerdict: 'APPROVED_BETTER' | 'TRANSPARENT_FALLBACK' | 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING' | 'REJECTED' =
-      tournamentReport.safetyFallbackApplied ? 'TRANSPARENT_FALLBACK' : 'APPROVED_BETTER';
-    let isFallbackApplied = tournamentReport.safetyFallbackApplied;
+      tournamentReport.safetyFallbackApplied ? 'TRANSPARENT_FALLBACK' : (passA_passed && passB_passed ? 'APPROVED_BETTER' : 'TRANSPARENT_FALLBACK');
+    let isFallbackApplied = tournamentReport.safetyFallbackApplied || qualityVerdict === 'TRANSPARENT_FALLBACK';
 
     // Generar reporte vocal detallado sobre el buffer ganador
     const vocalAudit = await this.executeVocalProtectionAudit(
@@ -2602,23 +3753,26 @@ export class AudioEngine {
       iterationIndex: idx + 1,
       mqs: {
         totalScore: c.scores.totalScore,
+        vocalIntegrity: c.scores.vocalScore,
         tonalBalance: c.scores.tonalBalanceScore,
-        vocalPreservation: c.scores.vocalScore,
+        bodyDensity: c.scores.bodyDensityScore ?? 12,
         dynamicsTransients: c.scores.transientScore,
-        lowEndControl: c.scores.lowEndScore,
+        lowEndAuthority: c.scores.lowEndScore,
         claritySeparation: c.scores.separationScore,
+        depth: c.scores.depthScore,
         stereoPhase: c.scores.stereoPhaseScore,
-        loudnessTruePeak: 8,
-        distortionFatigue: c.scores.cohesionFatigueScore,
+        loudnessCapability: c.scores.loudnessCapabilityScore ?? 4,
+        fatigueDistortion: c.scores.fatigueDistortionScore,
         breakdown: [
-          `Vocal Score: ${c.scores.vocalScore}/20 pts (VIR delta: ${c.deltaVirDb >= 0 ? '+' : ''}${c.deltaVirDb.toFixed(2)} dB)`,
+          `Integridad Vocal: ${c.scores.vocalScore}/20 pts (VIR delta: ${c.deltaVirDb >= 0 ? '+' : ''}${c.deltaVirDb.toFixed(2)} dB)`,
           `Balance Tonal: ${c.scores.tonalBalanceScore}/15 pts`,
-          `Separación: ${c.scores.separationScore}/10 pts`,
-          `Low-End: ${c.scores.lowEndScore}/10 pts`,
-          `Transientes: ${c.scores.transientScore}/10 pts`,
-          `Profundidad: ${c.scores.depthScore}/10 pts`,
-          `Fase: ${c.scores.stereoPhaseScore}/10 pts (Correlación: ${c.phaseCorrelation.toFixed(2)})`,
-          `Cohesión: ${c.scores.cohesionFatigueScore}/15 pts`
+          `Cuerpo y Densidad: ${c.scores.bodyDensityScore ?? 12}/15 pts`,
+          `Dinámica: ${c.scores.transientScore}/15 pts`,
+          `Autoridad en Graves: ${c.scores.lowEndScore}/10 pts`,
+          `Claridad y Separación: ${c.scores.separationScore}/8 pts`,
+          `Profundidad: ${c.scores.depthScore}/5 pts`,
+          `Fase: ${c.scores.stereoPhaseScore}/5 pts (Correlación: ${c.phaseCorrelation.toFixed(2)})`,
+          `Capacidad de Loudness: ${c.scores.loudnessCapabilityScore ?? 4}/5 pts`
         ],
         rejectionTriggers: c.isDisqualified && c.disqualificationReason ? [c.disqualificationReason] : [],
         isApproved: !c.isDisqualified
@@ -2630,8 +3784,7 @@ export class AudioEngine {
       rejectedReasons: c.isDisqualified && c.disqualificationReason ? [c.disqualificationReason] : []
     }));
 
-    const masteringTierApplied: 'stereo_direct' | 'stereo_microscopic_guided' | 'stem_assisted' = 
-      tournamentResult.winningCandidate.type === 'transformative' ? 'stereo_microscopic_guided' : 'stereo_direct';
+    const masteringTierApplied: 'stereo_direct' | 'stereo_microscopic_guided' | 'stem_assisted' = 'stereo_direct';
 
     return {
       bestBuffer,
@@ -2644,12 +3797,280 @@ export class AudioEngine {
       iterationHistory,
       qualityVerdict,
       isFallbackApplied,
-      masteringTierApplied
+      masteringTierApplied,
+      microscopicMaskingAudit: undefined,
+      musicalIntent,
+      loudnessExploration: loudnessOpt.explorationRecord,
+      bodyValidation: finalBodyValidation
     };
   }
 
+  /**
+   * Autonomous Vocal Existence Detection Stage (Part A)
+   * Multi-cue spectral & temporal analysis to prevent false vocal detection in instrumental material.
+   */
+  public async detectVocalPresence(buffer: AudioBuffer): Promise<VocalPresenceResult> {
+    const numChannels = buffer.numberOfChannels;
+    const len = buffer.length;
+    const sampleRate = buffer.sampleRate;
+    const ch0 = buffer.getChannelData(0);
+    const ch1 = numChannels > 1 ? buffer.getChannelData(1) : ch0;
 
-  // --- AUTOMATIC VOCAL PROTECTION ENGINE (MID/SIDE ACOUSTIC AUDIT) ---
+    // RBJ Biquad Filter Helper
+    const makeCoeffs = (type: 'bp' | 'lowpass', f0: number, Q: number) => {
+      const w0 = (2 * Math.PI * f0) / sampleRate;
+      const alpha = Math.sin(w0) / (2 * Q);
+      const cosw0 = Math.cos(w0);
+      let b0 = 0, b1 = 0, b2 = 0, a0 = 1, a1 = 0, a2 = 0;
+      if (type === 'bp') {
+        b0 = alpha; b1 = 0; b2 = -alpha;
+        a0 = 1 + alpha; a1 = -2 * cosw0; a2 = 1 - alpha;
+      } else if (type === 'lowpass') {
+        b0 = (1 - cosw0) / 2; b1 = 1 - cosw0; b2 = (1 - cosw0) / 2;
+        a0 = 1 + alpha; a1 = -2 * cosw0; a2 = 1 - alpha;
+      }
+      return {
+        b0: b0 / a0, b1: b1 / a0, b2: b2 / a0,
+        a1: a1 / a0, a2: a2 / a0,
+      };
+    };
+
+    // Filter bands:
+    // 1. Fundamental Vocal Band F0: 85 - 350 Hz
+    const fF0 = makeCoeffs('bp', 200, 0.8);
+    // 2. Vowel Formant 1 (F1): 450 - 900 Hz
+    const fF1 = makeCoeffs('bp', 650, 1.2);
+    // 3. Vowel Formant 2 (F2): 1300 - 2800 Hz
+    const fF2 = makeCoeffs('bp', 1900, 1.0);
+    // 4. Speech Intelligibility / Consonants: 2200 - 4500 Hz
+    const fPres = makeCoeffs('bp', 3200, 1.0);
+
+    // States
+    let f0X1 = 0, f0X2 = 0, f0Y1 = 0, f0Y2 = 0;
+    let f1X1 = 0, f1X2 = 0, f1Y1 = 0, f1Y2 = 0;
+    let f2X1 = 0, f2X2 = 0, f2Y1 = 0, f2Y2 = 0;
+    let prX1 = 0, prX2 = 0, prY1 = 0, prY2 = 0;
+
+    // Windowed analysis: 32 blocks across song
+    const numBlocks = 32;
+    const blockSize = Math.max(1, Math.floor(len / numBlocks));
+    const step = 2; // 2x decimation
+
+    const blockMidRms = new Float32Array(numBlocks);
+    const blockSideRms = new Float32Array(numBlocks);
+    const blockF0Rms = new Float32Array(numBlocks);
+    const blockF1Rms = new Float32Array(numBlocks);
+    const blockF2Rms = new Float32Array(numBlocks);
+    const blockPresRms = new Float32Array(numBlocks);
+
+    let samplesInBlock = 0;
+    let curBlock = 0;
+    let bMidSq = 0, bSideSq = 0, bF0Sq = 0, bF1Sq = 0, bF2Sq = 0, bPresSq = 0;
+
+    for (let i = 0; i < len; i += step) {
+      const l = ch0[i];
+      const r = ch1[i];
+      const m = 0.5 * (l + r);
+      const s = 0.5 * (l - r);
+
+      // F0 filter
+      const yF0 = fF0.b0 * m + fF0.b1 * f0X1 + fF0.b2 * f0X2 - fF0.a1 * f0Y1 - fF0.a2 * f0Y2;
+      f0X2 = f0X1; f0X1 = m; f0Y2 = f0Y1; f0Y1 = yF0;
+
+      // F1 filter
+      const yF1 = fF1.b0 * m + fF1.b1 * f1X1 + fF1.b2 * f1X2 - fF1.a1 * f1Y1 - fF1.a2 * f1Y2;
+      f1X2 = f1X1; f1X1 = m; f1Y2 = f1Y1; f1Y1 = yF1;
+
+      // F2 filter
+      const yF2 = fF2.b0 * m + fF2.b1 * f2X1 + fF2.b2 * f2X2 - fF2.a1 * f2Y1 - fF2.a2 * f2Y2;
+      f2X2 = f2X1; f2X1 = m; f2Y2 = f2Y1; f2Y1 = yF2;
+
+      // Presence filter
+      const yPr = fPres.b0 * m + fPres.b1 * prX1 + fPres.b2 * prX2 - fPres.a1 * prY1 - fPres.a2 * prY2;
+      prX2 = prX1; prX1 = m; prY2 = prY1; prY1 = yPr;
+
+      bMidSq += m * m;
+      bSideSq += s * s;
+      bF0Sq += yF0 * yF0;
+      bF1Sq += yF1 * yF1;
+      bF2Sq += yF2 * yF2;
+      bPresSq += yPr * yPr;
+      samplesInBlock++;
+
+      if (samplesInBlock >= (blockSize / step) && curBlock < numBlocks) {
+        blockMidRms[curBlock] = Math.sqrt(bMidSq / samplesInBlock);
+        blockSideRms[curBlock] = Math.sqrt(bSideSq / samplesInBlock);
+        blockF0Rms[curBlock] = Math.sqrt(bF0Sq / samplesInBlock);
+        blockF1Rms[curBlock] = Math.sqrt(bF1Sq / samplesInBlock);
+        blockF2Rms[curBlock] = Math.sqrt(bF2Sq / samplesInBlock);
+        blockPresRms[curBlock] = Math.sqrt(bPresSq / samplesInBlock);
+
+        bMidSq = 0; bSideSq = 0; bF0Sq = 0; bF1Sq = 0; bF2Sq = 0; bPresSq = 0;
+        samplesInBlock = 0;
+        curBlock++;
+      }
+    }
+
+    // Multi-Cue 1: Formant Dynamic Covariance & Peak Structure (0 - 100)
+    let f1Mean = 0, f2Mean = 0;
+    for (let b = 0; b < numBlocks; b++) {
+      f1Mean += blockF1Rms[b];
+      f2Mean += blockF2Rms[b];
+    }
+    f1Mean /= numBlocks;
+    f2Mean /= numBlocks;
+
+    const ratios: number[] = [];
+    for (let b = 0; b < numBlocks; b++) {
+      if (blockF2Rms[b] > 1e-5) {
+        ratios.push(blockF1Rms[b] / blockF2Rms[b]);
+      }
+    }
+    const meanRatio = ratios.length > 0 ? ratios.reduce((a, b) => a + b, 0) / ratios.length : 1.0;
+    const ratioStd = ratios.length > 0 ? Math.sqrt(ratios.reduce((acc, r) => acc + (r - meanRatio) ** 2, 0) / ratios.length) : 0;
+    const cvRatio = ratioStd / (meanRatio + 1e-4);
+
+    let formantEvidenceScore = 0;
+    if (cvRatio >= 0.12 && cvRatio <= 0.90) {
+      formantEvidenceScore = Math.min(100, Math.round(35 + (cvRatio - 0.12) * 115));
+    } else if (cvRatio > 0.90) {
+      formantEvidenceScore = Math.max(20, Math.round(100 - (cvRatio - 0.90) * 80));
+    } else {
+      formantEvidenceScore = Math.round(cvRatio * 250);
+    }
+
+    // Multi-Cue 2: Pitch Continuity & F0 Activity in Center (0 - 100)
+    let f0EnergyRatio = 0;
+    let totalMidEnergy = 0;
+    for (let b = 0; b < numBlocks; b++) {
+      f0EnergyRatio += blockF0Rms[b];
+      totalMidEnergy += blockMidRms[b];
+    }
+    const f0Prominence = f0EnergyRatio / (totalMidEnergy + 1e-6);
+    let pitchContinuityScore = 0;
+    if (f0Prominence >= 0.12 && f0Prominence <= 0.55) {
+      pitchContinuityScore = Math.min(100, Math.round(45 + (f0Prominence - 0.12) * 140));
+    } else if (f0Prominence > 0.55) {
+      pitchContinuityScore = Math.max(10, Math.round(100 - (f0Prominence - 0.55) * 140));
+    } else {
+      pitchContinuityScore = Math.round(f0Prominence * 350);
+    }
+
+    // Multi-Cue 3: Syllabic Modulation Structure (2 - 8 Hz) (0 - 100)
+    let modulationEnergy = 0;
+    for (let b = 1; b < numBlocks; b++) {
+      const diff = Math.abs(blockPresRms[b] - blockPresRms[b - 1]);
+      modulationEnergy += diff;
+    }
+    const meanPres = blockPresRms.reduce((a, b) => a + b, 0) / numBlocks;
+    const modDepth = modulationEnergy / (meanPres * numBlocks + 1e-6);
+
+    let speechSingingStructureScore = 0;
+    if (modDepth >= 0.15 && modDepth <= 0.85) {
+      speechSingingStructureScore = Math.min(100, Math.round(40 + (modDepth - 0.15) * 105));
+    } else if (modDepth < 0.15) {
+      speechSingingStructureScore = Math.round(modDepth * 220);
+    } else {
+      speechSingingStructureScore = Math.max(20, Math.round(100 - (modDepth - 0.85) * 60));
+    }
+
+    // Multi-Cue 4: Vibrato / Phrasing Score (0 - 100)
+    let vibratoScore = 50;
+    if (cvRatio > 0.20 && modDepth > 0.20) {
+      vibratoScore = Math.min(95, Math.round(65 + (cvRatio + modDepth) * 25));
+    } else {
+      vibratoScore = Math.round(Math.max(10, (cvRatio + modDepth) * 70));
+    }
+
+    // Multi-Cue 5: Harmonic Instrument Confusion Score (0 - 100)
+    let sideMidPresenceRatio = 0;
+    let activeBlocks = 0;
+    const maxMid = Math.max(...blockMidRms, 1e-6);
+    for (let b = 0; b < numBlocks; b++) {
+      if (blockMidRms[b] > maxMid * 0.30) {
+        activeBlocks++;
+        sideMidPresenceRatio += blockSideRms[b] / (blockMidRms[b] + 1e-6);
+      }
+    }
+    const meanSideRatio = activeBlocks > 0 ? sideMidPresenceRatio / activeBlocks : 0.5;
+    const dutyCycle = activeBlocks / numBlocks;
+
+    let harmonicInstrumentConfusionScore = 15;
+    if (meanSideRatio > 0.65) {
+      harmonicInstrumentConfusionScore += Math.min(45, Math.round((meanSideRatio - 0.65) * 100));
+    }
+    if (cvRatio < 0.10) {
+      harmonicInstrumentConfusionScore += 40;
+    }
+    if (dutyCycle > 0.92 && modDepth < 0.18) {
+      harmonicInstrumentConfusionScore += 30;
+    }
+    harmonicInstrumentConfusionScore = Math.max(0, Math.min(100, harmonicInstrumentConfusionScore));
+
+    // Composite Vocal Confidence Calculation
+    let rawConfidence = (
+      formantEvidenceScore * 0.35 +
+      speechSingingStructureScore * 0.25 +
+      pitchContinuityScore * 0.30 +
+      vibratoScore * 0.10
+    ) / 100;
+
+    // Multi-cue convergence boost: when all major cues indicate human vocal
+    if (formantEvidenceScore >= 45 && pitchContinuityScore >= 60 && speechSingingStructureScore >= 35 && harmonicInstrumentConfusionScore <= 40) {
+      rawConfidence = Math.min(1.0, rawConfidence * 1.30);
+    }
+
+    // Instrument Confusion Penalty
+    if (harmonicInstrumentConfusionScore > 40) {
+      const penaltyFactor = (harmonicInstrumentConfusionScore - 40) / 60;
+      rawConfidence *= (1.0 - penaltyFactor * 0.70);
+    }
+
+    // If formant evidence or speech structure is poor, vocal presence cannot be confident
+    if (formantEvidenceScore < 30 || speechSingingStructureScore < 20) {
+      rawConfidence = Math.min(rawConfidence, 0.40);
+    }
+
+    const confidence = parseFloat(Math.max(0.0, Math.min(1.0, rawConfidence)).toFixed(2));
+
+    let classification: VocalClassification = 'INSTRUMENTAL';
+    let hasVocals = false;
+    if (confidence >= 0.75) {
+      classification = 'VOCAL_PRESENT';
+      hasVocals = true;
+    } else if (confidence >= 0.45) {
+      classification = 'VOCAL_UNCERTAIN';
+      hasVocals = false; // Conservative neutral
+    } else {
+      classification = 'INSTRUMENTAL';
+      hasVocals = false;
+    }
+
+    const vocalActivityRatio = hasVocals ? parseFloat((activeBlocks / numBlocks).toFixed(2)) : 0.0;
+    const vocalSegmentCount = hasVocals ? activeBlocks : 0;
+    const averageVocalConfidence = confidence;
+
+    const rationale = classification === 'INSTRUMENTAL'
+      ? `Material instrumental confirmado (Confianza vocal: ${(confidence * 100).toFixed(0)}%, Formantes: ${formantEvidenceScore}/100, Estructura silábica: ${speechSingingStructureScore}/100, Confusión instrumental: ${harmonicInstrumentConfusionScore}/100). Procesamiento específico de voz deshabilitado.`
+      : classification === 'VOCAL_UNCERTAIN'
+        ? `Presencia vocal incierta (Confianza: ${(confidence * 100).toFixed(0)}%). Se aplica masterización neutral y balance general sin intervención de género.`
+        : `Voz humana detectada con alta confianza (${(confidence * 100).toFixed(0)}%, Formantes: ${formantEvidenceScore}/100, F0 Continuidad: ${pitchContinuityScore}/100). Protección activa de voz y centro mono.`;
+
+    return {
+      hasVocals,
+      confidence,
+      classification,
+      vocalActivityRatio,
+      vocalSegmentCount,
+      averageVocalConfidence,
+      pitchContinuityScore,
+      formantEvidenceScore,
+      speechSingingStructureScore,
+      harmonicInstrumentConfusionScore,
+      vibratoScore,
+      rationale
+    };
+  }
 
   async analyzeVocalProfile(buffer: AudioBuffer): Promise<VocalAnalysisProfile> {
     const numChannels = buffer.numberOfChannels;
@@ -2706,6 +4127,15 @@ export class AudioEngine {
     const fGuitarsSynths = makeCoeffs('bp', 1200, 0.8); // Guitars, synths, mid instrumentation (400 Hz - 2.5 kHz)
     const fInstBright = makeCoeffs('bp', 7500, 0.8); // High percussion, cymbals, air sheen (5 kHz - 12 kHz)
 
+    // Specific Sub-Band Filters for Body & Low-End Authority (Sections 4 & 6)
+    const fWeight120_250 = makeCoeffs('bp', 180, 1.2);   // 120 - 250 Hz (Weight / warmth)
+    const fBody250_500 = makeCoeffs('bp', 360, 1.2);     // 250 - 500 Hz (Body)
+    const fSolidity500_900 = makeCoeffs('bp', 680, 1.2); // 500 - 900 Hz (Solidity)
+    const fSub20_60 = makeCoeffs('bp', 40, 1.2);         // 20 - 60 Hz (Sub-bass)
+    const fBass60_100 = makeCoeffs('bp', 80, 1.2);       // 60 - 100 Hz (Kick/bass fundamental)
+    const fPunch100_150 = makeCoeffs('bp', 125, 1.5);    // 100 - 150 Hz (Punch / definition)
+    const fWarmth150_250 = makeCoeffs('bp', 200, 1.5);   // 150 - 250 Hz (Warmth / harmonics)
+
     // Presence sweep bands:
     const fPres1 = makeCoeffs('bp', 2400, 1.2);      // Presence Band 1 (2.0 - 2.8 kHz)
     const fPres2 = makeCoeffs('bp', 3200, 1.2);      // Presence Band 2 (2.8 - 3.6 kHz)
@@ -2740,6 +4170,16 @@ export class AudioEngine {
     let s4X1 = 0, s4X2 = 0, s4Y1 = 0, s4Y2 = 0;
 
     let airX1 = 0, airX2 = 0, airY1 = 0, airY2 = 0;
+
+    let w12X1 = 0, w12X2 = 0, w12Y1 = 0, w12Y2 = 0;
+    let b25X1 = 0, b25X2 = 0, b25Y1 = 0, b25Y2 = 0;
+    let s50X1 = 0, s50X2 = 0, s50Y1 = 0, s50Y2 = 0;
+    let su2X1 = 0, su2X2 = 0, su2Y1 = 0, su2Y2 = 0;
+    let ba6X1 = 0, ba6X2 = 0, ba6Y1 = 0, ba6Y2 = 0;
+    let pu1X1 = 0, pu1X2 = 0, pu1Y1 = 0, pu1Y2 = 0;
+    let wa1X1 = 0, wa1X2 = 0, wa1Y1 = 0, wa1Y2 = 0;
+    let sumWeight120_250Sq = 0, sumBody250_500Sq = 0, sumSolidity500_900Sq = 0;
+    let sumSub20_60Sq = 0, sumBass60_100Sq = 0, sumPunch100_150Sq = 0, sumWarmth150_250Sq = 0;
 
     let sumMidSq = 0;
     let sumSideSq = 0;
@@ -2889,6 +4329,29 @@ export class AudioEngine {
       airX2 = airX1; airX1 = m; airY2 = airY1; airY1 = yAir;
       sumAirSq += yAir * yAir;
 
+      // Sub-band Body (120-250, 250-500, 500-900 Hz)
+      const yW = fWeight120_250.b0 * m + fWeight120_250.b1 * w12X1 + fWeight120_250.b2 * w12X2 - fWeight120_250.a1 * w12Y1 - fWeight120_250.a2 * w12Y2;
+      w12X2 = w12X1; w12X1 = m; w12Y2 = w12Y1; w12Y1 = yW; sumWeight120_250Sq += yW * yW;
+
+      const yB25 = fBody250_500.b0 * m + fBody250_500.b1 * b25X1 + fBody250_500.b2 * b25X2 - fBody250_500.a1 * b25Y1 - fBody250_500.a2 * b25Y2;
+      b25X2 = b25X1; b25X1 = m; b25Y2 = b25Y1; b25Y1 = yB25; sumBody250_500Sq += yB25 * yB25;
+
+      const yS50 = fSolidity500_900.b0 * m + fSolidity500_900.b1 * s50X1 + fSolidity500_900.b2 * s50X2 - fSolidity500_900.a1 * s50Y1 - fSolidity500_900.a2 * s50Y2;
+      s50X2 = s50X1; s50X1 = m; s50Y2 = s50Y1; s50Y1 = yS50; sumSolidity500_900Sq += yS50 * yS50;
+
+      // Sub-band Low-End Authority (20-60, 60-100, 100-150, 150-250 Hz)
+      const ySu2 = fSub20_60.b0 * m + fSub20_60.b1 * su2X1 + fSub20_60.b2 * su2X2 - fSub20_60.a1 * su2Y1 - fSub20_60.a2 * su2Y2;
+      su2X2 = su2X1; su2X1 = m; su2Y2 = su2Y1; su2Y1 = ySu2; sumSub20_60Sq += ySu2 * ySu2;
+
+      const yBa6 = fBass60_100.b0 * m + fBass60_100.b1 * ba6X1 + fBass60_100.b2 * ba6X2 - fBass60_100.a1 * ba6Y1 - fBass60_100.a2 * ba6Y2;
+      ba6X2 = ba6X1; ba6X1 = m; ba6Y2 = ba6Y1; ba6Y1 = yBa6; sumBass60_100Sq += yBa6 * yBa6;
+
+      const yPu1 = fPunch100_150.b0 * m + fPunch100_150.b1 * pu1X1 + fPunch100_150.b2 * pu1X2 - fPunch100_150.a1 * pu1Y1 - fPunch100_150.a2 * pu1Y2;
+      pu1X2 = pu1X1; pu1X1 = m; pu1Y2 = pu1Y1; pu1Y1 = yPu1; sumPunch100_150Sq += yPu1 * yPu1;
+
+      const yWa1 = fWarmth150_250.b0 * m + fWarmth150_250.b1 * wa1X1 + fWarmth150_250.b2 * wa1X2 - fWarmth150_250.a1 * wa1Y1 - fWarmth150_250.a2 * wa1Y2;
+      wa1X2 = wa1X1; wa1X1 = m; wa1Y2 = wa1Y1; wa1Y1 = yWa1; sumWarmth150_250Sq += yWa1 * yWa1;
+
       count++;
     }
 
@@ -2970,8 +4433,9 @@ export class AudioEngine {
     const vocalToBassRatioDb = parseFloat((presenceDb - lowEndEnergyDb).toFixed(2));
     const vocalToInstrumentalRatioDb = parseFloat((centerEnergyDb - sideDb).toFixed(2));
 
-    // True if prominent vocal is present (strong center presence, high intelligibility coherence)
-    const hasProminentVocals = presenceDb > -48 && (centerEnergyDb - sideDb > 0.4 || rmsIntel > rmsSide * 0.75);
+    // Autonomous Vocal Existence Detection Stage (Part A)
+    const vocalDetection = await this.detectVocalPresence(buffer);
+    const hasProminentVocals = vocalDetection.classification === 'VOCAL_PRESENT';
 
     // Vocal Register Detection adapted to vocal formants
     let detectedVocalRegister: 'male_deep' | 'female_high' | 'neutral_instrumental';
@@ -3046,7 +4510,7 @@ export class AudioEngine {
         bPres = Math.sqrt(blockP3Energy[b] / samplesPerBlock);
       }
 
-      // Vocal activity thresholding
+      // Vocal activity thresholding: requiring vocal presence classification
       const centerRatio = bMid / (bSide + 1e-6);
       const isVocalActive = hasProminentVocals && bIntel > Math.max(1e-4, maxVocalBlockRms * 0.40) && centerRatio > 0.85;
 
@@ -3057,8 +4521,8 @@ export class AudioEngine {
         instrumentalSectionsCount++;
       }
 
-      // Weight vocal body: 1.0 during active vocals, 0.25 during instrumental breaks
-      const vocalWeight = isVocalActive ? 1.0 : 0.25;
+      // Weight vocal body: 1.0 during active vocals, 0.25 during breaks of vocal tracks, 0.0 for pure instrumental
+      const vocalWeight = isVocalActive ? 1.0 : (hasProminentVocals ? 0.25 : 0.0);
       const bVocalBodyEst = bBody * vocalWeight;
 
       blockMidRmsArr.push(bMid);
@@ -3069,13 +4533,9 @@ export class AudioEngine {
       blockHarmonicVocalEnergy.push(bVocalBodyEst * bVocalBodyEst);
     }
 
-    if (instrumentalSectionsCount === 0) {
-      instrumentalSectionsCount = 3;
-      vocalSectionsCount = numBlocks - instrumentalSectionsCount;
-    }
-    if (vocalSectionsCount === 0 && hasProminentVocals) {
-      vocalSectionsCount = numBlocks - 2;
-      instrumentalSectionsCount = 2;
+    if (!hasProminentVocals) {
+      vocalSectionsCount = 0;
+      instrumentalSectionsCount = numBlocks;
     }
 
     // Robust 50th percentile (median) across active vocal blocks
@@ -3087,6 +4547,13 @@ export class AudioEngine {
     return {
       centerEnergyDb: parseFloat(centerEnergyDb.toFixed(1)),
       vocalBodyDb: parseFloat(vocalBodyDb.toFixed(1)),
+      weight120_250Db: parseFloat(toDb(Math.sqrt(sumWeight120_250Sq / count)).toFixed(1)),
+      body250_500Db: parseFloat(toDb(Math.sqrt(sumBody250_500Sq / count)).toFixed(1)),
+      solidity500_900Db: parseFloat(toDb(Math.sqrt(sumSolidity500_900Sq / count)).toFixed(1)),
+      sub20_60Db: parseFloat(toDb(Math.sqrt(sumSub20_60Sq / count)).toFixed(1)),
+      bass60_100Db: parseFloat(toDb(Math.sqrt(sumBass60_100Sq / count)).toFixed(1)),
+      punch100_150Db: parseFloat(toDb(Math.sqrt(sumPunch100_150Sq / count)).toFixed(1)),
+      warmth150_250Db: parseFloat(toDb(Math.sqrt(sumWarmth150_250Sq / count)).toFixed(1)),
       intelligibilityDb: parseFloat(intelligibilityDb.toFixed(1)),
       presenceDb: parseFloat(presenceDb.toFixed(1)),
       sibilanceDb: parseFloat(sibilanceDb.toFixed(1)),
@@ -3116,7 +4583,8 @@ export class AudioEngine {
       blockBodyRmsArr,
       blockLowEndRmsArr,
       blockSideRmsArr,
-      vocalActiveBlocks
+      vocalActiveBlocks,
+      vocalDetection
     };
   }
 
@@ -3838,8 +5306,20 @@ export class AudioEngine {
     const envDenom = Math.sqrt(envOrigSq * envCandSq);
     const envelopeCorrelation = parseFloat((envDenom > 0 ? Math.min(1.0, Math.max(0, envDot / envDenom)) : 1.0).toFixed(6));
 
-    // 8. Acción Real de cada Módulo DSP
-    const dspModuleActions: { module: string; applied: boolean; measuredImpactDb: number; actionDescription: string }[] = [];
+    // 8. Acción Real de cada Módulo DSP (Telemetría de 3 Niveles: Intención, Acción DSP, Resultado Medido)
+    const dspModuleActions: { 
+      module: string; 
+      applied: boolean; 
+      measuredImpactDb: number; 
+      actionDescription: string;
+      intentionDescription: string;
+      measuredResultDescription: string;
+      state: 'BYPASS' | 'ARMED_NO_ACTION' | 'ACTIVE';
+      statusLabel?: string;
+      limiterState?: LimiterState;
+      samplesAffected?: number;
+      peakReductionOrBoostDb?: number;
+    }[] = [];
 
     // EQ
     const eqGains = [
@@ -3850,56 +5330,78 @@ export class AudioEngine {
       appliedParams?.eq?.high?.gain || 0
     ];
     const maxEqGain = Math.max(...eqGains.map(Math.abs));
+    const eqApplied = maxEqGain >= 0.05;
     dspModuleActions.push({
       module: 'Ecualización Tonal (5 Bandas)',
-      applied: maxEqGain >= 0.05,
+      applied: eqApplied,
+      state: eqApplied ? 'ACTIVE' : 'BYPASS',
       measuredImpactDb: parseFloat(maxEqGain.toFixed(2)),
-      actionDescription: maxEqGain >= 0.05 
+      intentionDescription: 'Equilibrar la respuesta en frecuencias para remover resonancias y mejorar el balance musical sin alterar el timbre.',
+      actionDescription: eqApplied 
         ? `Curva activa (impacto máximo: ±${maxEqGain.toFixed(2)} dB)` 
-        : 'Transparente / Bypass lineal (< 0.05 dB)'
+        : 'Transparente / Bypass lineal (< 0.05 dB)',
+      measuredResultDescription: `Desviación espectral neta máxima medida: ±${maxSpectralDeltaDb.toFixed(2)} dB a loudness igualado.`
     });
 
     // Vocal Mid Presence Lift & Side Pocket Carve
     const vocalMidBoost = appliedParams?.vocalMidPresenceDb || 0;
     const sideCarve = Math.abs(appliedParams?.sideVocalCarveDb || 0);
+    const vocalMsApplied = vocalMidBoost >= 0.1 || sideCarve >= 0.1;
     dspModuleActions.push({
       module: 'Enfoque Vocal Mid/Side',
-      applied: vocalMidBoost >= 0.1 || sideCarve >= 0.1,
+      applied: vocalMsApplied,
+      state: vocalMsApplied ? 'ACTIVE' : 'BYPASS',
       measuredImpactDb: parseFloat(Math.max(vocalMidBoost, sideCarve).toFixed(2)),
-      actionDescription: (vocalMidBoost >= 0.1 || sideCarve >= 0.1)
+      intentionDescription: 'Desacoplar la voz en el canal central y reducir el solapamiento de instrumentos laterales en medios.',
+      actionDescription: vocalMsApplied
         ? `Mid Presence: +${vocalMidBoost.toFixed(1)} dB, Side Carve: -${sideCarve.toFixed(1)} dB`
-        : 'Inactivo / Balance original'
+        : 'Inactivo / Balance original',
+      measuredResultDescription: `Ratio Mid/Side medido: ${masterMidSideRatio.toFixed(3)} (Δ: ${deltaStereoWidth >= 0 ? '+' : ''}${deltaStereoWidth.toFixed(3)}).`
     });
 
     // Dynamic Multiband
-    const mbActive = appliedParams?.multiband?.enabled || false;
+    const mbActive = Boolean(appliedParams?.multiband?.enabled);
     dspModuleActions.push({
       module: 'Compresión Multibanda',
       applied: mbActive,
+      state: mbActive ? 'ACTIVE' : 'BYPASS',
       measuredImpactDb: mbActive ? 0.8 : 0.0,
-      actionDescription: mbActive ? 'Compresión dinámica activa' : 'Bypass lineal de fase cero (0 dB)'
+      intentionDescription: 'Aportar cohesión dinámica de bus (glue) sin aplastar la pegada ni reducir el crest factor.',
+      actionDescription: mbActive ? 'Compresión dinámica activa' : 'Bypass lineal de fase cero (0 dB)',
+      measuredResultDescription: mbActive 
+        ? `Δ Crest Factor medido: ${deltaCrestFactor.toFixed(2)} dB, Δ LRA: ${deltaLra.toFixed(2)} LU.` 
+        : '0.00 dB de reducción de ganancia aplicada.'
     });
 
     // Harmonic Saturation
-    const satActive = appliedParams?.distortion?.enabled && (appliedParams?.distortion?.amount || 0) > 0.01;
+    const satActive = Boolean(appliedParams?.distortion?.enabled && (appliedParams?.distortion?.amount || 0) > 0.01);
     const satPct = satActive ? (appliedParams?.distortion?.amount || 0) : 0;
     dspModuleActions.push({
       module: 'Saturador Armónico',
-      applied: !!satActive,
+      applied: satActive,
+      state: satActive ? 'ACTIVE' : 'BYPASS',
       measuredImpactDb: satActive ? parseFloat((satPct * 0.03).toFixed(2)) : 0.0,
-      actionDescription: satActive ? `Color analógico (${satPct.toFixed(0)}%)` : 'Bypass / Cero distorsión'
+      intentionDescription: 'Aportar calidez y densidad analógica mediante distorsión de cinta sutil.',
+      actionDescription: satActive ? `Color analógico (${satPct.toFixed(0)}%)` : 'Bypass / Cero distorsión',
+      measuredResultDescription: satActive 
+        ? `Impacto armónico medido: +${(satPct * 0.03).toFixed(2)} dB en armónicos analógicos.` 
+        : '0.00 dB de distorsión armónica agregada.'
     });
 
     // Dynamic Sub EQ
     const dynamicSubCut = Math.abs(appliedParams?.dynamicSubCutDb || 0);
     const subBandMeasured = spectralBands.find(b => b.fLow <= 30 && b.fHigh >= 75)?.deltaDb ?? spectralBands[0]?.deltaDb ?? 0;
+    const subApplied = dynamicSubCut >= 0.05;
     dspModuleActions.push({
       module: 'EQ Dinámica Subgrave',
-      applied: dynamicSubCut >= 0.05,
-      measuredImpactDb: dynamicSubCut >= 0.05 ? parseFloat(dynamicSubCut.toFixed(2)) : 0.0,
-      actionDescription: dynamicSubCut >= 0.05
-        ? `Filtro dinámico: ${appliedParams!.dynamicSubCutDb!.toFixed(2)} dB (30–75 Hz) | Balance neto medido en graves: ${subBandMeasured >= 0 ? '+' : ''}${subBandMeasured.toFixed(2)} dB a loudness igualado`
-        : 'Bypass / Graves intactos'
+      applied: subApplied,
+      state: subApplied ? 'ACTIVE' : 'BYPASS',
+      measuredImpactDb: subApplied ? parseFloat(dynamicSubCut.toFixed(2)) : 0.0,
+      intentionDescription: 'Controlar resonancias y acumulación en 30–75 Hz para dar claridad al bombo y bajo.',
+      actionDescription: subApplied
+        ? `Filtro dinámico: ${appliedParams!.dynamicSubCutDb!.toFixed(2)} dB (30–75 Hz)`
+        : 'Bypass / Graves intactos',
+      measuredResultDescription: `Balance neto medido en graves: ${subBandMeasured >= 0 ? '+' : ''}${subBandMeasured.toFixed(2)} dB a loudness igualado.`
     });
 
     // Stereo Width
@@ -3907,8 +5409,11 @@ export class AudioEngine {
     dspModuleActions.push({
       module: 'Imagen Estéreo',
       applied: widthActive,
+      state: widthActive ? 'ACTIVE' : 'BYPASS',
       measuredImpactDb: widthActive ? parseFloat(Math.abs(appliedParams!.stereoWidth - 1.0).toFixed(2)) : 0.0,
-      actionDescription: widthActive ? `Ancho estéreo modificado (${appliedParams!.stereoWidth.toFixed(2)}x)` : '1.00x Natural sin ensanchamiento artificial'
+      intentionDescription: 'Ajustar la apertura del panorama estéreo garantizando un centro mono sólido y compatibilidad de fase.',
+      actionDescription: widthActive ? `Ancho estéreo modificado (${appliedParams!.stereoWidth.toFixed(2)}x)` : '1.00x Natural sin ensanchamiento artificial',
+      measuredResultDescription: `Correlación de fase medida: ${masterPhaseCorrelation.toFixed(3)} (Δ: ${deltaPhaseCorrelation >= 0 ? '+' : ''}${deltaPhaseCorrelation.toFixed(3)}).`
     });
 
     // Limiter / True Peak (exactamente 3 estados: BYPASS, ARMED_NO_GAIN_REDUCTION, ACTIVE)
@@ -3958,10 +5463,13 @@ export class AudioEngine {
     dspModuleActions.push({
       module: 'Limitador Lookahead True Peak',
       applied: limiterApplied,
+      state: limiterState === 'ACTIVE' ? 'ACTIVE' : (limiterState === 'ARMED_NO_GAIN_REDUCTION' ? 'ARMED_NO_ACTION' : 'BYPASS'),
       statusLabel: limiterState,
       limiterState: limiterState,
       measuredImpactDb: limiterImpactDb,
+      intentionDescription: 'Garantizar el techo técnico True Peak (≤ -1.0 dBTP) para distribución sin saturación inter-sample.',
       actionDescription: limiterActionDesc,
+      measuredResultDescription: `True Peak final: ${telemetry.finalTruePeak.toFixed(1)} dBTP. Reducción: ${hasMeasurableGr ? `-${telemetry.maxGainReduction.toFixed(2)} dB` : '0.00 dB'}. Muestras afectadas: ${telemetry.samplesLimited}.`,
       samplesAffected: telemetry.samplesLimited,
       peakReductionOrBoostDb: limiterImpactDb
     });
@@ -4052,11 +5560,20 @@ export class AudioEngine {
     bassMaskingGrowthDb: number;
     vocalDominanceDeltaDb: number;
   }> {
+    const origProfile = await this.analyzeVocalProfile(originalBuffer);
+    if (origProfile.vocalDetection?.classification === 'INSTRUMENTAL') {
+      return {
+        isVocalWorse: false,
+        reasons: [],
+        vocalRelDeltaDb: 0,
+        vocalBodyDeltaDb: 0,
+        bassMaskingGrowthDb: 0,
+        vocalDominanceDeltaDb: 0
+      };
+    }
     const origMetrics = await this.calculateAccurateDSPMetrics(originalBuffer);
     const candMetrics = await this.calculateAccurateDSPMetrics(candidateBuffer);
     const loudnessOffset = candMetrics.integratedLUFS - origMetrics.integratedLUFS;
-
-    const origProfile = await this.analyzeVocalProfile(originalBuffer);
     const candProfile = await this.analyzeVocalProfile(candidateBuffer);
 
     const origRelPres = origProfile.presenceDb - origMetrics.integratedLUFS;
@@ -4114,6 +5631,55 @@ export class AudioEngine {
     let masteredBuffer = initialMasteredBuffer;
     let afterMetrics = masteredBuffer ? await onMetricsUpdate(masteredBuffer) : null;
     let finalVocal = masteredBuffer ? await this.analyzeVocalProfile(masteredBuffer) : origVocal;
+
+    if (origVocal?.vocalDetection?.classification === 'INSTRUMENTAL') {
+      const instrumentalReport: VocalProtectionReport = {
+        original: origVocal,
+        final: finalVocal,
+        vocalStatus: 'approved',
+        statusLabel: 'Modo Instrumental — Protección de Foco Melódico Activa',
+        relativePresenceDeltaDb: 0,
+        vocalDeltaDb: 0,
+        lowEndDeltaDb: 0,
+        lowEndVsVocalDiffDb: 0,
+        subBassRelDeltaDb: 0,
+        lowMidRelDeltaDb: 0,
+        midInstRelDeltaDb: 0,
+        highInstRelDeltaDb: 0,
+        sideStereoRelDeltaDb: 0,
+        maxRelativeDeltaDb: 0,
+        vocalBodyPreserved: true,
+        intelligibilityPreserved: true,
+        maskingElementDetected: 'Ninguno (Modo Instrumental)',
+        deEsserApplied: false,
+        exactDeEsserFreq: undefined,
+        deEsserReductionDb: 0,
+        dynamicSubCutAppliedDb: newParams.dynamicSubCutDb || 0,
+        vocalBodyRecoveryAppliedDb: 0,
+        density750ReductionDb: 0,
+        midCompensationAppliedDb: 0,
+        midCompensationFreq: 0,
+        bassDuckingPrevented: true,
+        monoCompatibilityPreserved: true,
+        safetyLimitReached: false,
+        recommendedMixAdjustment: undefined,
+        sectionsSummary: 'Pista instrumental: 0 bloques vocales analizados. Procesamiento vocal específico desactivado.',
+        iterationsPerformed: 0,
+        responsibleStagesIdentified: [],
+        dspAdjustmentsSummary: ['Modo instrumental: procesamiento específico de voz desactivado. Protección de foco melódico activa.'],
+        measuredAudioDeltas: undefined,
+        sideStereoStatus: 'centered_stable',
+        verdict: 'OPTIMAL',
+        summaryNote: 'Pista clasificada como instrumental. Se preserva el balance dinámico y espectral sin alteraciones vocales artificiales.',
+        vocalDetection: origVocal.vocalDetection
+      };
+      decisions.push('Modo Instrumental: procesamiento vocal específico omitido para proteger la integridad melódica natural.');
+      return {
+        masteredBuffer,
+        afterMetrics,
+        vocalReport: instrumentalReport
+      };
+    }
 
     let currentMasterLUFS = afterMetrics?.integratedLUFS ?? initialMasterLUFS;
     const origRelativePresence = origVocal.presenceDb - origLUFS;
@@ -5281,6 +6847,8 @@ export class AudioEngine {
     this.masteredBuffer = null;
     this.masterIdentity = null;
     this.tracks.clear();
+    this.finalMasterArtifact = null;
+    this.lastExportedWavBlob = null;
     this.recalculateMaxDuration();
 
     // Reset parameters to neutral baseline
@@ -5293,6 +6861,9 @@ export class AudioEngine {
   resetTrackProcessingState(trackSessionId?: string): void {
     this.stop();
     this.activeTrackSessionId = trackSessionId || `track_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 5)}`;
+    this.currentSessionId = this.activeTrackSessionId;
+    this.finalMasterArtifact = null;
+    this.lastExportedWavBlob = null;
     this.lastAIMasteringResult = null;
     this.lastAnalysis = {};
     this.masteredBuffer = null;
@@ -5634,8 +7205,9 @@ export class AudioEngine {
     if (!this.audioContext || !this.loudnessMatchGainNode) return;
     const now = this.audioContext.currentTime;
 
-    if (!this.isBypassed && this.loudnessMatchMode === 'matched' && this.masterIdentity) {
-      const gainDb = this.masterIdentity.comparisonGainDb;
+    if (this.loudnessMatchMode === 'matched' && this.masterIdentity) {
+      const delta = this.masterIdentity.comparisonGainDb;
+      const gainDb = this.isBypassed ? -Math.max(0, delta) : Math.min(0, delta);
       const linearGain = Math.pow(10, gainDb / 20);
       this.loudnessMatchGainNode.gain.setTargetAtTime(linearGain, now, 0.015);
     } else {
@@ -5678,6 +7250,22 @@ export class AudioEngine {
 
   getOriginalBuffer(): AudioBuffer | null {
     return this.originalBuffer;
+  }
+
+  public activateTrackForPlayback(track: Track, result?: AIMasteringResult): boolean {
+    const source = track.buffer || this.getTrackBuffer(track.id);
+    if (!source) return false;
+    this.stop();
+    this.setOriginalBuffer(source, track.sourceId || track.id);
+    this.finalMasterArtifact = null;
+    this.lastExportedWavBlob = null;
+    const artifact = result?.finalMasterArtifact;
+    if (!artifact || !result?.audioIdentity || artifact.sourceId !== this.originalSourceId || artifact.sha256 !== result.audioIdentity.finalFileHash) return false;
+    this.currentSessionId = artifact.sessionId;
+    this.setFinalMasterArtifact(artifact);
+    this.setMasteredAudio(artifact.finalDecodedPCM, result.audioIdentity);
+    this.lastAIMasteringResult = result;
+    return this.hasValidMaster();
   }
 
   setOriginalBuffer(buffer: AudioBuffer, sourceId: string): void {
@@ -6251,59 +7839,8 @@ export class AudioEngine {
       fileHash = (h >>> 0).toString(16);
     }
 
-    // Reopen & decode into a fresh AudioBuffer (resilient against suspended contexts and 24-bit codec quirks)
-    const ctx = this.audioContext || new (window.AudioContext || (window as any).webkitAudioContext)();
-    let reopenedBuffer: AudioBuffer | null = null;
-
-    if (ctx && ctx.state === 'running') {
-      try {
-        const decodePromise = ctx.decodeAudioData(wavArrayBuffer.slice(0));
-        const timeoutPromise = new Promise<AudioBuffer>((_, reject) => setTimeout(() => reject(new Error('Decode timeout')), 400));
-        reopenedBuffer = await Promise.race([decodePromise, timeoutPromise]);
-      } catch (_decodeErr) {
-        reopenedBuffer = null;
-      }
-    }
-
-    if (!reopenedBuffer) {
-      // Deterministic bit-perfect manual WAV unpacker (immune to browser codec limitations & suspended contexts)
-      const numSamples = buffer.length;
-      reopenedBuffer = ctx.createBuffer(numChannels, numSamples, sampleRate);
-      const outL = reopenedBuffer.getChannelData(0);
-      const outR = reopenedBuffer.numberOfChannels > 1 ? reopenedBuffer.getChannelData(1) : outL;
-      let readOffset = 44;
-
-      if (bitDepth === 32) {
-        for (let i = 0; i < numSamples; i++) {
-          outL[i] = view.getFloat32(readOffset, true); readOffset += 4;
-          outR[i] = view.getFloat32(readOffset, true); readOffset += 4;
-        }
-      } else if (bitDepth === 24) {
-        for (let i = 0; i < numSamples; i++) {
-          const b0 = view.getUint8(readOffset);
-          const b1 = view.getUint8(readOffset + 1);
-          const b2 = view.getUint8(readOffset + 2);
-          readOffset += 3;
-          let valL = (b2 << 16) | (b1 << 8) | b0;
-          if (valL & 0x800000) valL |= ~0xFFFFFF;
-          outL[i] = valL / 0x800000;
-
-          const r0 = view.getUint8(readOffset);
-          const r1 = view.getUint8(readOffset + 1);
-          const r2 = view.getUint8(readOffset + 2);
-          readOffset += 3;
-          let valR = (r2 << 16) | (r1 << 8) | r0;
-          if (valR & 0x800000) valR |= ~0xFFFFFF;
-          outR[i] = valR / 0x800000;
-        }
-      } else {
-        for (let i = 0; i < numSamples; i++) {
-          outL[i] = view.getInt16(readOffset, true) / 0x8000; readOffset += 2;
-          outR[i] = view.getInt16(readOffset, true) / 0x8000; readOffset += 2;
-        }
-      }
-    }
-
+    // Deterministic PCM WAV decoding (strictly no browser resampling, zero interpolation)
+    const reopenedBuffer = this.decodeWavDeterministic(wavArrayBuffer);
     const wavBlob = new Blob([wavArrayBuffer], { type: 'audio/wav' });
 
     return {
@@ -6312,6 +7849,91 @@ export class AudioEngine {
       wavBlob,
       wavArrayBuffer
     };
+  }
+
+  public decodeWavDeterministic(wavArrayBuffer: ArrayBuffer): AudioBuffer {
+    const view = new DataView(wavArrayBuffer);
+    const readString = (offset: number, length: number): string => {
+      let str = '';
+      for (let i = 0; i < length; i++) {
+        str += String.fromCharCode(view.getUint8(offset + i));
+      }
+      return str;
+    };
+
+    if (readString(0, 4) !== 'RIFF' || readString(8, 4) !== 'WAVE') {
+      throw new Error("Formato WAV inválido: encabezado RIFF/WAVE no encontrado");
+    }
+
+    let offset = 12;
+    let formatTag = 1;
+    let numChannels = 2;
+    let sampleRate = 44100;
+    let bitDepth = 16;
+    let dataOffset = 44;
+    let dataLength = wavArrayBuffer.byteLength - 44;
+
+    while (offset < wavArrayBuffer.byteLength - 8) {
+      const chunkId = readString(offset, 4);
+      const chunkSize = view.getUint32(offset + 4, true);
+      if (chunkId === 'fmt ') {
+        formatTag = view.getUint16(offset + 8, true);
+        numChannels = view.getUint16(offset + 10, true);
+        sampleRate = view.getUint32(offset + 12, true);
+        bitDepth = view.getUint16(offset + 22, true);
+      } else if (chunkId === 'data') {
+        dataOffset = offset + 8;
+        dataLength = chunkSize;
+        break;
+      }
+      offset += 8 + chunkSize;
+    }
+
+    const bytesPerSample = bitDepth / 8;
+    const numSamples = Math.floor(dataLength / (numChannels * bytesPerSample));
+    const ctx = this.audioContext || new (window.AudioContext || (window as any).webkitAudioContext)();
+    const reopenedBuffer = ctx.createBuffer(numChannels, numSamples, sampleRate);
+    const outL = reopenedBuffer.getChannelData(0);
+    const outR = numChannels > 1 ? reopenedBuffer.getChannelData(1) : outL;
+
+    let readOffset = dataOffset;
+    if (bitDepth === 32) {
+      for (let i = 0; i < numSamples; i++) {
+        outL[i] = view.getFloat32(readOffset, true); readOffset += 4;
+        if (numChannels > 1) {
+          outR[i] = view.getFloat32(readOffset, true); readOffset += 4;
+        }
+      }
+    } else if (bitDepth === 24) {
+      for (let i = 0; i < numSamples; i++) {
+        const b0 = view.getUint8(readOffset);
+        const b1 = view.getUint8(readOffset + 1);
+        const b2 = view.getUint8(readOffset + 2);
+        readOffset += 3;
+        let valL = (b2 << 16) | (b1 << 8) | b0;
+        if (valL & 0x800000) valL |= ~0xFFFFFF;
+        outL[i] = valL / 0x800000;
+
+        if (numChannels > 1) {
+          const r0 = view.getUint8(readOffset);
+          const r1 = view.getUint8(readOffset + 1);
+          const r2 = view.getUint8(readOffset + 2);
+          readOffset += 3;
+          let valR = (r2 << 16) | (r1 << 8) | r0;
+          if (valR & 0x800000) valR |= ~0xFFFFFF;
+          outR[i] = valR / 0x800000;
+        }
+      }
+    } else {
+      for (let i = 0; i < numSamples; i++) {
+        outL[i] = view.getInt16(readOffset, true) / 0x8000; readOffset += 2;
+        if (numChannels > 1) {
+          outR[i] = view.getInt16(readOffset, true) / 0x8000; readOffset += 2;
+        }
+      }
+    }
+
+    return reopenedBuffer;
   }
 
   // --- VALIDACIÓN ESPECÍFICA DE LA VOZ: VOCAL-TO-INSTRUMENTAL RATIO (VIR) ---

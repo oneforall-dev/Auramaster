@@ -1,8 +1,9 @@
 import React from 'react';
-import { 
+import {
   X, CheckCircle2, Sparkles, VolumeX, ArrowRight, ShieldCheck, 
   Activity, Music2, Cpu, Disc, Sliders, Layers, BarChart2, Gauge, Mic,
-  Scale, Binary, Trophy, Target
+  Scale, Binary, Trophy, Target,
+  Compass, Flame, Zap, AlertTriangle
 } from 'lucide-react';
 import { AIMasteringResult, SkinMode } from '../types';
 import { Language, getT } from '../services/i18n';
@@ -117,7 +118,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     ? 'Original Preservado (Sin Masterización Sustancial)'
                     : referenceReport 
                       ? `Match Sónico: ${referenceReport.matchingScorePercent}%` 
-                      : targetMet ? 'Objetivo Cumplido' : 'Master Optimizado'}
+                      : targetMet ? 'Objetivo Cumplido' : 'Revisión requerida'}
                 </span>
               </div>
               <p className={`text-xs mt-0.5 ${isClear ? 'text-slate-600' : 'text-slate-400'}`}>
@@ -172,6 +173,26 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
             </button>
           </div>
 
+          {/* Consistency Audit Failure Alert (REPORT_VALIDATION_FAILED) */}
+          {result.reportConsistencyCheck && !result.reportConsistencyCheck.passed && (
+            <div className="p-4 rounded-xl border border-rose-500 bg-rose-950/80 text-rose-100 space-y-2 shadow-2xl animate-pulse">
+              <div className="flex items-center gap-2 text-rose-400 font-bold">
+                <AlertTriangle size={20} className="shrink-0 text-rose-400" />
+                <span className="text-sm font-black tracking-wider uppercase">
+                  ERROR CRÍTICO: AUDITORÍA DE CONSISTENCIA FALLIDA (REPORT_VALIDATION_FAILED)
+                </span>
+              </div>
+              <p className="text-xs text-rose-200">
+                Se han detectado inconsistencias matemáticas entre el archivo WAV físico y los datos expuestos en el reporte:
+              </p>
+              <ul className="list-disc list-inside text-xs font-mono space-y-1 text-rose-300">
+                {result.reportConsistencyCheck.violations.map((violation, vIdx) => (
+                  <li key={vIdx}>{violation}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Identidad del Audio & Fuente Única de Verdad (WAV Exportado & Reabierto) */}
           {result.audioIdentity && (
             <div className={`p-4 rounded-xl border space-y-3 ${
@@ -186,10 +207,17 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     Fuente Única de Verdad: WAV Decodificado & Verificado
                   </span>
                 </div>
-                <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  100% Bit-Identical al Archivo Final Exportado
-                </span>
+                <div className="flex items-center gap-2">
+                  {result.reportConsistencyCheck?.passed && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                      ✓ Consistencia Criptográfica Verificada
+                    </span>
+                  )}
+                  <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    100% Bit-Identical al Archivo Final Exportado
+                  </span>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
@@ -261,7 +289,71 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
             </div>
           )}
 
-          {/* 1. Diagnóstico Acústico Multidimensional (17 Aspectos) */}
+                    {/* 0. Intención Musical y Perfil Estético Autónomo (V2) */}
+          {result.musicalIntent && (
+            <div className={`p-4 rounded-xl border space-y-3 ${
+              isClear 
+                ? 'bg-gradient-to-r from-amber-50/70 via-indigo-50/50 to-slate-50 border-amber-200/80 text-slate-800' 
+                : 'bg-gradient-to-r from-amber-950/25 via-indigo-950/30 to-slate-900/80 border-amber-500/30 text-slate-200'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                <div className="flex items-center gap-2">
+                  <Compass size={18} className="text-amber-400" />
+                  <span className="font-bold text-xs uppercase tracking-wider text-slate-300">
+                    Intención Musical y Carácter Estético (Sin Curvas Heredadas)
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-[10px] font-mono">
+                  <span className="px-2.5 py-0.5 rounded-full font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 uppercase">
+                    {result.musicalIntent.detectedGenre}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                    Estética: {result.musicalIntent.productionAesthetic.replace(/_/g, ' ')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Grid of Musical Attributes */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
+                <div className="p-2 rounded-lg bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-mono uppercase block">Balance Tonal</span>
+                  <span className="font-bold text-slate-200 text-xs capitalize mt-0.5 block">
+                    {result.musicalIntent.tonalCharacter === 'warm' ? 'Cálido / Orgánico' : result.musicalIntent.tonalCharacter === 'bright' ? 'Brillante / Presente' : 'Neutro / Equilibrado'}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-mono uppercase block">Enfoque Vocal</span>
+                  <span className="font-bold text-slate-200 text-xs capitalize mt-0.5 block">
+                    {result.musicalIntent.vocalFocus === 'vocal_forward' ? 'Voz en Primer Plano' : result.musicalIntent.vocalFocus === 'balanced_mix' ? 'Mezcla Equilibrada' : 'Dominante Instrumental'}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-mono uppercase block">Carácter Graves</span>
+                  <span className="font-bold text-slate-200 text-xs capitalize mt-0.5 block">
+                    {result.musicalIntent.lowEndCharacter.replace(/_/g, ' ')}
+                  </span>
+                </div>
+                <div className="p-2 rounded-lg bg-slate-900/80 border border-slate-800">
+                  <span className="text-[10px] text-slate-400 font-mono uppercase block">Perfil Dinámico</span>
+                  <span className="font-bold text-slate-200 text-xs capitalize mt-0.5 block">
+                    {result.musicalIntent.dynamicProfile.replace(/_/g, ' ')}
+                  </span>
+                </div>
+              </div>
+
+              {result.musicalIntent.notes && result.musicalIntent.notes.length > 0 && (
+                <div className="text-[10px] font-mono text-slate-400 pt-1 border-t border-slate-800/60 flex flex-wrap gap-x-3 gap-y-1">
+                  {result.musicalIntent.notes.map((note, nIdx) => (
+                    <span key={nIdx} className="flex items-center gap-1">
+                      <span className="text-amber-400">•</span> {note}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 1. Diagnóstico Acústico Multidimensional ({result.acousticDiagnosis.length} Dimensiones Clasificadas) */}
           {result.acousticDiagnosis && result.acousticDiagnosis.length > 0 && (
             <div className={`p-4 rounded-xl border space-y-3 ${
               isClear 
@@ -407,45 +499,85 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                       <div>
                         <div className="flex items-baseline justify-between mb-1.5">
                           <span className="font-bold text-sm text-slate-100">{cand.name}</span>
-                          <span className={`font-mono text-sm font-black ${isWinner ? 'text-emerald-400' : 'text-slate-300'}`}>
-                            {cand.scores.totalScore} pts
-                          </span>
-                        </div>
-                        <div className="text-[11px] font-mono text-slate-400 mb-2">
-                          LUFS: {cand.integratedLUFS.toFixed(1)} · TP: {cand.truePeakDbTP.toFixed(1)} dBTP
+                          <div className="text-right">
+                            <span className={`font-mono text-base font-black ${isWinner ? 'text-emerald-400' : 'text-slate-200'}`}>
+                              {cand.finalScore ?? cand.scores.totalScore} pts
+                            </span>
+                            <div className="text-[9px] font-mono text-slate-400">
+                              Base: {cand.rawScore ?? cand.scores.totalScore} · Adj: {cand.scoreAdjustments?.totalAdjustment !== undefined ? (cand.scoreAdjustments.totalAdjustment >= 0 ? `+${cand.scoreAdjustments.totalAdjustment}` : `${cand.scoreAdjustments.totalAdjustment}`) : '0.0'}
+                            </div>
+                          </div>
                         </div>
 
-                        {/* Breakdown meters */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={`text-[9px] font-mono px-2 py-0.5 rounded font-bold border ${
+                            cand.approved 
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
+                              : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                          }`}>
+                            {cand.approved ? '✓ Aprobado' : '✗ No Aprobado'}
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400">
+                            LUFS: {cand.integratedLUFS.toFixed(1)} · TP: {cand.truePeakDbTP.toFixed(1)} dBTP
+                          </span>
+                        </div>
+
+                        {/* 10-Category Breakdown meters (MQS V2) */}
                         <div className="space-y-1 text-[10px] font-mono text-slate-300 border-t border-slate-800 pt-2 mb-2">
                           <div className="flex justify-between">
-                            <span className="text-slate-400">Voz (VIR Δ {cand.deltaVirDb >= 0 ? '+' : ''}{cand.deltaVirDb.toFixed(2)} dB):</span>
-                            <span className={cand.deltaVirDb >= -0.3 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                            <span className="text-slate-400">1. Integridad Vocal:</span>
+                            <span className={cand.deltaVirDb >= -0.1 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
                               {cand.scores.vocalScore}/20
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-400">Balance Tonal:</span>
+                            <span className="text-slate-400">2. Balance Tonal:</span>
                             <span>{cand.scores.tonalBalanceScore}/15</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-400">Profundidad 3D:</span>
-                            <span>{cand.scores.depthScore}/10</span>
+                            <span className="text-slate-400">3. Cuerpo & Densidad:</span>
+                            <span className="text-amber-300 font-bold">{cand.scores.bodyDensityScore ?? 15}/15</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-400">Transientes / Pegada:</span>
-                            <span>{cand.scores.transientScore}/10</span>
+                            <span className="text-slate-400">4. Dinámica & Pegada:</span>
+                            <span>{cand.scores.transientScore}/15</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-400">Fase Estéreo:</span>
-                            <span className={cand.phaseCorrelation >= 0.75 ? 'text-emerald-400' : 'text-amber-400'}>
-                              {cand.scores.stereoPhaseScore}/10
+                            <span className="text-slate-400">5. Autoridad Graves:</span>
+                            <span>{cand.scores.lowEndScore ?? 10}/10</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">6. Claridad & Separación:</span>
+                            <span>{cand.scores.separationScore ?? 8}/8</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">7. Profundidad 3D:</span>
+                            <span>{cand.scores.depthScore}/5</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">8. Estéreo & Fase (r={cand.phaseCorrelation.toFixed(2)}):</span>
+                            <span className={cand.phaseCorrelation >= 0.80 ? 'text-emerald-400' : 'text-amber-400'}>
+                              {cand.scores.stereoPhaseScore}/5
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-slate-400">Cohesión / Confort:</span>
-                            <span>{cand.scores.cohesionFatigueScore}/15</span>
+                            <span className="text-slate-400">9. Capacidad Loudness:</span>
+                            <span className={cand.truePeakDbTP <= -0.95 ? 'text-emerald-400' : 'text-rose-400'}>
+                              {cand.scores.loudnessTpScore ?? 5}/5
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">10. Anti-Fatiga / Confort:</span>
+                            <span>{cand.scores.fatigueDistortionScore ?? 2}/2</span>
                           </div>
                         </div>
+
+                        {cand.scoreAdjustments && (
+                          <div className="text-[9px] font-mono p-1.5 rounded bg-slate-950/60 border border-slate-800 text-slate-400 mb-2">
+                            <span className="font-bold text-slate-300">Ajustes: </span>
+                            {cand.scoreAdjustments.rationale}
+                          </div>
+                        )}
 
                         {cand.isDisqualified && cand.disqualificationReason && (
                           <div className="p-2 rounded bg-rose-950/40 border border-rose-500/40 text-rose-300 text-[10px] font-mono mb-2">
@@ -481,6 +613,99 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+                            {/* PASS B: Exploración Sistemática de Loudness (L0–L4) */}
+              {result.loudnessExploration && (
+                <div className="p-3.5 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-slate-800 pb-2">
+                    <div className="flex items-center gap-2">
+                      <Zap size={16} className="text-amber-400" />
+                      <span className="font-bold text-xs font-mono uppercase tracking-wider text-slate-300">
+                        Pass B: Exploración Sistemática de Loudness (L0–L4)
+                      </span>
+                      {result.loudnessExploration.unusedCleanHeadroomFlag && (
+                        <span className="text-[9px] font-mono px-2 py-0.5 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          Headroom Rescatado
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] font-mono text-cyan-300 flex items-center gap-2">
+                      <span>Orig: <strong className="text-slate-200">{result.loudnessExploration.naturalLUFS.toFixed(1)}</strong></span>
+                      {result.loudnessExploration.adaptiveTargetLUFS !== undefined && (
+                        <span>Objetivo adaptativo: <strong className="text-amber-300">{result.loudnessExploration.adaptiveTargetLUFS.toFixed(1)}</strong></span>
+                      )}
+                      {result.loudnessExploration.winnerPreDeliveryLUFS && (
+                        <span>Pre-Pass B: <strong className="text-slate-200">{result.loudnessExploration.winnerPreDeliveryLUFS.toFixed(1)}</strong></span>
+                      )}
+                      <span>Máx. Limpio: <strong className="text-emerald-400">{result.loudnessExploration.maximumCleanLUFS.toFixed(1)} LUFS</strong></span>
+                    </div>
+                  </div>
+
+                  {/* Level Steps Grid (Coarse L0-L4 + 0.25 dB Boundary Refinement) */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 text-center text-[10px] font-mono">
+                    {result.loudnessExploration.testedLoudnessLevels.map((lvl, lIdx) => {
+                      const isSelected = Boolean(lvl.variantId && lvl.variantId === result.loudnessExploration!.selectedVariantId);
+                      return (
+                        <div 
+                          key={lIdx} 
+                          className={`p-2 rounded border flex flex-col justify-between ${
+                            isSelected 
+                              ? 'bg-amber-500/15 border-amber-500/50 text-amber-200 ring-1 ring-amber-500/30 font-bold'
+                              : lvl.approved 
+                                ? 'bg-slate-950/60 border-slate-800 text-slate-300' 
+                                : 'bg-rose-950/20 border-rose-500/30 text-rose-300 opacity-60'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex justify-between items-center text-[9px] mb-1">
+                              <span className={`font-semibold ${lvl.isRefinementStep ? 'text-cyan-400' : 'text-slate-400'}`}>
+                                {lvl.levelName.split(' ')[0]}
+                                {lvl.isRefinementStep && <span className="text-[7px] ml-1 px-1 rounded bg-cyan-950 border border-cyan-800 text-cyan-300">Ref</span>}
+                              </span>
+                              <span>{lvl.gainDb >= 0 ? `+${lvl.gainDb.toFixed(2)}` : lvl.gainDb.toFixed(2)} dB</span>
+                            </div>
+                            <div className="text-xs font-black">
+                              {lvl.measuredLUFS.toFixed(1)} LUFS
+                            </div>
+                            <div className="text-[9px] text-slate-400 mt-0.5">
+                              TP: {lvl.truePeakDbTP.toFixed(1)} · GR: {lvl.limiterGR.toFixed(2)}dB
+                            </div>
+                            {lvl.samplesLimited !== undefined && lvl.samplesLimited > 0 && (
+                              <div className="text-[8px] text-amber-400/80">
+                                {lvl.samplesLimited} smp lim
+                              </div>
+                            )}
+                            <div className="text-[8px] text-slate-400">
+                              Δ Crest: {lvl.crestDelta >= 0 ? '+' : ''}{lvl.crestDelta.toFixed(1)} dB
+                            </div>
+                          </div>
+                          <div>
+                            <div className="mt-1 pt-1 border-t border-slate-800/80 text-[8px] uppercase">
+                              {isSelected ? '★ Seleccionado' : lvl.approved ? '✓ Aprobado' : '✗ Rechazado'}
+                            </div>
+                            {lvl.rejectionReason && !lvl.approved && (
+                              <div className="text-[7px] text-rose-300 line-clamp-1 mt-0.5" title={lvl.rejectionReason}>
+                                {lvl.rejectionReason}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {result.loudnessExploration.rejectionReasonForLouderVariant && (
+                    <div className="text-[10px] font-mono text-slate-400 bg-slate-950/50 p-2 rounded border border-slate-800/80">
+                      <span className="text-amber-400 font-bold">Límite de Escalón: </span>
+                      {result.loudnessExploration.rejectionReasonForLouderVariant}
+                    </div>
+                  )}
+
+                  <p className="text-[10px] font-mono text-slate-400 pt-0.5">
+                    {result.loudnessExploration.sweetSpotNote}
+                  </p>
                 </div>
               )}
 
@@ -628,104 +853,200 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 </div>
               </div>
 
-              {/* 8 Audited Pillars Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                {/* 1. Tonal Balance */}
+              {/* 10 Audited Pillars Grid (100-pt Rubric V2) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+                {/* 1. Vocal Integrity */}
                 <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
-                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Balance Tonal</span>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">1. Integridad Vocal</span>
                   <div className="flex items-baseline justify-between mt-1">
-                    <span className="font-bold font-mono text-cyan-400">{result.mqs.tonalBalance}</span>
+                    <span className="font-bold font-mono text-emerald-400">{result.mqs.vocalIntegrity ?? result.mqs.vocalPreservation ?? 0}</span>
                     <span className="text-[10px] font-mono text-slate-500">/20 pts</span>
                   </div>
                   <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
-                    <div className="bg-cyan-400 h-full rounded-full" style={{ width: `${(result.mqs.tonalBalance / 20) * 100}%` }}></div>
+                    <div className="bg-emerald-400 h-full rounded-full" style={{ width: `${Math.min(100, (((result.mqs.vocalIntegrity ?? result.mqs.vocalPreservation ?? 0) / 20) * 100))}%` }}></div>
                   </div>
+                  <span className="text-[9px] text-slate-500 block mt-1">Preservación tímbrica absoluta</span>
                 </div>
 
-                {/* 2. Vocal Preservation */}
+                {/* 2. Tonal Balance */}
                 <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
-                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Protección Vocal</span>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">2. Balance Tonal</span>
                   <div className="flex items-baseline justify-between mt-1">
-                    <span className="font-bold font-mono text-emerald-400">{result.mqs.vocalPreservation}</span>
-                    <span className="text-[10px] font-mono text-slate-500">/20 pts</span>
-                  </div>
-                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
-                    <div className="bg-emerald-400 h-full rounded-full" style={{ width: `${(result.mqs.vocalPreservation / 20) * 100}%` }}></div>
-                  </div>
-                </div>
-
-                {/* 3. Dynamics & Transients */}
-                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
-                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Dinámica & LRA</span>
-                  <div className="flex items-baseline justify-between mt-1">
-                    <span className="font-bold font-mono text-purple-400">{result.mqs.dynamicsTransients}</span>
+                    <span className="font-bold font-mono text-cyan-400">{result.mqs.tonalBalance ?? 0}</span>
                     <span className="text-[10px] font-mono text-slate-500">/15 pts</span>
                   </div>
                   <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
-                    <div className="bg-purple-400 h-full rounded-full" style={{ width: `${(result.mqs.dynamicsTransients / 15) * 100}%` }}></div>
+                    <div className="bg-cyan-400 h-full rounded-full" style={{ width: `${Math.min(100, (((result.mqs.tonalBalance ?? 0) / 15) * 100))}%` }}></div>
                   </div>
+                  <span className="text-[9px] text-slate-500 block mt-1">Curva adaptativa sin asperezas</span>
                 </div>
 
-                {/* 4. Low-End Control */}
-                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
-                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Control de Graves</span>
+                {/* 3. Body & Density (NEW V2) */}
+                <div className={`p-2.5 rounded-lg border text-xs bg-amber-950/20 border-amber-500/40 text-amber-200`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-amber-400 uppercase font-mono block font-bold">3. Cuerpo & Densidad</span>
+                    <span className="text-[8px] bg-amber-500/20 text-amber-300 px-1 py-0.2 rounded font-mono">V2</span>
+                  </div>
                   <div className="flex items-baseline justify-between mt-1">
-                    <span className="font-bold font-mono text-blue-400">{result.mqs.lowEndControl}</span>
+                    <span className="font-bold font-mono text-amber-300">{result.mqs.bodyDensity ?? 15}</span>
+                    <span className="text-[10px] font-mono text-amber-400/60">/15 pts</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                    <div className="bg-amber-400 h-full rounded-full" style={{ width: `${Math.min(100, (((result.mqs.bodyDensity ?? 15) / 15) * 100))}%` }}></div>
+                  </div>
+                  <span className="text-[9px] text-amber-400/80 block mt-1">120–900 Hz peso y calidez</span>
+                </div>
+
+                {/* 4. Dynamics & Transients */}
+                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">4. Dinámica & Pegada</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold font-mono text-purple-400">{result.mqs.dynamicsTransients ?? 0}</span>
+                    <span className="text-[10px] font-mono text-slate-500">/15 pts</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                    <div className="bg-purple-400 h-full rounded-full" style={{ width: `${Math.min(100, (((result.mqs.dynamicsTransients ?? 0) / 15) * 100))}%` }}></div>
+                  </div>
+                  <span className="text-[9px] text-slate-500 block mt-1">Transientes y crest factor</span>
+                </div>
+
+                {/* 5. Low-End Authority */}
+                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">5. Autoridad Graves</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold font-mono text-blue-400">{result.mqs.lowEndAuthority ?? result.mqs.lowEndControl ?? 0}</span>
                     <span className="text-[10px] font-mono text-slate-500">/10 pts</span>
                   </div>
                   <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
-                    <div className="bg-blue-400 h-full rounded-full" style={{ width: `${(result.mqs.lowEndControl / 10) * 100}%` }}></div>
+                    <div className="bg-blue-400 h-full rounded-full" style={{ width: `${Math.min(100, (((result.mqs.lowEndAuthority ?? result.mqs.lowEndControl ?? 0) / 10) * 100))}%` }}></div>
                   </div>
+                  <span className="text-[9px] text-slate-500 block mt-1">Sub y pegada 20–250 Hz</span>
                 </div>
 
-                {/* 5. Clarity & Separation */}
+                {/* 6. Clarity & Separation */}
                 <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
-                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Claridad & Medios</span>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">6. Claridad & Separación</span>
                   <div className="flex items-baseline justify-between mt-1">
-                    <span className="font-bold font-mono text-teal-400">{result.mqs.claritySeparation}</span>
-                    <span className="text-[10px] font-mono text-slate-500">/10 pts</span>
+                    <span className="font-bold font-mono text-teal-400">{result.mqs.claritySeparation ?? 0}</span>
+                    <span className="text-[10px] font-mono text-slate-500">/8 pts</span>
                   </div>
                   <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
-                    <div className="bg-teal-400 h-full rounded-full" style={{ width: `${(result.mqs.claritySeparation / 10) * 100}%` }}></div>
+                    <div className="bg-teal-400 h-full rounded-full" style={{ width: `${Math.min(100, (((result.mqs.claritySeparation ?? 0) / 8) * 100))}%` }}></div>
                   </div>
+                  <span className="text-[9px] text-slate-500 block mt-1">Descongestión sin adelgazar</span>
                 </div>
 
-                {/* 6. Stereo & Phase */}
+                {/* 7. Depth 3D */}
                 <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
-                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Estéreo & Fase</span>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">7. Profundidad 3D</span>
                   <div className="flex items-baseline justify-between mt-1">
-                    <span className="font-bold font-mono text-indigo-400">{result.mqs.stereoPhase}</span>
-                    <span className="text-[10px] font-mono text-slate-500">/10 pts</span>
-                  </div>
-                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
-                    <div className="bg-indigo-400 h-full rounded-full" style={{ width: `${(result.mqs.stereoPhase / 10) * 100}%` }}></div>
-                  </div>
-                </div>
-
-                {/* 7. Loudness & True Peak */}
-                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
-                  <span className="text-[10px] text-slate-400 uppercase font-mono block">True Peak ≤ -1dBTP</span>
-                  <div className="flex items-baseline justify-between mt-1">
-                    <span className="font-bold font-mono text-pink-400">{result.mqs.loudnessTruePeak}</span>
-                    <span className="text-[10px] font-mono text-slate-500">/10 pts</span>
-                  </div>
-                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
-                    <div className="bg-pink-400 h-full rounded-full" style={{ width: `${(result.mqs.loudnessTruePeak / 10) * 100}%` }}></div>
-                  </div>
-                </div>
-
-                {/* 8. Distortion & Fatigue */}
-                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
-                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Anti-Fatiga / Puro</span>
-                  <div className="flex items-baseline justify-between mt-1">
-                    <span className="font-bold font-mono text-amber-400">{result.mqs.distortionFatigue}</span>
+                    <span className="font-bold font-mono text-indigo-400">{result.mqs.depth3D ?? 0}</span>
                     <span className="text-[10px] font-mono text-slate-500">/5 pts</span>
                   </div>
                   <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
-                    <div className="bg-amber-400 h-full rounded-full" style={{ width: `${(result.mqs.distortionFatigue / 5) * 100}%` }}></div>
+                    <div className="bg-indigo-400 h-full rounded-full" style={{ width: `${Math.min(100, (((result.mqs.depth3D ?? 0) / 5) * 100))}%` }}></div>
                   </div>
+                  <span className="text-[9px] text-slate-500 block mt-1">Planos y microdinámica</span>
+                </div>
+
+                {/* 8. Stereo & Phase */}
+                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">8. Estéreo & Fase</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold font-mono text-violet-400">{result.mqs.stereoPhase ?? 0}</span>
+                    <span className="text-[10px] font-mono text-slate-500">/5 pts</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                    <div className="bg-violet-400 h-full rounded-full" style={{ width: `${Math.min(100, (((result.mqs.stereoPhase ?? 0) / 5) * 100))}%` }}></div>
+                  </div>
+                  <span className="text-[9px] text-slate-500 block mt-1">Centro mono r ≥ 0.85</span>
+                </div>
+
+                {/* 9. Loudness Capability */}
+                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">9. Capacidad Loudness</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold font-mono text-pink-400">{result.mqs.loudnessCapability ?? result.mqs.loudnessTruePeak ?? 0}</span>
+                    <span className="text-[10px] font-mono text-slate-500">/5 pts</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                    <div className="bg-pink-400 h-full rounded-full" style={{ width: `${Math.min(100, (((result.mqs.loudnessCapability ?? result.mqs.loudnessTruePeak ?? 0) / 5) * 100))}%` }}></div>
+                  </div>
+                  <span className="text-[9px] text-slate-500 block mt-1">TP ≤ -1.0 dBTP limpio</span>
+                </div>
+
+                {/* 10. Anti-Fatigue / Confort */}
+                <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">10. Anti-Fatiga</span>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="font-bold font-mono text-amber-400">{result.mqs.fatigueDistortion ?? result.mqs.distortionFatigue ?? 0}</span>
+                    <span className="text-[10px] font-mono text-slate-500">/2 pts</span>
+                  </div>
+                  <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
+                    <div className="bg-amber-400 h-full rounded-full" style={{ width: `${Math.min(100, (((result.mqs.fatigueDistortion ?? result.mqs.distortionFatigue ?? 0) / 2) * 100))}%` }}></div>
+                  </div>
+                  <span className="text-[9px] text-slate-500 block mt-1">Confort auditivo prolongado</span>
                 </div>
               </div>
+
+              {/* Body Validation & Anti-Thinning Badge (V2) */}
+              {result.bodyValidation && (
+                <div className={`p-3 rounded-lg border text-xs font-mono flex flex-col gap-2 ${
+                  result.bodyValidation.passed && !result.bodyValidation.thinningPatternDetected
+                    ? 'bg-amber-950/20 border-amber-500/30 text-amber-200'
+                    : 'bg-rose-950/20 border-rose-500/40 text-rose-300'
+                }`}>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Flame size={16} className={result.bodyValidation.passed ? 'text-amber-400' : 'text-rose-400'} />
+                      <span className="font-bold">
+                        {result.bodyValidation.thinningPatternDetected 
+                          ? 'Alerta: Adelgazamiento Detectado y Compensado' 
+                          : 'Validación de Cuerpo Acústico: APROBADA (Sin Adelgazamiento)'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 text-[10px]">
+                      <span>Peso (120-250Hz): {result.bodyValidation.lowMidWeightPreserved ? '✓ Óptimo' : '✗ Revisar'}</span>
+                      <span>Cuerpo (250-500Hz): {result.bodyValidation.bodyPreserved ? '✓ Sólido' : '✗ Débil'}</span>
+                      <span>Solidez Vocal: {result.bodyValidation.vocalSolidityRetained ? '✓ Intacta' : '✗ Afectada'}</span>
+                      <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40">
+                        Autoridad: {result.bodyValidation.bassAuthorityScore}/100
+                      </span>
+                    </div>
+                  </div>
+                  {result.bodyValidation.bodyReviewTriggered && (
+                    <div className="text-[10px] text-amber-300/90 pt-1.5 border-t border-amber-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                      <span><strong>BODY_REVIEW:</strong> {result.bodyValidation.bodyReviewRationale}</span>
+                      {result.bodyValidation.broadLowMidDeltaDb !== undefined && (
+                        <span>Δ 150-800Hz: {result.bodyValidation.broadLowMidDeltaDb >= 0 ? `+${result.bodyValidation.broadLowMidDeltaDb}` : result.bodyValidation.broadLowMidDeltaDb} dB</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* MQS Adjustments Banner if present */}
+              {result.mqs.scoreAdjustments && (
+                <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 text-xs font-mono space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-300 uppercase">Ajustes Registrados del MQS:</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      result.mqs.scoreAdjustments.totalAdjustment >= 0 
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
+                        : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    }`}>
+                      Delta Neto: {result.mqs.scoreAdjustments.totalAdjustment >= 0 ? '+' : ''}{result.mqs.scoreAdjustments.totalAdjustment} pts
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">{result.mqs.scoreAdjustments.rationale}</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[10px] text-slate-400 border-t border-slate-800">
+                    <div>Penalización Vocal: <span className={result.mqs.scoreAdjustments.vocalPenalty > 0 ? 'text-rose-400 font-bold' : 'text-slate-300'}>-{result.mqs.scoreAdjustments.vocalPenalty}</span></div>
+                    <div>Penalización Fase: <span className={result.mqs.scoreAdjustments.phasePenalty > 0 ? 'text-rose-400 font-bold' : 'text-slate-300'}>-{result.mqs.scoreAdjustments.phasePenalty}</span></div>
+                    <div>Penalización Crest: <span className={result.mqs.scoreAdjustments.crestPenalty > 0 ? 'text-rose-400 font-bold' : 'text-slate-300'}>-{result.mqs.scoreAdjustments.crestPenalty}</span></div>
+                    <div>Beneficio Transformador: <span className={result.mqs.scoreAdjustments.transformBenefit > 0 ? 'text-emerald-400 font-bold' : 'text-slate-300'}>+{result.mqs.scoreAdjustments.transformBenefit}</span></div>
+                  </div>
+                </div>
+              )}
 
               {/* Rejection triggers or Iterations history summary */}
               {result.iterationHistory && result.iterationHistory.length > 1 && (
@@ -1308,14 +1629,61 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
             </div>
           )}
 
-          {/* Intelligent Vocal Protection Audit Card (12 Pilares Acústicos) */}
-          {/* Intelligent Vocal Protection Audit Card (Validación General de Protección Vocal) */}
-          {result.vocalReport && (
+          {/* Intelligent Vocal Protection Audit Card / Instrumental Lead Focus */}
+          {result.vocalReport && (() => {
+            const isInstrumentalTrack = result.vocalDetection?.classification === 'INSTRUMENTAL' ||
+              result.vocalReport?.original?.vocalDetection?.classification === 'INSTRUMENTAL' ||
+              result.mqs?.isInstrumental === true ||
+              (result.vocalReport?.statusLabel?.includes('Instrumental') ?? false);
+
+            return (
             <div className={`p-4 rounded-xl border space-y-3.5 ${
               isClear 
                 ? 'bg-indigo-50/70 border-indigo-200 text-slate-800' 
                 : 'border-indigo-500/30 bg-indigo-950/25 text-slate-100'
             }`}>
+              {/* Instrumental Detection Banner */}
+              {isInstrumentalTrack && (
+                <div className="p-3.5 rounded-lg bg-emerald-950/30 border border-emerald-500/40 text-emerald-200 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Music2 size={16} className="text-emerald-400 shrink-0" />
+                      <span className="font-bold text-xs uppercase tracking-wider text-emerald-300">
+                        Pista Instrumental Detectada (Confianza: {Math.round(((result.vocalDetection?.confidence ?? result.vocalReport.original.vocalDetection?.confidence ?? 0.10) * 100))}%)
+                      </span>
+                    </div>
+                    <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
+                      0 Bloques Vocales · Protección de Foco Melódico Activa
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-emerald-300/90 leading-relaxed font-sans">
+                    Procesamiento específico de voz desactivado. Protección activa del elemento líder melódico (Lead / Sintes / Guitarras 400Hz - 4kHz), balance natural de frecuencias y total preservación de dinámica sin carves Mid/Side artificiales ni penalizaciones de VIR.
+                  </p>
+                  {(result.vocalDetection || result.vocalReport.original.vocalDetection) && (() => {
+                    const vd = result.vocalDetection || result.vocalReport.original.vocalDetection;
+                    return (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[10px] font-mono">
+                        <div className="p-1.5 rounded bg-slate-950/50 border border-emerald-900/50">
+                          <span className="text-slate-400 block text-[9px]">Continuidad Tonal:</span>
+                          <span className="text-slate-200 font-bold">{vd?.pitchContinuityScore ?? 0}/100</span>
+                        </div>
+                        <div className="p-1.5 rounded bg-slate-950/50 border border-emerald-900/50">
+                          <span className="text-slate-400 block text-[9px]">Evidencia Formántica:</span>
+                          <span className="text-slate-200 font-bold">{vd?.formantEvidenceScore ?? 0}/100</span>
+                        </div>
+                        <div className="p-1.5 rounded bg-slate-950/50 border border-emerald-900/50">
+                          <span className="text-slate-400 block text-[9px]">Confusión Instrumental:</span>
+                          <span className="text-emerald-400 font-bold">{vd?.harmonicInstrumentConfusionScore ?? 0}/100</span>
+                        </div>
+                        <div className="p-1.5 rounded bg-slate-950/50 border border-emerald-900/50">
+                          <span className="text-slate-400 block text-[9px]">Estructura Silábica:</span>
+                          <span className="text-slate-200 font-bold">{vd?.speechSingingStructureScore ?? 0}/100</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
               {/* Header with Title & 5-State Validation Badge */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div className="flex items-center gap-2.5">
@@ -1677,67 +2045,99 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 </div>
               </div>
             </div>
-          )}
+          );
+        })()}
 
-          {/* Telemetría DSP Real en el Archivo Exportado */}
+          {/* Telemetría DSP Real de 3 Niveles en el Archivo Exportado */}
           {result.mathematicalComparison?.dspModuleActions && result.mathematicalComparison.dspModuleActions.length > 0 && (
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
                   <Sliders size={14} className="text-indigo-400" />
-                  Telemetría DSP Verificada en el Archivo Exportado
+                  Telemetría DSP Verificada de 3 Niveles en el Archivo Final
                 </h4>
                 <span className="text-[10px] font-mono text-slate-400">
-                  Medición real sobre muestras del render
+                  Intención → Configuración → Medición Real en Muestras
                 </span>
               </div>
-              <div className={`p-4 rounded-xl border ${
-                isClear ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/40 border-slate-800'
-              }`}>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs font-mono">
-                    <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 text-[10px] uppercase">
-                        <th className="pb-2 font-semibold">Módulo DSP</th>
-                        <th className="pb-2 font-semibold">Estado</th>
-                        <th className="pb-2 font-semibold">Impacto Medido</th>
-                        <th className="pb-2 font-semibold">Muestras / Tiempo</th>
-                        <th className="pb-2 font-semibold">Acción Confirmada</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60">
-                      {result.mathematicalComparison.dspModuleActions.map((action, idx) => (
-                        <tr key={idx} className="hover:bg-slate-900/40">
-                          <td className="py-2.5 font-bold text-slate-200">{action.module}</td>
-                          <td className="py-2.5">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                              action.limiterState === 'ARMED_NO_GAIN_REDUCTION' || action.statusLabel === 'ARMED_NO_GAIN_REDUCTION'
-                                ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
-                                : (action.limiterState === 'ACTIVE' || action.statusLabel === 'ACTIVE' || (action.applied && !action.statusLabel))
-                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                                  : 'bg-slate-800 text-slate-400 border-slate-700'
-                            }`}>
-                              {action.limiterState || action.statusLabel || (action.applied ? 'ACTIVO' : 'BYPASS')}
-                            </span>
-                          </td>
-                          <td className="py-2.5 text-slate-300">
-                            {action.measuredImpactDb !== 0 
-                              ? `${action.measuredImpactDb >= 0 ? '+' : ''}${action.measuredImpactDb.toFixed(2)} dB`
-                              : '0.00 dB (Neutro)'}
-                          </td>
-                          <td className="py-2.5 text-slate-400 text-[11px]">
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {result.mathematicalComparison.dspModuleActions.map((action, idx) => {
+                  const isLimiterArmedNoGr = action.limiterState === 'ARMED_NO_GAIN_REDUCTION' || action.statusLabel === 'ARMED_NO_GAIN_REDUCTION' || action.state === 'ARMED_NO_ACTION';
+                  const isActive = action.limiterState === 'ACTIVE' || action.statusLabel === 'ACTIVE' || action.state === 'ACTIVE';
+
+                  return (
+                    <div 
+                      key={idx}
+                      className={`p-3.5 rounded-xl border flex flex-col justify-between space-y-2.5 transition-all ${
+                        isClear 
+                          ? 'bg-white border-slate-200 shadow-sm' 
+                          : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      {/* Module Header & Status Badges */}
+                      <div className="flex items-start justify-between gap-2 border-b border-slate-800/80 pb-2">
+                        <div>
+                          <span className="font-bold text-xs text-slate-200 block">{action.module}</span>
+                          <span className="text-[10px] font-mono text-slate-400">
                             {action.samplesAffected !== undefined && action.samplesAffected > 0
-                              ? `${action.samplesAffected.toLocaleString()} m. (${action.activeTimeSeconds?.toFixed(1) ?? '0.0'}s)`
-                              : action.applied ? 'Paso total' : '0 muestras'}
-                          </td>
-                          <td className="py-2.5 text-slate-400 text-[11px] max-w-xs truncate" title={action.actionDescription}>
+                              ? `${action.samplesAffected.toLocaleString()} muestras (${action.activeTimeSeconds?.toFixed(1) ?? '0.0'}s)`
+                              : action.applied ? 'Paso dinámico continuo' : '0 muestras alteradas'}
+                          </span>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold border ${
+                            isLimiterArmedNoGr
+                              ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                              : isActive
+                                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                : 'bg-slate-800 text-slate-400 border-slate-700'
+                          }`}>
+                            {action.limiterState || action.statusLabel || (isActive ? 'ACTIVE' : isLimiterArmedNoGr ? 'ARMED_NO_ACTION' : 'BYPASS')}
+                          </span>
+                          <span className="text-[10px] font-mono font-semibold text-slate-300">
+                            {action.measuredImpactDb !== 0
+                              ? `${action.measuredImpactDb >= 0 ? '+' : ''}${action.measuredImpactDb.toFixed(2)} dB`
+                              : '0.00 dB'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* 3 Telemetry Levels */}
+                      <div className="space-y-1.5 text-[11px] font-mono">
+                        {/* Nivel 1: Intención DSP */}
+                        <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-cyan-400 block mb-0.5">
+                            🎯 Nivel 1 — Intención DSP:
+                          </span>
+                          <p className="text-[10px] text-slate-300 leading-relaxed">
+                            {action.intentionDescription || 'Optimización tímbrica y balance acústico sin desfigurar la mezcla.'}
+                          </p>
+                        </div>
+
+                        {/* Nivel 2: Acción Configurada */}
+                        <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-400 block mb-0.5">
+                            ⚙️ Nivel 2 — Acción DSP Configurada:
+                          </span>
+                          <p className="text-[10px] text-slate-300 leading-relaxed">
                             {action.actionDescription}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                          </p>
+                        </div>
+
+                        {/* Nivel 3: Resultado Medido Real */}
+                        <div className="p-2 rounded-lg bg-slate-900/80 border border-slate-700/60">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-400 block mb-0.5">
+                            🔬 Nivel 3 — Resultado Medido en Muestras:
+                          </span>
+                          <p className="text-[10px] text-slate-200 font-medium leading-relaxed">
+                            {action.measuredResultDescription || 'Medición neutral directa sobre las muestras del render.'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

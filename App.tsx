@@ -89,7 +89,8 @@ export default function App() {
   const [playbackState, setPlaybackState] = useState<PlaybackState>(PlaybackState.STOPPED);
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [isBypassed, setIsBypassed] = useState(true); // Default to Original (Raw)
-  const [loudnessMatchMode, setLoudnessMatchMode] = useState<'matched' | 'actual'>('matched');
+  // Start with the exported delivery level so A/B exposes the real loudness change.
+  const [loudnessMatchMode, setLoudnessMatchMode] = useState<'matched' | 'actual'>('actual');
   const [activePreset, setActivePreset] = useState<string>('universal');
   const [processedBuffer, setProcessedBuffer] = useState<AudioBuffer | null>(null);
   const [isPreviewRendering, setIsPreviewRendering] = useState(false);
@@ -120,6 +121,32 @@ export default function App() {
   }, []);
 
   const t = getT(lang);
+
+  const getVerifiedMasterBlob = async (
+    result: AIMasteringResult | undefined,
+    expectedSourceId?: string
+  ): Promise<Blob> => {
+    const artifact = result?.finalMasterArtifact;
+    if (!result || !artifact) {
+      throw new Error('No existe un FinalMasterArtifact verificado para esta canción. Vuelve a ejecutar Master Fixer.');
+    }
+    if (expectedSourceId && artifact.sourceId !== expectedSourceId) {
+      throw new Error('El master pertenece a otra canción. Se bloqueó la descarga.');
+    }
+    const exploration = result.loudnessExploration;
+    if (!exploration?.selectedVariantId || artifact.deliveryVariantId !== exploration.selectedVariantId) {
+      throw new Error('La variante Pass B del WAV no coincide con la seleccionada en el reporte.');
+    }
+    if (exploration.selectedWavSha256 !== artifact.sha256 || result.audioIdentity?.finalFileHash !== artifact.sha256) {
+      throw new Error('La identidad criptográfica del reporte y el WAV no coincide.');
+    }
+    const hashBuffer = await crypto.subtle.digest('SHA-256', await artifact.wavBlob.arrayBuffer());
+    const actualHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+    if (actualHash !== artifact.sha256) {
+      throw new Error(`WAV inválido: hash ${actualHash.slice(0, 16)}… distinto del reporte ${artifact.sha256.slice(0, 16)}…`);
+    }
+    return artifact.wavBlob;
+  };
 
   // Bulk Mastering & Files State
   const [processingMode, setProcessingMode] = useState<ProcessingMode>('stems');
@@ -153,7 +180,7 @@ export default function App() {
     setParams(getNeutralMasteringParams());
     setActivePreset('universal');
     setIsBypassed(true); // HARD RESET: Immediately force RAW Original
-    setLoudnessMatchMode('matched');
+    setLoudnessMatchMode('actual');
     setProcessedBuffer(null);
     setMasteringReport(null);
     setSelection(null);
@@ -172,7 +199,7 @@ export default function App() {
   }, []);
 
   useEffect(() => { audioEngine.setMasterParams(params); }, [params]);
-  useEffect(() => { audioEngine.setBypass(isBypassed); }, [isBypassed]);
+  useEffect(() => { if (!audioEngine.setBypass(isBypassed)) setIsBypassed(true); }, [isBypassed]);
   useEffect(() => { audioEngine.setLoudnessMatchMode(loudnessMatchMode); }, [loudnessMatchMode]);
   
   useEffect(() => { 
@@ -204,7 +231,12 @@ export default function App() {
     const timer = setTimeout(async () => {
         setIsPreviewRendering(true);
         let buffer: AudioBuffer | null = null;
-        if (processingMode === 'bulk' && activeTrackId) {
+        const artifact = processingMode === 'bulk' && activeTrackId
+          ? trackMasterMap[activeTrackId]?.finalMasterArtifact
+          : masteringReport?.finalMasterArtifact;
+        if (artifact) {
+          buffer = artifact.finalDecodedPCM;
+        } else if (processingMode === 'bulk' && activeTrackId) {
           const currentTrack = tracks.find(t => t.id === activeTrackId);
           if (currentTrack) {
             const trackParams = trackMasterMap[activeTrackId]?.params || params;
@@ -227,7 +259,7 @@ export default function App() {
         setIsPreviewRendering(false);
     }, 400);
     return () => clearTimeout(timer);
-  }, [params, tracks, loadingAudio, processingMode, activeTrackId, trackMasterMap]);
+  }, [params, tracks, loadingAudio, processingMode, activeTrackId, trackMasterMap, masteringReport]);
 
   // Throttled time updater for UI text (4Hz interval instead of 60Hz full-tree re-renders)
   useEffect(() => {
@@ -412,7 +444,7 @@ export default function App() {
     
     // Always reset timeline and playhead to 00:00 when selecting another song
     setCurrentTime(0);
-    audioEngine.seek(0, id);
+    audioEngine.stop();
     const trackDur = audioEngine.getTrackDuration(id);
     if (trackDur > 0) {
       setDuration(trackDur);
@@ -431,9 +463,11 @@ export default function App() {
 
     const currentTrack = tracks.find(t => t.id === id);
     const trackInfo = trackMasterMap[id];
-    if (trackInfo?.isMastered && trackInfo.result && trackInfo.result.sourceId === (currentTrack?.sourceId || id)) {
+    const restored = currentTrack ? audioEngine.activateTrackForPlayback(currentTrack, trackInfo?.result) : false;
+    if (restored && trackInfo?.isMastered && trackInfo.result && trackInfo.result.sourceId === (currentTrack?.sourceId || id)) {
       setParams(trackInfo.params || trackInfo.result.appliedParams);
       setMasteringReport(trackInfo.result);
+      audioEngine.setBypass(false);
       setIsBypassed(false);
     } else {
       // Clean slate for unmastered track: strictly neutral params, no previous report, forced raw bypass
@@ -494,7 +528,9 @@ export default function App() {
           isProcessing: false,
           currentPhase: 'complete',
           result,
-          params: result.appliedParams
+          params: result.appliedParams,
+          blob: result.finalMasterArtifact?.wavBlob || audioEngine.getFinalExportedMasterBlob() || undefined,
+          finalMasterArtifact: result.finalMasterArtifact || audioEngine.getFinalMasterArtifact() || undefined
         }
       }));
 
@@ -525,27 +561,27 @@ export default function App() {
   const handleMasterAllTracks = async () => {
     if (tracks.length === 0) return;
     setIsBulkMastering(true);
-    
+    let completedCount = 0;
+    let failedCount = 0;
     const updatedMap = { ...trackMasterMap };
     const results: AIMasteringResult[] = [];
-    let failedCount = 0;
 
     for (let i = 0; i < tracks.length; i++) {
       const track = tracks[i];
-      const targetSessionId = `bulk_${Date.now()}_${track.id}_${i}`;
-      setBulkProgress({ current: i + 1, total: tracks.length, trackName: track.name });
-      
-      updatedMap[track.id] = { 
-        trackId: track.id, 
-        sourceId: track.sourceId,
-        trackSessionId: targetSessionId,
-        isProcessing: true, 
-        isMastered: false,
-        currentPhase: 'reset'
-      };
-      setTrackMasterMap({ ...updatedMap });
-
+      const targetSessionId = `bulk_${track.id}_${Date.now().toString(36)}`;
       try {
+        setTrackMasterMap(prev => ({
+          ...prev,
+          [track.id]: {
+            trackId: track.id,
+            sourceId: track.sourceId,
+            trackSessionId: targetSessionId,
+            isProcessing: true,
+            isMastered: false,
+            currentPhase: 'analyze'
+          }
+        }));
+
         const result = await audioEngine.runMixerFixerAIForSingleTrack(
           getNeutralMasteringParams(),
           track,
@@ -567,7 +603,9 @@ export default function App() {
           isProcessing: false,
           currentPhase: 'complete',
           result,
-          params: result.appliedParams
+          params: result.appliedParams,
+          blob: result.finalMasterArtifact?.wavBlob || audioEngine.getFinalExportedMasterBlob() || undefined,
+          finalMasterArtifact: result.finalMasterArtifact || audioEngine.getFinalMasterArtifact() || undefined
         };
         results.push(result);
         setTrackMasterMap({ ...updatedMap });
@@ -651,6 +689,7 @@ export default function App() {
       // Select first mastered track
       const firstMastered = tracks.find(t => updatedMap[t.id]?.isMastered);
       if (firstMastered && updatedMap[firstMastered.id]?.result) {
+        audioEngine.activateTrackForPlayback(firstMastered, updatedMap[firstMastered.id].result);
         setActiveTrackId(firstMastered.id);
         setParams(updatedMap[firstMastered.id].params!);
         setMasteringReport(updatedMap[firstMastered.id].result!);
@@ -659,32 +698,30 @@ export default function App() {
     }
   };
 
-  // 3. Download Single Mastered WAV
+  // 3. Download Single Mastered WAV (Strictly from FinalMasterArtifact - Requirement 2 & 7)
   const handleDownloadSingleTrack = async (track: Track) => {
     try {
-      const trackParams = trackMasterMap[track.id]?.params || params;
-      const blob = await audioEngine.exportSingleTrackAudio(trackParams, track, 24);
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        const originalName = track.name.replace(/\.[^/.]+$/, "");
-        const downloadName = `${originalName}_Auramaster.wav`;
-        a.download = downloadName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 15000);
-        setExportedFileName(downloadName);
-        setIsExportSuccessOpen(true);
-      }
-    } catch (err) {
+      const trackResult = trackMasterMap[track.id]?.result;
+      const finalMasterBlob = await getVerifiedMasterBlob(trackResult, track.sourceId || track.id);
+      const url = URL.createObjectURL(finalMasterBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      const originalName = track.name.replace(/\.[^/.]+$/, "");
+      const downloadName = `${originalName}_Auramaster.wav`;
+      a.download = downloadName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 15000);
+      setExportedFileName(downloadName);
+      setIsExportSuccessOpen(true);
+    } catch (err: any) {
       console.error("Download single track error:", err);
-      alert("Error al exportar la pista.");
+      alert("Error al exportar la pista: " + (err?.message || 'Error'));
     }
   };
 
-  // 4. Download All Mastered as ZIP
+  // 4. Download All Mastered as ZIP (Strictly from FinalMasterArtifact)
   const handleDownloadAllMasteredZip = async () => {
     if (tracks.length === 0) return;
     setIsExportingZip(true);
@@ -692,9 +729,9 @@ export default function App() {
       const filesToZip: { name: string; blob: Blob }[] = [];
 
       for (const track of tracks) {
-        const trackParams = trackMasterMap[track.id]?.params || params;
-        const blob = await audioEngine.exportSingleTrackAudio(trackParams, track, 24);
-        if (blob) {
+        const trackResult = trackMasterMap[track.id]?.result;
+        if (trackResult) {
+          const blob = await getVerifiedMasterBlob(trackResult, track.sourceId || track.id);
           const originalName = track.name.replace(/\.[^/.]+$/, "");
           filesToZip.push({ name: `${originalName}_Auramaster.wav`, blob });
         }
@@ -911,10 +948,29 @@ export default function App() {
     try {
       const activeTrack = (processingMode === 'bulk' && activeTrackId) ? tracks.find(t => t.id === activeTrackId) : undefined;
       const exportTracks = activeTrack ? [activeTrack] : tracks;
-      const exportParams = activeTrack ? (trackMasterMap[activeTrack.id]?.params || params) : params;
+      const selectedResult = activeTrack ? trackMasterMap[activeTrack.id]?.result : masteringReport || undefined;
+      const artifact = selectedResult?.finalMasterArtifact;
 
-      const blob = await audioEngine.exportAudio(exportParams, exportTracks, bitDepth);
+      let blob: Blob | null = null;
+      if (artifact) {
+        if (bitDepth === 24) {
+          blob = await getVerifiedMasterBlob(selectedResult, activeTrack?.sourceId || activeTrack?.id);
+        } else {
+          await getVerifiedMasterBlob(selectedResult, activeTrack?.sourceId || activeTrack?.id);
+          blob = await audioEngine.exportAlternativeBitDepth(artifact, bitDepth);
+        }
+      } else {
+        throw new Error('No existe un master verificado para exportar. Ejecuta Master Fixer de nuevo.');
+      }
+
       if (blob) {
+        if (bitDepth === 24 && artifact) {
+          const hashBuf = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+          const dlHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+          if (dlHash !== artifact.sha256) {
+            console.error("Format download SHA-256 mismatch:", dlHash, artifact.sha256);
+          }
+        }
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -944,8 +1000,8 @@ export default function App() {
               await handleDownloadSingleTrack(activeTrack);
             }
           } else {
-            const blob = await audioEngine.exportAudio(params, tracks, 24);
-            if (blob) {
+          const blob = await getVerifiedMasterBlob(masteringReport || undefined, tracks[0]?.sourceId || tracks[0]?.id);
+          if (blob) {
               const url = URL.createObjectURL(blob);
               const a = document.createElement('a');
               a.href = url;
@@ -960,8 +1016,8 @@ export default function App() {
 
               if (masteringReport?.qcVerification) {
                 setExportedQC(masteringReport.qcVerification);
-              } else if (processedBuffer) {
-                const qc = await audioEngine.performExportQC(processedBuffer, 24);
+              } else if (masteringReport?.finalMasterArtifact?.finalDecodedPCM) {
+                const qc = await audioEngine.performExportQC(masteringReport.finalMasterArtifact.finalDecodedPCM, 24);
                 setExportedQC(qc);
               }
 
@@ -1103,15 +1159,15 @@ export default function App() {
                                       }`}
                                       title={
                                         loudnessMatchMode === 'matched'
-                                          ? `Loudness Matched: Ganancia de escucha calibrada a ${comparisonGainDb > 0 ? '+' : ''}${comparisonGainDb.toFixed(1)} dB para comparar timbre y voz sin sesgo de volumen`
+                                          ? `Comparación de timbre: se iguala el volumen. Si el master solo cambia de nivel, puede sonar igual. Compensación relativa: ${comparisonGainDb > 0 ? '+' : ''}${comparisonGainDb.toFixed(1)} dB para comparar timbre y voz sin sesgo de volumen`
                                           : 'Nivel Real de Exportación: Escuchando el volumen real del master final (sin compensación de ganancia)'
                                       }
                                     >
                                       <span className={`w-1.5 h-1.5 rounded-full ${loudnessMatchMode === 'matched' ? 'bg-purple-400 animate-pulse' : 'bg-slate-500'}`} />
                                       <span>
                                         {loudnessMatchMode === 'matched'
-                                          ? `Loudness Match (${comparisonGainDb > 0 ? '+' : ''}${comparisonGainDb.toFixed(1)} dB)`
-                                          : 'Nivel Real Export'}
+                                          ? `Igualar volumen (${comparisonGainDb > 0 ? '+' : ''}${comparisonGainDb.toFixed(1)} dB)`
+                                          : 'Volumen de entrega'}
                                       </span>
                                     </button>
                                   )}
@@ -1133,7 +1189,7 @@ export default function App() {
                                             ? "bg-amber-500 hover:bg-amber-400 text-black" 
                                             : "bg-gradient-to-r from-cyan-500 to-cyan-400 text-black font-extrabold"
                                       }`}
-                                      title={!hasActiveMaster ? (lang === 'es' ? 'Audio Original (sin masterizar)' : 'Original Audio (unmastered)') : isBypassed ? "Activar Master DSP" : "Bypass (Raw)"}
+                                      title={!hasActiveMaster ? (lang === 'es' ? 'Audio Original (sin masterizar)' : 'Original Audio (unmastered)') : isBypassed ? "Escuchar WAV masterizado" : "Escuchar original"}
                                   >
                                       {isBypassed || !hasActiveMaster ? <VolumeX size={12}/> : <CheckCircle2 size={12}/>}
                                       <span>

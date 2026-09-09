@@ -31,10 +31,12 @@ interface EffectRackProps {
   referenceCount?: number;
 }
 
+type EQBandKey = Exclude<keyof EQParams, 'enabled'>;
+
 const EffectRack: React.FC<EffectRackProps> = ({ params, onChange, tracks, onTrackChange, onRemove, skin = 'modern', lang = 'es', analysisStats, isExpanded = false, onToggleExpand, onSmartMaster, selection, isSmartAdjusting, smartMasterPhase, activeTrackId, onSelectTrack, onOpenReferenceMastering, referenceCount = 0 }) => {
   const [activeTab, setActiveTab] = useState<'fixers' | 'mixer' | 'dynamics' | 'eq' | 'transient' | 'color' | 'lofi' | 'space' | 'analysis'>('fixers');
   const [compBand, setCompBand] = useState<'low' | 'mid' | 'high'>('mid');
-  const [selectedEQBand, setSelectedEQBand] = useState<keyof EQParams | null>('mid'); 
+  const [selectedEQBand, setSelectedEQBand] = useState<EQBandKey | null>('mid'); 
   const [isAutoMixing, setIsAutoMixing] = useState(false);
 
   const t = getT(lang);
@@ -47,7 +49,7 @@ const EffectRack: React.FC<EffectRackProps> = ({ params, onChange, tracks, onTra
   const hasSafePeakIssue = peak > -0.9;
   const hasLufsIssue = lufs > -100 && (Math.abs(lufs - (-14)) > 1.5);
   
-  const updateEQ = (key: keyof EQParams, val: EQBand) => {
+  const updateEQ = (key: EQBandKey, val: EQBand) => {
     onChange({ ...params, eq: { ...params.eq, [key]: val } });
   };
   const updateComp = (band: 'low' | 'mid' | 'high', key: keyof typeof params.multiband.mid, val: number) => {

@@ -1,18 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { EQParams, EQBand, SkinMode } from '../types';
 
+type EQBandKey = Exclude<keyof EQParams, 'enabled'>;
+
 interface VisualEQProps {
   params: EQParams;
-  onChange: (key: keyof EQParams, val: EQBand) => void;
-  onSelectBand?: (key: keyof EQParams | null) => void;
-  selectedBand?: keyof EQParams | null;
+  onChange: (key: EQBandKey, val: EQBand) => void;
+  onSelectBand?: (key: EQBandKey | null) => void;
+  selectedBand?: EQBandKey | null;
   skin?: SkinMode;
 }
 
 export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBand, selectedBand, skin = 'modern' }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dragNode, setDragNode] = useState<keyof EQParams | null>(null);
+  const [dragNode, setDragNode] = useState<EQBandKey | null>(null);
   
   const isClear = skin === 'clear';
 
@@ -123,7 +125,7 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
                 ctx.shadowBlur = 10;
             }
             
-            const bands: (keyof EQParams)[] = ['low', 'lowMid', 'mid', 'highMid', 'high'];
+            const bands: EQBandKey[] = ['low', 'lowMid', 'mid', 'highMid', 'high'];
             const types: Record<string, 'lowshelf' | 'peaking' | 'highshelf'> = {
                 low: 'lowshelf', lowMid: 'peaking', mid: 'peaking', highMid: 'peaking', high: 'highshelf'
             };
@@ -195,8 +197,8 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
       const width = rect.width;
       const height = rect.height;
 
-      const nodes: (keyof EQParams)[] = ['low', 'lowMid', 'mid', 'highMid', 'high'];
-      let closest: keyof EQParams | null = null;
+      const nodes: EQBandKey[] = ['low', 'lowMid', 'mid', 'highMid', 'high'];
+      let closest: EQBandKey | null = null;
       let minDist = 20;
 
       nodes.forEach(n => {

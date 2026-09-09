@@ -138,6 +138,34 @@ export enum PlaybackState {
 export type SkinMode = 'modern' | 'clear';
 export type ProcessingMode = 'stems' | 'bulk';
 
+export interface FinalMasterArtifact {
+  deliveryVariantId?: string;
+  sourceId: string;
+  sessionId: string;
+  candidateId: string;
+  renderId: string;
+
+  wavBlob: Blob;
+  wavArrayBuffer: ArrayBuffer;
+  sha256: string;
+
+  sampleRate: number;
+  channels: number;
+  bitDepth: 16 | 24 | 32;
+  duration: number;
+
+  finalDecodedPCM: AudioBuffer;
+
+  finalIntegratedLUFS: number;
+  finalTruePeak: number;
+  finalLRA: number;
+  finalRMS: number;
+  finalCrestFactor: number;
+
+  finalMQS: MasteringQualityScore;
+  finalDSPTelemetry?: LimiterTelemetry;
+}
+
 export interface TrackMasterInfo {
   trackId: string;
   sourceId?: string;
@@ -150,6 +178,7 @@ export interface TrackMasterInfo {
   errorMessage?: string;
   blob?: Blob;
   url?: string;
+  finalMasterArtifact?: FinalMasterArtifact;
 }
 
 export type AIProvider = 'gemini' | 'openai' | 'groq' | 'anthropic' | 'custom';
@@ -253,7 +282,25 @@ export type VocalProtectionStatus =
   | 'acceptable'           // 0.3 < delta <= 0.5 dB
   | 'warning'              // 0.5 < delta <= 0.8 dB
   | 'failed'               // delta > 0.8 dB
+  | 'partial'
   | 'partially_achieved';  // improved but safety limits reached
+
+export type VocalClassification = 'VOCAL_PRESENT' | 'VOCAL_UNCERTAIN' | 'INSTRUMENTAL';
+
+export interface VocalPresenceResult {
+  hasVocals: boolean;
+  confidence: number; // 0.0 - 1.0
+  classification: VocalClassification;
+  vocalActivityRatio: number; // 0.0 - 1.0
+  vocalSegmentCount: number;
+  averageVocalConfidence: number; // 0.0 - 1.0
+  pitchContinuityScore: number; // 0 - 100
+  formantEvidenceScore: number; // 0 - 100
+  speechSingingStructureScore: number; // 0 - 100
+  harmonicInstrumentConfusionScore: number; // 0 - 100
+  vibratoScore?: number; // 0 - 100
+  rationale: string;
+}
 
 export interface VocalAnalysisProfile {
   centerEnergyDb: number;             // 250 Hz - 5 kHz (Mid channel focus)
@@ -263,6 +310,15 @@ export interface VocalAnalysisProfile {
   sibilanceDb: number;                // 5 kHz - 9 kHz (Air & 's' sounds)
   airEnergyDb: number;                // > 8 kHz (Breath & shimmer)
   lowEndEnergyDb: number;             // 30 Hz - 200 Hz (Sub & bass)
+  // Sub-band Body Analysis (Sections 4 & 5)
+  weight120_250Db?: number;           // 120 - 250 Hz (Weight / warmth)
+  body250_500Db?: number;             // 250 - 500 Hz (Body)
+  solidity500_900Db?: number;         // 500 - 900 Hz (Vocal/instrument solidity)
+  // Sub-band Low-End Authority Analysis (Section 6)
+  sub20_60Db?: number;                // 20 - 60 Hz (Sub-bass)
+  bass60_100Db?: number;              // 60 - 100 Hz (Kick/bass fundamental)
+  punch100_150Db?: number;            // 100 - 150 Hz (Transient punch)
+  warmth150_250Db?: number;           // 150 - 250 Hz (Bass harmonics / warmth)
   guitarsSynthsMidDb: number;         // 400 Hz - 2.5 kHz (Mid instrumentation)
   instrumentalBrightnessDb: number;   // 5 kHz - 12 kHz (High percussion & sheen)
   sideEnergyDb: number;               // Side channel overall RMS in dB
@@ -288,13 +344,15 @@ export interface VocalAnalysisProfile {
   blockLowEndRmsArr?: number[];       // 16 block Low-End RMS values
   blockSideRmsArr?: number[];         // 16 block Side RMS values
   vocalActiveBlocks?: boolean[];      // 16 block boolean indicators of vocal activity
+  vocalDetection?: VocalPresenceResult; // Autonomous vocal existence telemetry
 }
 
-export type VocalProtectionStatus = 'approved' | 'acceptable' | 'warning' | 'failed' | 'partial';
+
 
 export interface VocalProtectionReport {
   original: VocalAnalysisProfile;
   final: VocalAnalysisProfile;
+  vocalDetection?: VocalPresenceResult;
   vocalStatus: VocalProtectionStatus;
   statusLabel: string;                // 'Protección aprobada', 'Protección aceptable', 'Advertencia de enmascaramiento', 'Protección fallida', 'Protección parcialmente alcanzada'
   relativePresenceDeltaDb: number;    // Net relative vocal presence delta vs mix
@@ -343,17 +401,38 @@ export interface VocalProtectionReport {
 
 export interface MasteringQualityScore {
   totalScore: number; // 0 - 100
-  tonalBalance: number; // max 20
-  vocalPreservation: number; // max 20
-  dynamicsTransients: number; // max 15
-  lowEndControl: number; // max 10
-  claritySeparation: number; // max 10
-  stereoPhase: number; // max 10
-  loudnessTruePeak: number; // max 10
-  distortionFatigue: number; // max 5
+  // MQS V2 Core 10 Pillars (Sum = 100)
+  vocalIntegrity: number; // max 20 (Preservación de timbre, cuerpo 150-900Hz e inteligibilidad vocal)
+  tonalBalance: number; // max 15 (Curva musical, sin asperezas ni resonancias)
+  bodyDensity: number; // max 15 (Peso 120-250Hz, cuerpo 250-500Hz, solidez 500-900Hz)
+  dynamicsTransients: number; // max 15 (Pegada de transientes, impacto de bombo/caja, microdinámica)
+  lowEndAuthority: number; // max 10 (Graves y subgraves firmes, definidos, articulados y sin enmascaramiento)
+  claritySeparation: number; // max 8 (Separación instrumental y descongestión de medios)
+  depth: number; // max 5 (Planos espaciales frente-fondo Mid/Side)
+  stereoPhase: number; // max 5 (Correlación >= 0.85, centro mono sólido)
+  loudnessCapability: number; // max 5 (Capacidad de proyección de volumen limpio sin fatiga)
+  fatigueDistortion: number; // max 2 (Anti-fatiga, sin picos inter-sample ni distorsión)
+
+  // Backward-compatibility aliases
+  vocalPreservation?: number; // alias for vocalIntegrity
+  leadMelodicFocusIntegrity?: number; // Pillar 1 alias for vocalIntegrity when track is instrumental (max 20)
+  isInstrumental?: boolean;
+  lowEndControl?: number; // alias for lowEndAuthority
+  depth3D?: number; // alias for depth
+  loudnessTruePeak?: number; // alias for loudnessCapability
+  distortionFatigue?: number; // alias for fatigueDistortion
+
   breakdown: string[];
   rejectionTriggers: string[];
   isApproved: boolean;
+  scoreAdjustments?: {
+    vocalPenalty: number;
+    phasePenalty: number;
+    crestPenalty: number;
+    transformBenefit: number;
+    totalAdjustment: number;
+    rationale: string;
+  };
 }
 
 export interface MasteringIterationRecord {
@@ -366,11 +445,30 @@ export interface MasteringIterationRecord {
   rejectedReasons: string[];
 }
 
+export interface MasterIdentityRecord {
+  finalRenderId: string;
+  finalFileHash: string; // SHA-256 hex
+  finalSourceId: string;
+  finalCandidateId: string;
+  finalSessionId: string;
+  sampleRate: number;
+  lengthInSamples: number;
+  duration: number;
+  measuredFinalLUFS: number;
+  measuredFinalTruePeak: number;
+  measuredFinalLRA: number;
+  reopenedWavValid: boolean;
+}
+
 export interface AudioIdentity {
   sourceId: string;
   trackSessionId: string;
   iterationId: string;
   renderId: string;
+  finalRenderId?: string;
+  finalFileHash?: string;
+  finalCandidateId?: string;
+  finalSessionId?: string;
   fileHash: string; // Cryptographic SHA-256 hex of exported WAV
   sampleRate: number;
   lengthInSamples: number;
@@ -423,6 +521,18 @@ export interface AIMasteringResult {
   };
   mathematicalComparison?: MathematicalComparisonReport;
   audioIdentity?: AudioIdentity;
+  masterIdentity?: MasterIdentityRecord;
+  reportConsistencyCheck?: {
+    passed: boolean;
+    violations: string[];
+    verifiedHash: string;
+    measuredLUFS: number;
+    reportedLUFS: number;
+    measuredTruePeak: number;
+    reportedTruePeak: number;
+    measuredLRA: number;
+    reportedLRA: number;
+  };
   reopenedFromWav?: boolean;
   loudnessMatchGainDb?: number;
   acousticDiagnosis?: AcousticAspectDiagnosis[];
@@ -430,6 +540,101 @@ export interface AIMasteringResult {
   tournamentReport?: MasteringTournamentReport;
   finalMeasuredLUFS?: number;
   limiterTelemetry?: LimiterTelemetry;
+  finalMasterArtifact?: FinalMasterArtifact;
+  // Quality-First Adaptive Mastering V2 Telemetry
+  musicalIntent?: MusicalIntentProfile;
+  vocalDetection?: VocalPresenceResult;
+  loudnessExploration?: LoudnessExplorationRecord;
+  bodyValidation?: BodyValidationTelemetry;
+  adaptiveEQDecisions?: AdaptiveEQDecision[];
+}
+
+export interface MusicalIntentProfile {
+  detectedGenre: string;
+  productionAesthetic: 'vintage_warm' | 'modern_pristine' | 'organic_acoustic' | 'dense_aggressive' | 'balanced_commercial';
+  tonalCharacter: 'warm' | 'neutral' | 'bright';
+  dynamicProfile: 'dynamic_open' | 'cohesive' | 'dense';
+  vocalFocus: 'vocal_forward' | 'balanced_mix' | 'instrumental_dominant';
+  lowEndCharacter: 'tight_punchy' | 'deep_subby' | 'warm_round' | 'lean_controlled';
+  intendedStereoDepth: 'intimate_focused' | 'natural_wide' | 'expansive_3d';
+  notes: string[];
+}
+
+export interface TestedLoudnessLevel {
+  variantId?: string;
+  ceilingDbTP?: number;
+  levelName: string; // e.g. 'L0 (0.00 dB)', 'L1 (+0.75 dB)', 'L2 (+1.50 dB)', etc.
+  gainDb: number;
+  measuredLUFS: number; // LUFS-I
+  truePeakDbTP: number; // dBTP
+  limiterGR: number; // limiterMaxGR in dB
+  limiterMaxGR?: number;
+  samplesLimited?: number;
+  lra: number;
+  lraDelta: number;
+  crestFactor: number;
+  crestDelta: number;
+  vocalDelta?: number; // dB delta in vocal presence relative to original at matched loudness
+  leadFocusDelta?: number; // dB delta in lead melodic focus relative to original at matched loudness (when instrumental)
+  bodyDelta?: number; // dB delta in low-mids/body relative to original at matched loudness
+  phaseCorrelation?: number;
+  distortionRisk?: 'low' | 'moderate' | 'high';
+  pumpingRisk?: boolean;
+  qualityScore?: number;
+  approved: boolean;
+  isRefinementStep?: boolean;
+  rejectionReason?: string;
+  rejectionReasons?: string[];
+}
+
+export interface LoudnessExplorationRecord {
+  selectedVariantId?: string;
+  selectedWavSha256?: string;
+  naturalLUFS: number;
+  adaptiveTargetLUFS?: number;
+  winnerPreDeliveryLUFS?: number;
+  testedLoudnessLevels: TestedLoudnessLevel[];
+  selectedFinalLUFS: number;
+  maximumCleanLUFS: number;
+  availableCleanHeadroomDb: number;
+  usedCleanHeadroomDb: number;
+  limiterGR: number;
+  samplesLimited?: number;
+  crestDelta: number;
+  lraDelta: number;
+  rejectionReasonForLouderVariant?: string;
+  sweetSpotNote: string;
+  unusedCleanHeadroomFlag?: boolean; // Flagged when clean headroom was left unused without cause
+  refinementStepsCount?: number;
+}
+
+export interface BodyValidationTelemetry {
+  passed: boolean;
+  lowMidWeightPreserved: boolean; // 120-250 Hz
+  bodyPreserved: boolean; // 250-500 Hz
+  vocalSolidityRetained: boolean; // 500-900 Hz
+  thinningPatternDetected: boolean; // Anti-thinning detector
+  bassAuthorityScore: number; // 0-100
+  weight120_250DeltaDb?: number;
+  body250_500DeltaDb?: number;
+  solidity500_900DeltaDb?: number;
+  broadLowMidDeltaDb?: number; // 150-500 Hz / 200-800 Hz delta
+  bodyReviewTriggered?: boolean;
+  bodyReviewRationale?: string;
+  notes: string[];
+}
+
+export interface AdaptiveEQDecision {
+  problemDetected: string;
+  confidence: number; // 0 - 100
+  band: string;
+  frequency: number;
+  q: number;
+  proposedGainDb: number;
+  measuredResultDb: number;
+  benefitScore: number;
+  status: 'accepted' | 'reverted';
+  rationale: string;
 }
 
 export type LimiterState = 'BYPASS' | 'ARMED_NO_GAIN_REDUCTION' | 'ACTIVE';
@@ -446,8 +651,27 @@ export interface LimiterTelemetry {
 }
 
 export type AcousticAspectKey =
-  | 'voz'
+  // 18 V2 Classified Dimensions
+  | 'vocal'
   | 'kick'
+  | 'bass'
+  | 'sub'
+  | 'percussion'
+  | 'low_mids_body'
+  | 'mid_clarity'
+  | 'presence'
+  | 'highs'
+  | 'air'
+  | 'transients'
+  | 'macro_dynamics'
+  | 'micro_dynamics'
+  | 'stereo'
+  | 'phase'
+  | 'depth'
+  | 'density'
+  | 'loudness_headroom'
+  // Compatibility aliases
+  | 'voz'
   | 'bajo'
   | 'subgrave'
   | 'percusion'
@@ -491,23 +715,43 @@ export interface TournamentCandidate {
   integratedLUFS: number;
   truePeakDbTP: number;
   comparisonGainDb: number;
+  rawScore: number;
+  preRenderScore?: number;
+  postRenderScore?: number;
+  finalScore: number;
+  approved: boolean;
   scores: {
-    vocalScore: number;
-    tonalBalanceScore: number;
-    separationScore: number;
-    lowEndScore: number;
-    transientScore: number;
-    depthScore: number;
-    stereoPhaseScore: number;
-    cohesionFatigueScore: number;
-    totalScore: number;
+    vocalScore: number; // max 20 (V2)
+    tonalBalanceScore: number; // max 15 (V2)
+    bodyDensityScore?: number; // max 15 (V2)
+    transientScore: number; // max 15 (V2)
+    lowEndScore: number; // max 10 (V2)
+    separationScore: number; // max 8 (V2)
+    depthScore: number; // max 5 (V2)
+    stereoPhaseScore: number; // max 5 (V2)
+    loudnessCapabilityScore?: number; // max 5 (V2)
+    fatigueDistortionScore: number; // max 2 (V2)
+    loudnessTpScore?: number; // compat alias
+    cohesionFatigueScore?: number; // compat alias
+    totalScore: number; // max 100
+  };
+  scoreAdjustments?: {
+    vocalPenalty: number;
+    phasePenalty: number;
+    crestPenalty: number;
+    transformBenefit: number;
+    totalAdjustment: number;
+    rationale: string;
   };
   deltaVirDb: number;
   phaseCorrelation: number;
   headToHeadWins: number;
   isDisqualified: boolean;
   disqualificationReason?: string;
+  disqualificationReasons?: string[];
   perceptualHighlights: string[];
+  loudnessExploration?: LoudnessExplorationRecord;
+  bodyValidation?: BodyValidationTelemetry;
 }
 
 export interface TournamentMatchup {
@@ -569,12 +813,15 @@ export interface MathematicalComparisonReport {
   // 7. Diferencias de envolvente
   envelopeCorrelation: number;
 
-  // 8. Acción real de cada módulo DSP (Telemetría de audio real)
+  // 8. Acción real de cada módulo DSP (Telemetría de audio real de 3 niveles)
   dspModuleActions: {
     module: string;
     applied: boolean;
     measuredImpactDb: number;
     actionDescription: string;
+    intentionDescription?: string; // Nivel 1: Intención DSP
+    measuredResultDescription?: string; // Nivel 3: Resultado medido
+    state?: 'BYPASS' | 'ARMED_NO_ACTION' | 'ACTIVE';
     statusLabel?: string;
     limiterState?: LimiterState;
     samplesAffected?: number;

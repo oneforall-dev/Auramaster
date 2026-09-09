@@ -181,8 +181,8 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
               <p>
                 <strong>{lang === 'es' ? 'Sube tu master a Spotify:' : 'Distribute to Spotify:'}</strong>{' '}
                 {lang === 'es' 
-                  ? 'Tu pista ya cuenta con el estándar comercial (-14 LUFS / -1 dB TP). Distribúyela a Spotify a través de tu distribuidora favorita.'
-                  : 'Your master is normalized for Spotify standards (-14 LUFS / -1 dB TP). Upload via your favorite distributor.'}
+                  ? 'Tu pista tiene loudness adaptativo y true peak protegido para distribución. Spotify ajustará el volumen de reproducción según la configuración del oyente.'
+                  : 'Your master has adaptive loudness and protected true peak for distribution. Spotify adjusts playback level according to the listener settings.'}
               </p>
             </div>
 
