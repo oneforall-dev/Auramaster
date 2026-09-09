@@ -3439,7 +3439,9 @@ export class AudioEngine {
       const telemetry = { ...this.lastLimiterTelemetry!, finalTruePeak: metrics.truePeakDbTP };
       variantTelemetries.push(telemetry);
       const limiterMaxGR = this.lastLimiterTelemetry?.maxGainReduction ?? 0.0;
+      const limiterAverageGR = this.lastLimiterTelemetry?.averageGainReduction ?? 0.0;
       const samplesLimited = this.lastLimiterTelemetry?.samplesLimited ?? 0;
+      const limiterActiveRatio = rendered.length > 0 ? samplesLimited / rendered.length : 0;
       const crestDelta = parseFloat((metrics.crestFactor - winnerMetrics.crestFactor).toFixed(2));
       const lraDelta = parseFloat((metrics.dynamicRangeLRA - winnerMetrics.dynamicRangeLRA).toFixed(2));
       const loudnessOffset = metrics.integratedLUFS - winnerPreDeliveryLUFS;
@@ -3461,7 +3463,17 @@ export class AudioEngine {
       const distortionRisk: 'low' | 'moderate' | 'high' = 
         limiterMaxGR > 2.0 || metrics.truePeakDbTP > -0.95 ? 'high' :
         limiterMaxGR > 1.0 || metrics.truePeakDbTP > -0.99 ? 'moderate' : 'low';
-      const pumpingRisk = limiterMaxGR > 2.0 || (limiterMaxGR > 1.2 && samplesLimited > (rendered.sampleRate * 1.5));
+      // Total limited time alone is not evidence of audible pumping: a dense
+      // two-minute mix can accumulate seconds of gentle peak control without
+      // any audible gain-envelope modulation. Require sustained, meaningful
+      // reduction plus a measured loss of crest before treating it as a hard
+      // pumping risk.
+      const pumpingRisk = limiterMaxGR > 2.0 || (
+        limiterMaxGR > 1.6
+        && limiterAverageGR > 0.8
+        && limiterActiveRatio > 0.35
+        && crestDelta < -0.60
+      );
 
       const mqs = await this.calculateMasteringQualityScore(rendered, rawBuffer, this.getSourceSampleRate());
       const qualityScore = mqs.totalScore;
@@ -3533,6 +3545,21 @@ export class AudioEngine {
       testedLevels.push(res.level);
       renderedBuffers.push(res.buffer);
       renderedParams.push(res.params);
+    }
+
+    // If the tournament winner is already too hot at L0, search downward for
+    // a conservative delivery instead of aborting the whole mastering job.
+    // These levels are evaluated only on failure, so normal reports remain
+    // focused on L0-L4 and their upper-bound refinement.
+    if (!testedLevels.some(level => level.approved)) {
+      const safetyOffsets = [-0.75, -1.50, -2.25, -3.00];
+      for (const safetyOffset of safetyOffsets) {
+        const res = await evaluateOffset(safetyOffset, `Safety (${safetyOffset.toFixed(2)} dB)`, false);
+        testedLevels.push(res.level);
+        renderedBuffers.push(res.buffer);
+        renderedParams.push(res.params);
+        if (res.level.approved) break;
+      }
     }
 
     // Phase 2: Boundary Refinement between passing and failing tiers (0.25 dB intervals)
@@ -3614,7 +3641,7 @@ export class AudioEngine {
       selectedFinalLUFS: selectedVariant.measuredLUFS,
       maximumCleanLUFS: selectedVariant.measuredLUFS,
       availableCleanHeadroomDb: Math.max(0, (selectedVariant.ceilingDbTP ?? -1) - winnerMetrics.truePeakDbTP),
-      usedCleanHeadroomDb: parseFloat((selectedVariant.gainDb - baseGainDb).toFixed(2)),
+      usedCleanHeadroomDb: Math.max(0, parseFloat((selectedVariant.gainDb - baseGainDb).toFixed(2))),
       limiterGR: selectedVariant.limiterGR,
       samplesLimited: selectedVariant.samplesLimited,
       crestDelta: selectedVariant.crestDelta,
