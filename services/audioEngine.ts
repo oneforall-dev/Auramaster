@@ -3417,11 +3417,17 @@ export class AudioEngine {
       // Codec-safe ceiling without treating -14 LUFS as a delivery target.
       // Hotter masters receive slightly more inter-sample margin while retaining impact.
       let ceiling = winnerPreDeliveryLUFS + stepOffset > -11.5 ? -1.5 : -1.2;
-      let rendered = this.renderDeliveryVariant(winningBuffer, stepOffset, ceiling);
+      testParams.limiter.threshold = ceiling;
+      // Render every delivery variant once from the source tracks. The winning
+      // buffer already contains its Pass A limiter, so applying another limiter
+      // to that PCM would stack two gain-reduction envelopes and under-report
+      // the total peak/crest change in the selected master.
+      let rendered = (await this.renderPreview(testParams, tracks)) || winningBuffer;
       let metrics = await this.calculateAccurateDSPMetrics(rendered);
       if (metrics.integratedLUFS > -11.5 && ceiling > -1.5) {
         ceiling = -1.5;
-        rendered = this.renderDeliveryVariant(winningBuffer, stepOffset, ceiling);
+        testParams.limiter.threshold = ceiling;
+        rendered = (await this.renderPreview(testParams, tracks)) || winningBuffer;
         metrics = await this.calculateAccurateDSPMetrics(rendered);
       }
       testParams.limiter.threshold = ceiling;
