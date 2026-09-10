@@ -36,7 +36,7 @@ import {
 type StemType = 'vocals' | 'drums' | 'bass' | 'other';
 
 interface InternalTrackNode {
-  buffer: AudioBuffer;
+  buffer?: AudioBuffer;
   source: AudioBufferSourceNode | null;
   // The input node for the mixer channel (after stem FX)
   outNode: GainNode; 
@@ -746,10 +746,10 @@ export class AudioEngine {
     return await ctx.decodeAudioData(await file.arrayBuffer());
   }
 
-  async addTrack(file: File): Promise<Track> {
+  async addTrack(file: File, deferDecode: boolean = false): Promise<Track> {
     this.init();
     const ctx = this.audioContext!;
-    const buffer = await ctx.decodeAudioData(await file.arrayBuffer());
+    const buffer = deferDecode ? undefined : await ctx.decodeAudioData(await file.arrayBuffer());
     const id = Math.random().toString(36).substr(2, 9);
     const sourceId = await generateAudioSourceId(file, buffer);
     
@@ -767,7 +767,7 @@ export class AudioEngine {
     this.recalculateMaxDuration();
 
     // Set single-source-of-truth original buffer and lock to unmastered raw state
-    if (this.tracks.size === 1) {
+    if (this.tracks.size === 1 && buffer) {
       this.originalBuffer = buffer;
       this.originalSourceId = sourceId;
       this.masteredBuffer = null;
@@ -786,8 +786,32 @@ export class AudioEngine {
       startTime: 0, 
       fadeIn: 0, 
       fadeOut: 0,
-      sourceId
+      sourceId,
+      sourceFile: file
     };
+  }
+
+  async ensureTrackLoaded(track: Track): Promise<AudioBuffer> {
+    const current = this.tracks.get(track.id)?.buffer;
+    if (current) return current;
+    if (!track.sourceFile) throw new Error(`No se conserva el archivo original de ${track.name}`);
+    const buffer = await this.decodeAudioFile(track.sourceFile);
+    const internal = this.tracks.get(track.id);
+    if (!internal) throw new Error(`La pista ${track.name} ya no pertenece a esta sesión`);
+    internal.buffer = buffer;
+    this.recalculateMaxDuration();
+    return buffer;
+  }
+
+  releaseBulkWorkingSet(trackId: string): void {
+    const internal = this.tracks.get(trackId);
+    if (internal) internal.buffer = undefined;
+    this.originalBuffer = null;
+    this.masteredBuffer = null;
+    this.finalMasterArtifact = null;
+    this.lastExportedWavBlob = null;
+    this.lastAIMasteringResult = null;
+    this.recalculateMaxDuration();
   }
 
   // --- ADAPTIVE & COMPLIANCE ENGINES ---
@@ -7031,6 +7055,7 @@ export class AudioEngine {
     trackSessionId?: string,
     onPhaseChange?: (phase: 'reset' | 'analyze' | 'dsp' | 'vocal_audit' | 'render' | 'validate' | 'complete') => void
   ): Promise<AIMasteringResult> {
+    await this.ensureTrackLoaded(track);
     const freshSessionId = trackSessionId || `track_${Date.now().toString(36)}_${track.id}`;
     onPhaseChange?.('reset');
     // HARD RESET: Never inherit parameters from previous tracks!
@@ -7061,7 +7086,7 @@ export class AudioEngine {
   getTrackDuration(trackId?: string): number {
     if (trackId) {
       const t = this.tracks.get(trackId);
-      if (t) return t.buffer.duration;
+      if (t?.buffer) return t.buffer.duration;
     }
     return this.maxDuration;
   }
@@ -7101,7 +7126,7 @@ export class AudioEngine {
 
   private recalculateMaxDuration() {
     let max = 0;
-    this.tracks.forEach(t => { if (t.buffer.duration > max) max = t.buffer.duration; });
+    this.tracks.forEach(t => { if (t.buffer && t.buffer.duration > max) max = t.buffer.duration; });
     this.maxDuration = max;
   }
 

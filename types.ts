@@ -127,6 +127,7 @@ export interface Track {
   fadeOut: number; // Seconds
   sourceId?: string; // Deterministic unique identifier of source audio
   buffer?: AudioBuffer; // In-memory decoded PCM buffer for stems and preview
+  sourceFile?: File; // Original browser File retained for lazy bulk decoding
 }
 
 export enum PlaybackState {
@@ -146,15 +147,17 @@ export interface FinalMasterArtifact {
   renderId: string;
 
   wavBlob: Blob;
-  wavArrayBuffer: ArrayBuffer;
+  wavArrayBuffer?: ArrayBuffer;
   sha256: string;
+  opfsFileName?: string; // Disk-backed browser storage for large bulk sessions
+  externalFileHandle?: any; // User-selected destination for very large bulk sessions
 
   sampleRate: number;
   channels: number;
   bitDepth: 16 | 24 | 32;
   duration: number;
 
-  finalDecodedPCM: AudioBuffer;
+  finalDecodedPCM?: AudioBuffer;
 
   finalIntegratedLUFS: number;
   finalTruePeak: number;

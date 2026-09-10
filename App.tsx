@@ -140,12 +140,67 @@ export default function App() {
     if (exploration.selectedWavSha256 !== artifact.sha256 || result.audioIdentity?.finalFileHash !== artifact.sha256) {
       throw new Error('La identidad criptográfica del reporte y el WAV no coincide.');
     }
-    const hashBuffer = await crypto.subtle.digest('SHA-256', await artifact.wavBlob.arrayBuffer());
+    let verifiedBlob = artifact.wavBlob;
+    if (artifact.externalFileHandle && verifiedBlob.size === 0) {
+      verifiedBlob = await artifact.externalFileHandle.getFile();
+    } else if (artifact.opfsFileName && verifiedBlob.size === 0) {
+      const storage = (navigator as any).storage;
+      if (!storage?.getDirectory) throw new Error('El almacenamiento local del lote no está disponible en este navegador.');
+      const root = await storage.getDirectory();
+      const dir = await root.getDirectoryHandle('auramaster-bulk');
+      const handle = await dir.getFileHandle(artifact.opfsFileName);
+      verifiedBlob = await handle.getFile();
+    }
+    const hashBuffer = await crypto.subtle.digest('SHA-256', await verifiedBlob.arrayBuffer());
     const actualHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
     if (actualHash !== artifact.sha256) {
       throw new Error(`WAV inválido: hash ${actualHash.slice(0, 16)}… distinto del reporte ${artifact.sha256.slice(0, 16)}…`);
     }
-    return artifact.wavBlob;
+    return verifiedBlob;
+  };
+
+  const persistBulkArtifact = async (track: Track, result: AIMasteringResult, outputDir?: any): Promise<Blob | undefined> => {
+    const artifact = result.finalMasterArtifact;
+    if (!artifact) throw new Error(`No se generó un WAV final para ${track.name}`);
+    if (outputDir) {
+      const originalName = track.name.replace(/\.[^/.]+$/, '').replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+      const handle = await outputDir.getFileHandle(`${originalName}_Auramaster.wav`, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(artifact.wavBlob);
+      await writable.close();
+      artifact.externalFileHandle = handle;
+      artifact.wavBlob = new Blob([], { type: 'audio/wav' });
+      artifact.wavArrayBuffer = undefined;
+      artifact.finalDecodedPCM = undefined;
+      return undefined;
+    }
+    const storage = (navigator as any).storage;
+    if (!storage?.getDirectory) return artifact.wavBlob;
+
+    const root = await storage.getDirectory();
+    const dir = await root.getDirectoryHandle('auramaster-bulk', { create: true });
+    const safeId = `${track.id}_${artifact.sha256.slice(0, 16)}.wav`;
+    const handle = await dir.getFileHandle(safeId, { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(artifact.wavBlob);
+    await writable.close();
+
+    artifact.opfsFileName = safeId;
+    artifact.wavBlob = new Blob([], { type: 'audio/wav' });
+    artifact.wavArrayBuffer = undefined;
+    artifact.finalDecodedPCM = undefined;
+    return undefined;
+  };
+
+  const clearBulkArtifactStorage = async (): Promise<void> => {
+    try {
+      const storage = (navigator as any).storage;
+      if (!storage?.getDirectory) return;
+      const root = await storage.getDirectory();
+      await root.removeEntry('auramaster-bulk', { recursive: true });
+    } catch (err: any) {
+      if (err?.name !== 'NotFoundError') console.warn('No se pudo limpiar el lote anterior:', err);
+    }
   };
 
   // Bulk Mastering & Files State
@@ -224,7 +279,7 @@ export default function App() {
 
   // Render preview buffer (summed stems or single active track in bulk mode)
   useEffect(() => {
-    if (tracks.length === 0 || loadingAudio) {
+    if (tracks.length === 0 || loadingAudio || isBulkMastering) {
       setProcessedBuffer(null);
       return;
     }
@@ -259,7 +314,7 @@ export default function App() {
         setIsPreviewRendering(false);
     }, 400);
     return () => clearTimeout(timer);
-  }, [params, tracks, loadingAudio, processingMode, activeTrackId, trackMasterMap, masteringReport]);
+  }, [params, tracks, loadingAudio, isBulkMastering, processingMode, activeTrackId, trackMasterMap, masteringReport]);
 
   // Throttled time updater for UI text (4Hz interval instead of 60Hz full-tree re-renders)
   useEffect(() => {
@@ -280,12 +335,13 @@ export default function App() {
         // clear previous tracks, buffers, presets and state completely
         const isStemsAdding = processingMode === 'stems' && tracks.length > 0;
         if (!isStemsAdding) {
+          await clearBulkArtifactStorage();
           audioEngine.clearAllTracks();
           resetMixerFixerSession();
         }
 
         const added: Track[] = [];
-        for (const file of newFiles) added.push(await audioEngine.addTrack(file)); 
+        for (const file of newFiles) added.push(await audioEngine.addTrack(file, processingMode === 'bulk'));
 
         let allTracks = isStemsAdding ? [...tracks, ...added] : added;
         let newParams = getNeutralMasteringParams();
@@ -438,20 +494,29 @@ export default function App() {
     setCurrentTime(time);
   };
 
-  const handleSelectTrack = (id: string) => {
+  const handleSelectTrack = async (id: string) => {
+    if (activeTrackId && activeTrackId !== id) {
+      const previousArtifact = trackMasterMap[activeTrackId]?.result?.finalMasterArtifact;
+      if (previousArtifact?.opfsFileName) previousArtifact.finalDecodedPCM = undefined;
+      audioEngine.releaseBulkWorkingSet(activeTrackId);
+    }
     setActiveTrackId(id);
     setProcessedBuffer(null);
     
     // Always reset timeline and playhead to 00:00 when selecting another song
     setCurrentTime(0);
     audioEngine.stop();
-    const trackDur = audioEngine.getTrackDuration(id);
-    if (trackDur > 0) {
-      setDuration(trackDur);
+    const currentTrack = tracks.find(t => t.id === id);
+    let rawBuf = audioEngine.getTrackBuffer(id);
+    if (!rawBuf && currentTrack) {
+      try {
+        rawBuf = await audioEngine.ensureTrackLoaded(currentTrack);
+      } catch (err) {
+        console.error(`Error loading ${currentTrack.name}:`, err);
+      }
     }
-
-    const rawBuf = audioEngine.getTrackBuffer(id);
     if (rawBuf) {
+      setDuration(rawBuf.duration);
       audioEngine.calculateAccurateDSPMetrics(rawBuf).then(m => {
         setFileStats({
           peak: m.truePeakDbTP,
@@ -461,8 +526,16 @@ export default function App() {
       });
     }
 
-    const currentTrack = tracks.find(t => t.id === id);
     const trackInfo = trackMasterMap[id];
+    const storedArtifact = trackInfo?.result?.finalMasterArtifact;
+    if (storedArtifact?.opfsFileName && !storedArtifact.finalDecodedPCM) {
+      try {
+        const blob = await getVerifiedMasterBlob(trackInfo.result, currentTrack?.sourceId || id);
+        storedArtifact.finalDecodedPCM = await audioEngine.decodeAudioFile(new File([blob], `${id}.wav`, { type: 'audio/wav' }));
+      } catch (err) {
+        console.error(`Error restoring master for ${currentTrack?.name || id}:`, err);
+      }
+    }
     const restored = currentTrack ? audioEngine.activateTrackForPlayback(currentTrack, trackInfo?.result) : false;
     if (restored && trackInfo?.isMastered && trackInfo.result && trackInfo.result.sourceId === (currentTrack?.sourceId || id)) {
       setParams(trackInfo.params || trackInfo.result.appliedParams);
@@ -560,6 +633,20 @@ export default function App() {
   // 2. Bulk Master All Tracks - 100% Isolated Sessions per Track
   const handleMasterAllTracks = async () => {
     if (tracks.length === 0) return;
+    let bulkOutputDirectory: any = null;
+    const showDirectoryPicker = (window as any).showDirectoryPicker as undefined | ((options?: any) => Promise<any>);
+    if (tracks.length > 20 && showDirectoryPicker) {
+      try {
+        bulkOutputDirectory = await showDirectoryPicker({ mode: 'readwrite' });
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        alert(`No se pudo abrir la carpeta de destino: ${err?.message || 'Error'}`);
+        return;
+      }
+    }
+    setProcessedBuffer(null);
+    audioEngine.stop();
+    tracks.forEach(track => audioEngine.releaseBulkWorkingSet(track.id));
     setIsBulkMastering(true);
     let completedCount = 0;
     let failedCount = 0;
@@ -596,6 +683,7 @@ export default function App() {
           }
         );
 
+        const retainedBlob = await persistBulkArtifact(track, result, bulkOutputDirectory);
         updatedMap[track.id] = {
           trackId: track.id,
           sourceId: track.sourceId,
@@ -605,11 +693,12 @@ export default function App() {
           currentPhase: 'complete',
           result,
           params: result.appliedParams,
-          blob: result.finalMasterArtifact?.wavBlob || audioEngine.getFinalExportedMasterBlob() || undefined,
+          blob: retainedBlob,
           finalMasterArtifact: result.finalMasterArtifact || audioEngine.getFinalMasterArtifact() || undefined
         };
         results.push(result);
         setTrackMasterMap({ ...updatedMap });
+        audioEngine.releaseBulkWorkingSet(track.id);
       } catch (err: any) {
         console.error(`Error mastering ${track.name}:`, err);
         failedCount++;
@@ -622,6 +711,7 @@ export default function App() {
           errorMessage: err?.message || 'Error'
         };
         setTrackMasterMap({ ...updatedMap });
+        audioEngine.releaseBulkWorkingSet(track.id);
       }
     }
 
@@ -714,7 +804,6 @@ export default function App() {
       // Select first mastered track
       const firstMastered = tracks.find(t => updatedMap[t.id]?.isMastered);
       if (firstMastered && updatedMap[firstMastered.id]?.result) {
-        audioEngine.activateTrackForPlayback(firstMastered, updatedMap[firstMastered.id].result);
         setActiveTrackId(firstMastered.id);
         setParams(updatedMap[firstMastered.id].params!);
         setMasteringReport(updatedMap[firstMastered.id].result!);
@@ -751,6 +840,27 @@ export default function App() {
     if (tracks.length === 0) return;
     setIsExportingZip(true);
     try {
+      const masteredTracks = tracks.filter(track => Boolean(trackMasterMap[track.id]?.result));
+      const showDirectoryPicker = (window as any).showDirectoryPicker as undefined | ((options?: any) => Promise<any>);
+
+      // A giant ZIP duplicates every WAV in RAM. For large sessions, stream each
+      // disk-backed master directly into a folder selected by the user instead.
+      if (masteredTracks.length > 20 && showDirectoryPicker) {
+        const outputDir = await showDirectoryPicker({ mode: 'readwrite' });
+        for (const track of masteredTracks) {
+          const trackResult = trackMasterMap[track.id]?.result;
+          const blob = await getVerifiedMasterBlob(trackResult, track.sourceId || track.id);
+          const originalName = track.name.replace(/\.[^/.]+$/, '');
+          const fileHandle = await outputDir.getFileHandle(`${originalName}_Auramaster.wav`, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+        }
+        setExportedFileName(`AuraMaster_Bulk_${masteredTracks.length}_WAV`);
+        setIsExportSuccessOpen(true);
+        return;
+      }
+
       const filesToZip: { name: string; blob: Blob }[] = [];
 
       for (const track of tracks) {
@@ -959,6 +1069,7 @@ export default function App() {
 
   const handleStartNewProject = () => {
     audioEngine.stop();
+    void clearBulkArtifactStorage();
     resetMixerFixerSession();
     audioEngine.clearAllTracks();
     setTracks([]);
@@ -981,7 +1092,10 @@ export default function App() {
         if (bitDepth === 24) {
           blob = await getVerifiedMasterBlob(selectedResult, activeTrack?.sourceId || activeTrack?.id);
         } else {
-          await getVerifiedMasterBlob(selectedResult, activeTrack?.sourceId || activeTrack?.id);
+          const verifiedBlob = await getVerifiedMasterBlob(selectedResult, activeTrack?.sourceId || activeTrack?.id);
+          if (!artifact.finalDecodedPCM) {
+            artifact.finalDecodedPCM = await audioEngine.decodeAudioFile(new File([verifiedBlob], 'master.wav', { type: 'audio/wav' }));
+          }
           blob = await audioEngine.exportAlternativeBitDepth(artifact, bitDepth);
         }
       } else {

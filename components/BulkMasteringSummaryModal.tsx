@@ -318,7 +318,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
               className="flex-1 sm:flex-initial px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
             >
               <FileArchive size={14} />
-              <span>{isExportingZip ? 'Comprimiendo...' : 'Descargar Todo en ZIP'}</span>
+              <span>{isExportingZip ? 'Preparando...' : (completedCount > 20 ? 'Guardar Todo en Carpeta' : 'Descargar Todo en ZIP')}</span>
             </button>
             <button
               onClick={onClose}
