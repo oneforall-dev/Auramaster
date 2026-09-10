@@ -572,18 +572,41 @@ export default function App() {
     setActiveTrackId(track.id);
 
     try {
-      const result = await audioEngine.runMixerFixerAIForSingleTrack(
-        getNeutralMasteringParams(),
-        track,
-        null,
-        targetSessionId,
-        (phase) => {
-          setTrackMasterMap(prev => prev[track.id] ? {
-            ...prev,
-            [track.id]: { ...prev[track.id], currentPhase: phase }
-          } : prev);
+      const updatePhase = (phase: 'reset' | 'analyze' | 'dsp' | 'vocal_audit' | 'render' | 'validate' | 'complete') => {
+        setTrackMasterMap(prev => prev[track.id] ? {
+          ...prev,
+          [track.id]: { ...prev[track.id], currentPhase: phase }
+        } : prev);
+      };
+      const attemptErrors: string[] = [];
+      let result: AIMasteringResult;
+      try {
+        result = await audioEngine.runMixerFixerAIForSingleTrack(
+          getNeutralMasteringParams(), track, null, targetSessionId, updatePhase
+        );
+      } catch (firstError: any) {
+        attemptErrors.push(firstError?.message || 'Error en el primer intento');
+        audioEngine.releaseBulkWorkingSet(track.id);
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        if (isTransientAudioMemoryError(firstError)) {
+          try {
+            result = await audioEngine.runMixerFixerAIForSingleTrack(
+              getNeutralMasteringParams(), track, null, targetSessionId, updatePhase
+            );
+          } catch (secondError: any) {
+            attemptErrors.push(secondError?.message || 'Error en el segundo intento');
+            audioEngine.releaseBulkWorkingSet(track.id);
+            await new Promise<void>(resolve => setTimeout(resolve, 0));
+            result = await audioEngine.runSafeRecoveryMasterForSingleTrack(
+              track, targetSessionId, attemptErrors, updatePhase
+            );
+          }
+        } else {
+          result = await audioEngine.runSafeRecoveryMasterForSingleTrack(
+            track, targetSessionId, attemptErrors, updatePhase
+          );
         }
-      );
+      }
 
       // Async validation: discard late result if session changed
       if (result.sessionId && result.sessionId !== targetSessionId) {
@@ -670,18 +693,42 @@ export default function App() {
           }
         }));
 
-        const result = await audioEngine.runMixerFixerAIForSingleTrack(
-          getNeutralMasteringParams(),
-          track,
-          null,
-          targetSessionId,
-          (phase) => {
-            setTrackMasterMap(prev => prev[track.id] ? {
-              ...prev,
-              [track.id]: { ...prev[track.id], currentPhase: phase }
-            } : prev);
+        const updatePhase = (phase: 'reset' | 'analyze' | 'dsp' | 'vocal_audit' | 'render' | 'validate' | 'complete') => {
+          setTrackMasterMap(prev => prev[track.id] ? {
+            ...prev,
+            [track.id]: { ...prev[track.id], currentPhase: phase }
+          } : prev);
+        };
+        const attemptErrors: string[] = [];
+        let result: AIMasteringResult;
+        try {
+          result = await audioEngine.runMixerFixerAIForSingleTrack(
+            getNeutralMasteringParams(), track, null, targetSessionId, updatePhase
+          );
+        } catch (firstError: any) {
+          attemptErrors.push(firstError?.message || 'Error en el primer intento');
+          // Drop every large PCM/render reference before decoding this song again.
+          audioEngine.releaseBulkWorkingSet(track.id);
+          await new Promise<void>(resolve => setTimeout(resolve, 0));
+          if (isTransientAudioMemoryError(firstError)) {
+            try {
+              result = await audioEngine.runMixerFixerAIForSingleTrack(
+                getNeutralMasteringParams(), track, null, targetSessionId, updatePhase
+              );
+            } catch (secondError: any) {
+              attemptErrors.push(secondError?.message || 'Error en el segundo intento');
+              audioEngine.releaseBulkWorkingSet(track.id);
+              await new Promise<void>(resolve => setTimeout(resolve, 0));
+              result = await audioEngine.runSafeRecoveryMasterForSingleTrack(
+                track, targetSessionId, attemptErrors, updatePhase
+              );
+            }
+          } else {
+            result = await audioEngine.runSafeRecoveryMasterForSingleTrack(
+              track, targetSessionId, attemptErrors, updatePhase
+            );
           }
-        );
+        }
 
         const retainedBlob = await persistBulkArtifact(track, result, bulkOutputDirectory);
         updatedMap[track.id] = {
@@ -1591,3 +1638,7 @@ export default function App() {
     </div>
   );
 }
+const isTransientAudioMemoryError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /array buffer|allocation failed|createBuffer\(|startRendering failed|out of memory|memory limit/i.test(message);
+};
