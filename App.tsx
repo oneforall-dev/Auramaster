@@ -1445,6 +1445,11 @@ export default function App() {
               <span className="text-sm font-bold tracking-wide text-white">
                 {loadingAudio ? (lang === 'es' ? 'Cargando y decodificando audio...' : 'Loading & decoding audio...') : (lang === 'es' ? 'Masterizando pistas por lote...' : 'Batch mastering tracks...')}
               </span>
+              {isBulkMastering && bulkProgress && (
+                <span className="max-w-[420px] truncate text-xs font-semibold text-cyan-300">
+                  {bulkProgress.current}/{bulkProgress.total} · {bulkProgress.trackName}
+                </span>
+              )}
               <span className="text-xs text-slate-400 font-medium font-mono">
                 {lang === 'es' ? 'Procesamiento 32-bit Float DSP de alta fidelidad' : 'High-fidelity 32-bit Float DSP processing'}
               </span>

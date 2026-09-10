@@ -2842,10 +2842,12 @@ export class AudioEngine {
     const baseLinearGain = candidateParams.gain;
     const baseDb = 20 * Math.log10(Math.max(1e-4, baseLinearGain));
 
-    // Begin below the estimated target so a dense or peak-heavy song always
-    // gets a chance to establish a clean baseline. Starting at 0 dB and only
-    // moving upward made L0 a hard failure instead of a search boundary.
-    const stepOffsets = [-3.00, -2.25, -1.50, -0.75, 0.0, 0.75, 1.50, 2.25, 3.00];
+    // The candidate gain is already calculated for the song's adaptive target,
+    // so test it first. The previous -3 dB start rendered four unnecessary
+    // full-length versions per candidate and made bulk jobs take tens of
+    // minutes. If L0 is unsafe, the adaptive neutral fallback below handles it
+    // directly from the source with calculated peak margin.
+    const stepOffsets = [0.0, 0.75, 1.50, 2.25, 3.00];
     const testedLevels: TestedLoudnessLevel[] = [];
     let selectedParams = JSON.parse(JSON.stringify(candidateParams)) as MasteringChainParams;
     let bestBuffer: AudioBuffer = rawBuffer;
@@ -2928,7 +2930,49 @@ export class AudioEngine {
     }
 
     if (!testedLevels.some(level => level.approved)) {
-      throw new Error(`PASS_A_NO_APPROVED_VARIANT (${candidateType}): ${testedLevels.map(level => `${level.levelName}: ${level.rejectionReason || 'rechazado'}`).join(' | ')}`);
+      // A valid decoded source must never disappear from a bulk job just
+      // because the estimated starting gain was too aggressive. Build a
+      // neutral delivery directly from the source, with enough peak margin to
+      // keep the limiter effectively transparent. This is a real mastered
+      // artifact (gain calibration + true-peak protection), and its use stays
+      // visible in the exploration report instead of surfacing as an error.
+      const desiredGainDb = targetLUFS - origMetrics.integratedLUFS;
+      const peakSafeGainDb = -2.0 - origMetrics.truePeakDbTP;
+      const failSafeGainDb = Math.min(desiredGainDb, peakSafeGainDb);
+      const failSafeParams = getNeutralMasteringParams();
+      failSafeParams.isTransparentFallback = true;
+      failSafeParams.gain = Math.pow(10, failSafeGainDb / 20);
+      failSafeParams.limiter.enabled = true;
+      failSafeParams.limiter.threshold = -1.2;
+
+      const failSafeBuffer = this.renderDeliveryVariant(rawBuffer, failSafeGainDb, -1.2);
+      const failSafeMetrics = await this.calculateAccurateDSPMetrics(failSafeBuffer);
+      const failSafeCrestDelta = parseFloat((failSafeMetrics.crestFactor - origMetrics.crestFactor).toFixed(2));
+      const failSafeLraDelta = parseFloat((failSafeMetrics.dynamicRangeLRA - origMetrics.dynamicRangeLRA).toFixed(2));
+      const failSafeLimiterGR = this.lastLimiterTelemetry?.maxGainReduction ?? 0;
+
+      testedLevels.push({
+        levelName: 'Entrega segura adaptativa',
+        gainDb: parseFloat(failSafeGainDb.toFixed(2)),
+        measuredLUFS: failSafeMetrics.integratedLUFS,
+        truePeakDbTP: failSafeMetrics.truePeakDbTP,
+        crestFactor: failSafeMetrics.crestFactor,
+        crestDelta: failSafeCrestDelta,
+        lra: failSafeMetrics.dynamicRangeLRA,
+        lraDelta: failSafeLraDelta,
+        limiterGR: failSafeLimiterGR,
+        approved: true
+      });
+
+      selectedParams = failSafeParams;
+      bestBuffer = failSafeBuffer;
+      selectedFinalLUFS = failSafeMetrics.integratedLUFS;
+      maximumCleanLUFS = failSafeMetrics.integratedLUFS;
+      bestGainOffset = parseFloat((failSafeGainDb - baseDb).toFixed(2));
+      bestCrestDelta = failSafeCrestDelta;
+      bestLraDelta = failSafeLraDelta;
+      bestLimiterGR = failSafeLimiterGR;
+      rejectionReasonForLouderVariant = `Las variantes de ${candidateType} excedieron los límites dinámicos; se usó una entrega neutra segura a ${failSafeMetrics.integratedLUFS.toFixed(1)} LUFS-I.`;
     }
 
     const availableCleanHeadroomDb = Math.max(0, parseFloat((origMetrics.truePeakDbTP - (-1.0)).toFixed(2)));
