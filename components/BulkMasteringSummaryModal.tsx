@@ -53,6 +53,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
   const avgLRA = Number(summary.avgLRA ?? (summary as any).averageLRA ?? 8.0);
   const completedCount = Number(summary.completedCount ?? (summary as any).completedTracks ?? 0);
   const totalCount = Number(summary.totalTracks ?? 0);
+  const failedCount = Number(summary.failedCount ?? (summary as any).failedTracks ?? 0);
   const vocalApproved = Number((summary.vocalApprovedCount ?? (summary as any).vocalProtectedCount ?? 0) + (summary.vocalPartialCount ?? 0));
   const instCount = Number(summary.instrumentalCount ?? 0);
 
@@ -128,12 +129,12 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Loudness Promedio</span>
               <div className="my-1.5 flex items-baseline gap-1.5">
                 <span className="text-base sm:text-lg font-mono font-bold text-emerald-400">
-                  {masterLUFS.toFixed(1)}
+                  {completedCount > 0 && Number.isFinite(masterLUFS) ? masterLUFS.toFixed(1) : '—'}
                 </span>
                 <span className="text-xs font-mono text-slate-400">LUFS-I</span>
               </div>
               <span className="text-[10px] text-slate-500">
-                Original: {origLUFS.toFixed(1)} LUFS-I
+                Original: {completedCount > 0 && Number.isFinite(origLUFS) ? `${origLUFS.toFixed(1)} LUFS-I` : '—'}
               </span>
             </div>
 
@@ -144,12 +145,12 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">True Peak Máximo</span>
               <div className="my-1.5 flex items-baseline gap-1.5">
                 <span className="text-base sm:text-lg font-mono font-bold text-cyan-400">
-                  {maxTP.toFixed(1)}
+                  {completedCount > 0 && Number.isFinite(maxTP) ? maxTP.toFixed(1) : '—'}
                 </span>
                 <span className="text-xs font-mono text-slate-400">dBTP</span>
               </div>
               <span className="text-[10px] text-emerald-400 font-semibold">
-                ✓ Ceiling ≤ -1.0 dBTP
+                {completedCount > 0 ? '✓ Ceiling ≤ -1.0 dBTP' : 'Sin medición disponible'}
               </span>
             </div>
 
@@ -160,7 +161,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Rango Dinámico (LRA)</span>
               <div className="my-1.5 flex items-baseline gap-1.5">
                 <span className="text-base sm:text-lg font-mono font-bold text-indigo-300">
-                  {avgLRA.toFixed(1)}
+                  {completedCount > 0 && Number.isFinite(avgLRA) ? avgLRA.toFixed(1) : '—'}
                 </span>
                 <span className="text-xs font-mono text-slate-400">LU</span>
               </div>
@@ -181,7 +182,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
                 <span className="text-xs font-mono text-slate-400">validadas</span>
               </div>
               <span className="text-[10px] text-slate-400">
-                {instCount > 0 ? `${instCount} instrumental(es)` : '0 enmascaramientos'}
+                {instCount > 0 ? `${instCount} sin voz confirmada` : (completedCount > 0 ? '0 enmascaramientos' : 'Sin análisis vocal')}
               </span>
             </div>
           </div>
@@ -218,14 +219,23 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
                       const hasResult = Boolean(t.result || trackMasterMap[trackId]?.result);
                       const origLufsNum = Number(t.originalLUFS ?? 0);
                       const masterLufsNum = Number(t.masterLUFS ?? 0);
-                      const tpNum = Number(t.truePeakDbTP ?? -1.0);
+                      const tpNum = Number(t.truePeakDbTP);
                       const lraNum = Number(t.dynamicRangeLRA ?? 0);
-                      const vocState = t.vocalStatus || (t.vocalProtected ? 'Protegida' : t.isInstrumental ? 'Instrumental' : 'Verificada');
+                      const vocState = t.status === 'failed'
+                        ? 'Falló'
+                        : t.status === 'skipped'
+                          ? 'No procesada'
+                          : (t.vocalStatus || (t.vocalProtected ? 'Protegida' : 'Voz no confirmada'));
 
                       return (
-                        <tr key={trackId} className="hover:bg-white/5 transition-colors">
-                          <td className="p-3 font-sans font-semibold text-slate-200 truncate max-w-[180px]" title={trackName}>
-                            {trackName}
+                        <tr key={trackId} className="hover:bg-white/5 transition-colors" title={t.errorMessage || undefined}>
+                          <td className="p-3 font-sans font-semibold text-slate-200 max-w-[220px]" title={trackName}>
+                            <div className="truncate">{trackName}</div>
+                            {t.errorMessage && (
+                              <div className="mt-1 text-[9px] font-mono font-normal text-rose-400 line-clamp-2" title={t.errorMessage}>
+                                {t.errorMessage}
+                              </div>
+                            )}
                           </td>
                           <td className="p-3 text-center text-slate-400">
                             {origLufsNum !== 0 ? `${origLufsNum.toFixed(1)} LUFS` : '—'}
@@ -234,7 +244,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
                             {masterLufsNum !== 0 ? `${masterLufsNum.toFixed(1)} LUFS` : '—'}
                           </td>
                           <td className="p-3 text-center text-slate-300">
-                            {!isNaN(tpNum) ? `${tpNum.toFixed(1)} dBTP` : '—'}
+                            {hasResult && Number.isFinite(tpNum) ? `${tpNum.toFixed(1)} dBTP` : '—'}
                           </td>
                           <td className="p-3 text-center text-indigo-300">
                             {lraNum !== 0 ? `${lraNum.toFixed(1)} LU` : '—'}
@@ -243,7 +253,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
                             <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
                               t.status === 'failed'
                                 ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                                : vocState === 'Instrumental'
+                                : vocState === 'Voz no confirmada'
                                 ? 'bg-slate-800 text-slate-300 border-slate-700'
                                 : t.status === 'warning'
                                 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
@@ -292,8 +302,13 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
           isClear ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
         }`}>
           <div className="flex items-center gap-2 text-xs opacity-70 font-mono">
-            <CheckCircle2 size={15} className="text-emerald-400" />
-            <span>{completedCount} canciones listas para distribución streaming</span>
+            {failedCount > 0 && completedCount === 0
+              ? <XCircle size={15} className="text-rose-400" />
+              : <CheckCircle2 size={15} className="text-emerald-400" />}
+            <span>
+              {completedCount} canciones listas para distribución streaming
+              {failedCount > 0 ? ` · ${failedCount} fallidas` : ''}
+            </span>
           </div>
 
           <div className="flex items-center gap-2.5 w-full sm:w-auto">

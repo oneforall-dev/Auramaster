@@ -639,25 +639,42 @@ export default function App() {
       const avgMasterLUFS = results.length > 0
         ? results.reduce((acc, r) => acc + (r.after.integratedLUFS || -14), 0) / resultCount
         : 0;
-      const maxTP = results.length > 0 ? Math.max(...results.map(r => r.after.truePeakDbTP || -1.0)) : 0;
+      const maxTP = results.length > 0 ? Math.max(...results.map(r => r.after.truePeakDbTP)) : Number.NaN;
       const avgLRA = results.length > 0
         ? results.reduce((acc, r) => acc + (r.after.dynamicRangeLRA || 8.0), 0) / resultCount
         : 0;
-      const vocalCount = results.filter(r => r.vocalReport && r.vocalReport.original.vocalSectionsCount > 0).length;
-      const instCount = results.length - vocalCount;
+      const vocalCount = results.filter(r =>
+        (r.vocalReport?.vocalDetection?.classification ?? r.vocalReport?.original?.vocalDetection?.classification) === 'VOCAL_PRESENT'
+        || (r.vocalReport?.original?.vocalSectionsCount ?? 0) > 0
+      ).length;
+
+      // A missing/failed vocal analysis is never evidence that a song is instrumental.
+      // Keep this count conservative so the UI does not turn detector uncertainty into a fact.
+      const instCount = results.filter(r => {
+        const detection = r.vocalReport?.vocalDetection ?? r.vocalReport?.original?.vocalDetection;
+        return detection?.classification === 'INSTRUMENTAL' && detection.confidence >= 0.98;
+      }).length;
 
       const summaryTracks = tracks.map(t => {
         const info = updatedMap[t.id];
         const res = info?.result;
-        const vocStatus = res?.vocalReport?.statusLabel || (res?.vocalReport ? 'Protegida' : 'Instrumental');
+        const rowStatus = (info?.isMastered ? 'completed' : info?.currentPhase === 'error' ? 'failed' : 'skipped') as 'completed' | 'warning' | 'failed' | 'skipped';
+        const detection = res?.vocalReport?.vocalDetection ?? res?.vocalReport?.original?.vocalDetection;
+        const vocStatus = rowStatus === 'failed'
+          ? 'Falló'
+          : rowStatus === 'skipped'
+            ? 'No procesada'
+            : detection?.classification === 'VOCAL_PRESENT'
+              ? (res?.vocalReport?.statusLabel || 'Voz validada')
+              : 'Voz por revisar';
         return {
           trackId: t.id,
           trackName: t.name,
           sourceId: t.sourceId || t.id,
-          status: (info?.isMastered ? 'completed' : info?.currentPhase === 'error' ? 'failed' : 'skipped') as 'completed' | 'warning' | 'failed' | 'skipped',
+          status: rowStatus,
           originalLUFS: res?.before?.integratedLUFS ?? 0,
           masterLUFS: res?.after?.integratedLUFS ?? 0,
-          truePeakDbTP: res?.after?.truePeakDbTP ?? -1.0,
+          truePeakDbTP: res?.after?.truePeakDbTP ?? Number.NaN,
           dynamicRangeLRA: res?.after?.dynamicRangeLRA ?? 0,
           vocalStatus: vocStatus,
           result: res,

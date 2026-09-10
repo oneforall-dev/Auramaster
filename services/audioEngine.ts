@@ -4141,7 +4141,9 @@ export class AudioEngine {
 
     const confidence = parseFloat(Math.max(0.0, Math.min(1.0, rawConfidence)).toFixed(2));
 
-    let classification: VocalClassification = 'INSTRUMENTAL';
+    // Spectral evidence can confirm a voice, but lack of evidence cannot prove that a
+    // finished mix is instrumental. Dense arrangements regularly hide vocal cues.
+    let classification: VocalClassification = 'VOCAL_UNCERTAIN';
     let hasVocals = false;
     if (confidence >= 0.75) {
       classification = 'VOCAL_PRESENT';
@@ -4149,20 +4151,15 @@ export class AudioEngine {
     } else if (confidence >= 0.45) {
       classification = 'VOCAL_UNCERTAIN';
       hasVocals = false; // Conservative neutral
-    } else {
-      classification = 'INSTRUMENTAL';
-      hasVocals = false;
     }
 
     const vocalActivityRatio = hasVocals ? parseFloat((activeBlocks / numBlocks).toFixed(2)) : 0.0;
     const vocalSegmentCount = hasVocals ? activeBlocks : 0;
     const averageVocalConfidence = confidence;
 
-    const rationale = classification === 'INSTRUMENTAL'
-      ? `Material instrumental confirmado (Confianza vocal: ${(confidence * 100).toFixed(0)}%, Formantes: ${formantEvidenceScore}/100, Estructura silábica: ${speechSingingStructureScore}/100, Confusión instrumental: ${harmonicInstrumentConfusionScore}/100). Procesamiento específico de voz deshabilitado.`
-      : classification === 'VOCAL_UNCERTAIN'
-        ? `Presencia vocal incierta (Confianza: ${(confidence * 100).toFixed(0)}%). Se aplica masterización neutral y balance general sin intervención de género.`
-        : `Voz humana detectada con alta confianza (${(confidence * 100).toFixed(0)}%, Formantes: ${formantEvidenceScore}/100, F0 Continuidad: ${pitchContinuityScore}/100). Protección activa de voz y centro mono.`;
+    const rationale = classification === 'VOCAL_UNCERTAIN'
+      ? `Presencia vocal no confirmada automáticamente (Confianza: ${(confidence * 100).toFixed(0)}%). Se preserva el centro vocal potencial y se aplica masterización neutral; la ausencia de evidencia no se etiqueta como instrumental.`
+      : `Voz humana detectada con alta confianza (${(confidence * 100).toFixed(0)}%, Formantes: ${formantEvidenceScore}/100, F0 Continuidad: ${pitchContinuityScore}/100). Protección activa de voz y centro mono.`;
 
     return {
       hasVocals,
