@@ -109,7 +109,12 @@ export default function App() {
   const [isExportSuccessOpen, setIsExportSuccessOpen] = useState(false);
   const [exportedFileName, setExportedFileName] = useState('');
   const [exportedQC, setExportedQC] = useState<AIMasteringResult['qcVerification'] | null>(null);
-  const [editHistory, setEditHistory] = useState<{ trackId: string; buffer: AudioBuffer; description: string }[]>([]);
+  const [editHistory, setEditHistory] = useState<{
+    trackId: string;
+    buffer: AudioBuffer;
+    description: string;
+    target: 'source' | 'master';
+  }[]>([]);
 
   // Multi-Reference AI Mastering State
   const [references, setReferences] = useState<ReferenceTrack[]>([]);
@@ -432,27 +437,74 @@ export default function App() {
     }
   };
 
-  const handleUndoEdit = useCallback(() => {
+  const handleUndoEdit = useCallback(async () => {
     if (editHistory.length === 0) return;
     const lastEntry = editHistory[editHistory.length - 1];
-    setEditHistory(prev => prev.slice(0, prev.length - 1));
+    try {
+      let restoredBuffer = lastEntry.buffer;
+      if (lastEntry.target === 'master') {
+        const activeResult = processingMode === 'bulk'
+          ? trackMasterMap[lastEntry.trackId]?.result
+          : masteringReport || undefined;
+        if (!activeResult) throw new Error('No se encontró el master que se debe restaurar.');
+        const restoredResult = await audioEngine.replaceFinalMasterBuffer(activeResult, lastEntry.buffer, 'Deshacer edición');
+        restoredBuffer = restoredResult.finalMasterArtifact?.finalDecodedPCM || lastEntry.buffer;
+        if (processingMode === 'bulk') {
+          setTrackMasterMap(prev => ({
+            ...prev,
+            [lastEntry.trackId]: {
+              ...prev[lastEntry.trackId],
+              result: restoredResult,
+              isMastered: true
+            }
+          }));
+        }
+        setMasteringReport(restoredResult);
+        audioEngine.setBypass(false);
+        setIsBypassed(false);
+      } else {
+        audioEngine.setTrackBuffer(lastEntry.trackId, lastEntry.buffer);
+        const restoredTrack = tracks.find(t => t.id === lastEntry.trackId);
+        const sourceId = processingMode === 'stems'
+          ? getStemsSourceId(tracks)
+          : (restoredTrack?.sourceId || lastEntry.trackId);
+        const playbackBuffer = processingMode === 'stems'
+          ? (await audioEngine.renderRawMix(tracks) || lastEntry.buffer)
+          : lastEntry.buffer;
+        audioEngine.invalidateMasterAfterSourceEdit(playbackBuffer, sourceId);
+        if (processingMode === 'bulk') {
+          setTrackMasterMap(prev => ({
+            ...prev,
+            [lastEntry.trackId]: {
+              ...prev[lastEntry.trackId],
+              result: undefined,
+              isMastered: false
+            }
+          }));
+        }
+        setMasteringReport(null);
+        setTracks(prev => prev.map(t => t.id === lastEntry.trackId ? { ...t } : t));
+        setIsBypassed(true);
+        restoredBuffer = playbackBuffer;
+      }
 
-    audioEngine.setTrackBuffer(lastEntry.trackId, lastEntry.buffer);
-    setTracks(prev => prev.map(t => t.id === lastEntry.trackId ? { ...t } : t));
-    setProcessedBuffer(lastEntry.buffer);
-
-    if (playbackState === PlaybackState.PLAYING) {
-      audioEngine.seek(currentTime, lastEntry.trackId);
-    }
-
-    audioEngine.calculateAccurateDSPMetrics(lastEntry.buffer).then(metrics => {
+      setEditHistory(prev => prev.slice(0, prev.length - 1));
+      setProcessedBuffer(restoredBuffer);
+      if (playbackState === PlaybackState.PLAYING) {
+        const playbackTrackId = processingMode === 'bulk' ? lastEntry.trackId : undefined;
+        audioEngine.seek(currentTime, playbackTrackId);
+        if (lastEntry.target === 'source') audioEngine.play(playbackTrackId);
+      }
+      const metrics = await audioEngine.calculateAccurateDSPMetrics(restoredBuffer);
       setFileStats({
         peak: metrics.truePeakDbTP,
         integrated: metrics.integratedLUFS,
         shortTerm: metrics.integratedLUFS
       });
-    }).catch(err => console.error("Undo metrics error:", err));
-  }, [editHistory, playbackState, currentTime]);
+    } catch (err) {
+      console.error("Undo edit error:", err);
+    }
+  }, [editHistory, playbackState, currentTime, processingMode, trackMasterMap, masteringReport, tracks]);
 
   const handlePlayPause = () => {
     if (playbackState === PlaybackState.PLAYING) {
@@ -1101,40 +1153,101 @@ export default function App() {
     if (p) { setParams(p.params); setActivePreset(id); setIsBypassed(false); } 
   };
 
-  const handleApplySelectionEdit = (action: 'gain' | 'fadeIn' | 'fadeOut' | 'mute', valueDb: number = 0) => {
+  const handleApplySelectionEdit = async (action: 'gain' | 'fadeIn' | 'fadeOut' | 'mute', valueDb: number = 0) => {
     if (!selection || tracks.length === 0) return;
     const targetTrackId = processingMode === 'bulk' && activeTrackId ? activeTrackId : tracks[0].id;
-    const currentBuf = audioEngine.getTrackBuffer(targetTrackId);
-    if (!currentBuf) return;
+    const activeResult = processingMode === 'bulk'
+      ? trackMasterMap[targetTrackId]?.result
+      : masteringReport || undefined;
+    const editingMaster = !isBypassed && Boolean(activeResult?.finalMasterArtifact);
 
     try {
+      let currentBuf: AudioBuffer | undefined;
+      if (editingMaster && activeResult?.finalMasterArtifact) {
+        currentBuf = activeResult.finalMasterArtifact.finalDecodedPCM;
+        if (!currentBuf) {
+          const verifiedBlob = await getVerifiedMasterBlob(activeResult, activeResult.sourceId || targetTrackId);
+          currentBuf = await audioEngine.decodeAudioFile(new File([verifiedBlob], 'master-edit.wav', { type: 'audio/wav' }));
+        }
+      } else {
+        currentBuf = audioEngine.getTrackBuffer(targetTrackId);
+      }
+      if (!currentBuf) return;
+
       // Save snapshot for undo
       const prevClone = audioEngine.cloneAudioBuffer(currentBuf);
-      setEditHistory(prev => [...prev.slice(-15), { trackId: targetTrackId, buffer: prevClone, description: action }]);
-
       const editedBuf = audioEngine.applySelectionEdit(currentBuf, selection.start, selection.end, action, valueDb);
-      audioEngine.setTrackBuffer(targetTrackId, editedBuf);
-      
-      // If currently playing, smoothly re-seek so it immediately plays the edited audio
-      if (playbackState === PlaybackState.PLAYING) {
-        audioEngine.seek(currentTime, targetTrackId);
+      let audibleBuffer = editedBuf;
+
+      if (editingMaster && activeResult) {
+        const labels = { gain: 'Ganancia', fadeIn: 'Fade in', fadeOut: 'Fade out', mute: 'Silencio' };
+        const editedResult = await audioEngine.replaceFinalMasterBuffer(activeResult, editedBuf, labels[action]);
+        audibleBuffer = editedResult.finalMasterArtifact?.finalDecodedPCM || editedBuf;
+        if (processingMode === 'bulk') {
+          setTrackMasterMap(prev => ({
+            ...prev,
+            [targetTrackId]: {
+              ...prev[targetTrackId],
+              result: editedResult,
+              isMastered: true
+            }
+          }));
+        }
+        setMasteringReport(editedResult);
+        setExportedQC(editedResult.qcVerification || null);
+      } else {
+        audioEngine.setTrackBuffer(targetTrackId, editedBuf);
+        setTracks(prev => prev.map(t => t.id === targetTrackId ? { ...t } : t));
+        const editedTrack = tracks.find(t => t.id === targetTrackId);
+        const sourceId = processingMode === 'stems'
+          ? getStemsSourceId(tracks)
+          : (editedTrack?.sourceId || targetTrackId);
+        audibleBuffer = processingMode === 'stems'
+          ? (await audioEngine.renderRawMix(tracks) || editedBuf)
+          : editedBuf;
+        audioEngine.invalidateMasterAfterSourceEdit(audibleBuffer, sourceId);
+        if (processingMode === 'bulk') {
+          setTrackMasterMap(prev => ({
+            ...prev,
+            [targetTrackId]: {
+              ...prev[targetTrackId],
+              result: undefined,
+              isMastered: false
+            }
+          }));
+        }
+        setMasteringReport(null);
+        setExportedQC(null);
+        setIsBypassed(true);
       }
 
+      setEditHistory(prev => [...prev.slice(-15), {
+        trackId: targetTrackId,
+        buffer: prevClone,
+        description: action,
+        target: editingMaster ? 'master' : 'source'
+      }]);
+
       // Update state references for instant visualizer waveform redraw
-      setTracks(prev => prev.map(t => t.id === targetTrackId ? { ...t } : t));
-      setProcessedBuffer(editedBuf);
+      setProcessedBuffer(audibleBuffer);
       setSelection(null);
 
-      // Refresh metrics asynchronously in background (non-blocking)
-      audioEngine.calculateAccurateDSPMetrics(editedBuf).then(metrics => {
-        setFileStats({
-          peak: metrics.truePeakDbTP,
-          integrated: metrics.integratedLUFS,
-          shortTerm: metrics.integratedLUFS
-        });
-      }).catch(err => console.error("Metrics calculation error:", err));
-    } catch (err) {
+      // Re-seek only after the edited playback/export buffer is committed.
+      if (playbackState === PlaybackState.PLAYING) {
+        const playbackTrackId = processingMode === 'bulk' ? targetTrackId : undefined;
+        audioEngine.seek(currentTime, playbackTrackId);
+        if (!editingMaster) audioEngine.play(playbackTrackId);
+      }
+
+      const metrics = await audioEngine.calculateAccurateDSPMetrics(audibleBuffer);
+      setFileStats({
+        peak: metrics.truePeakDbTP,
+        integrated: metrics.integratedLUFS,
+        shortTerm: metrics.integratedLUFS
+      });
+    } catch (err: any) {
       console.error("Selection edit error:", err);
+      alert(`No se pudo aplicar la edición: ${err?.message || 'Error desconocido'}`);
     }
   };
 

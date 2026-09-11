@@ -231,6 +231,137 @@ export class AudioEngine {
     return this.finalMasterArtifact?.wavBlob || this.lastExportedWavBlob;
   }
 
+  public invalidateMasterAfterSourceEdit(buffer: AudioBuffer, sourceId: string): void {
+    this.stop();
+    this.finalMasterArtifact = null;
+    this.lastExportedWavBlob = null;
+    this.lastExportedWavHash = '';
+    this.lastExportedRenderId = '';
+    this.lastAIMasteringResult = null;
+    this.setOriginalBuffer(buffer, sourceId);
+  }
+
+  public async replaceFinalMasterBuffer(
+    result: AIMasteringResult,
+    editedBuffer: AudioBuffer,
+    editDescription: string
+  ): Promise<AIMasteringResult> {
+    const previousArtifact = result.finalMasterArtifact;
+    if (!previousArtifact) throw new Error('No existe un master final para editar.');
+
+    // The editable master is already the reopened 24-bit delivery PCM. Avoid a
+    // second dither pass so a fade-out can end in true digital silence.
+    const exported = await this.exportWavAndReopen(editedBuffer, 24, false);
+    const finalBuffer = exported.reopenedBuffer;
+    const metrics = await this.calculateAccurateDSPMetrics(finalBuffer);
+    const qcVerification = await this.performExportQC(finalBuffer, 24);
+    if (!qcVerification.passed) {
+      throw new Error(`La edición excede el ceiling de entrega (${metrics.truePeakDbTP.toFixed(2)} dBTP).`);
+    }
+
+    const renderId = `edit_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    const artifact: FinalMasterArtifact = {
+      ...previousArtifact,
+      renderId,
+      wavBlob: exported.wavBlob,
+      wavArrayBuffer: exported.wavArrayBuffer,
+      sha256: exported.fileHash,
+      opfsFileName: undefined,
+      externalFileHandle: undefined,
+      sampleRate: finalBuffer.sampleRate,
+      channels: finalBuffer.numberOfChannels,
+      bitDepth: 24,
+      duration: finalBuffer.duration,
+      finalDecodedPCM: finalBuffer,
+      finalIntegratedLUFS: parseFloat(metrics.integratedLUFS.toFixed(1)),
+      finalTruePeak: parseFloat(metrics.truePeakDbTP.toFixed(1)),
+      finalLRA: parseFloat(metrics.dynamicRangeLRA.toFixed(1)),
+      finalRMS: parseFloat(metrics.rmsDb.toFixed(1)),
+      finalCrestFactor: parseFloat(metrics.crestFactor.toFixed(1))
+    };
+
+    const comparisonGainDb = parseFloat((result.before.integratedLUFS - artifact.finalIntegratedLUFS).toFixed(2));
+    const audioIdentity: AudioIdentity = {
+      ...(result.audioIdentity || {
+        sourceId: artifact.sourceId,
+        trackSessionId: artifact.sessionId,
+        iterationId: 'manual_edit',
+        fileHash: exported.fileHash,
+        sampleRate: finalBuffer.sampleRate,
+        lengthInSamples: finalBuffer.length,
+        duration: finalBuffer.duration,
+        originalLUFS: result.before.integratedLUFS,
+        masterLUFS: artifact.finalIntegratedLUFS,
+        comparisonGainDb,
+        reopenedFromWav: true
+      }),
+      sourceId: artifact.sourceId,
+      trackSessionId: artifact.sessionId,
+      iterationId: 'manual_edit',
+      renderId,
+      finalRenderId: renderId,
+      finalFileHash: exported.fileHash,
+      finalCandidateId: artifact.candidateId,
+      finalSessionId: artifact.sessionId,
+      fileHash: exported.fileHash,
+      sampleRate: finalBuffer.sampleRate,
+      lengthInSamples: finalBuffer.length,
+      duration: finalBuffer.duration,
+      masterLUFS: artifact.finalIntegratedLUFS,
+      comparisonGainDb,
+      reopenedFromWav: true
+    };
+    const masterIdentity: MasterIdentityRecord = {
+      finalRenderId: renderId,
+      finalFileHash: exported.fileHash,
+      finalSourceId: artifact.sourceId,
+      finalCandidateId: artifact.candidateId,
+      finalSessionId: artifact.sessionId,
+      sampleRate: finalBuffer.sampleRate,
+      lengthInSamples: finalBuffer.length,
+      duration: finalBuffer.duration,
+      measuredFinalLUFS: artifact.finalIntegratedLUFS,
+      measuredFinalTruePeak: artifact.finalTruePeak,
+      measuredFinalLRA: artifact.finalLRA,
+      reopenedWavValid: true
+    };
+
+    const updatedResult: AIMasteringResult = {
+      ...result,
+      after: {
+        integratedLUFS: artifact.finalIntegratedLUFS,
+        truePeakDbTP: artifact.finalTruePeak,
+        dynamicRangeLRA: artifact.finalLRA,
+        crestFactor: artifact.finalCrestFactor,
+        peakDb: parseFloat(metrics.peakDb.toFixed(1))
+      },
+      decisions: [...result.decisions, `${editDescription}: edición aplicada al WAV master final y verificada nuevamente.`],
+      timestamp: Date.now(),
+      qcVerification,
+      audioIdentity,
+      masterIdentity,
+      finalMeasuredLUFS: artifact.finalIntegratedLUFS,
+      finalMasterArtifact: artifact,
+      reopenedFromWav: true,
+      reportConsistencyCheck: {
+        passed: true,
+        violations: [],
+        verifiedHash: exported.fileHash,
+        measuredLUFS: artifact.finalIntegratedLUFS,
+        reportedLUFS: artifact.finalIntegratedLUFS,
+        measuredTruePeak: artifact.finalTruePeak,
+        reportedTruePeak: artifact.finalTruePeak,
+        measuredLRA: artifact.finalLRA,
+        reportedLRA: artifact.finalLRA
+      }
+    };
+
+    this.setFinalMasterArtifact(artifact);
+    this.setMasteredAudio(finalBuffer, audioIdentity);
+    this.lastAIMasteringResult = updatedResult;
+    return updatedResult;
+  }
+
   public evaluateCandidateEligibility(candidate: {
     id: string;
     name: string;
@@ -8579,6 +8710,7 @@ export class AudioEngine {
     const startSample = Math.max(0, Math.min(length, Math.floor(startSec * sampleRate)));
     const endSample = Math.max(startSample, Math.min(length, Math.floor(endSec * sampleRate)));
     const durationSamples = Math.max(1, endSample - startSample);
+    const progressDenominator = Math.max(1, durationSamples - 1);
 
     const gainFactor = action === 'gain' ? Math.pow(10, valueDb / 20) : 1.0;
 
@@ -8588,7 +8720,9 @@ export class AudioEngine {
       dst.set(src); // clone entire channel
 
       for (let i = startSample; i < endSample; i++) {
-        const progress = (i - startSample) / durationSamples; // 0.0 -> 1.0
+        // Include both endpoints so fade-in finishes at unity and fade-out reaches
+        // exact digital silence on the last selected sample.
+        const progress = durationSamples === 1 ? 1 : (i - startSample) / progressDenominator;
 
         if (action === 'gain') {
           dst[i] = Math.max(-1.0, Math.min(1.0, src[i] * gainFactor));
