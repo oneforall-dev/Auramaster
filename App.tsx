@@ -345,10 +345,16 @@ export default function App() {
       setLoadingAudio(true); 
       try { 
         const newFiles = Array.from(e.target.files) as File[];
+        const shouldUseBulk = processingMode === 'stems' && looksLikeSongBatch(newFiles);
+        const effectiveMode: ProcessingMode = shouldUseBulk ? 'bulk' : processingMode;
+        if (shouldUseBulk) {
+          setProcessingMode('bulk');
+          alert('Los archivos parecen canciones completas, no canales de una sola canción. Se abrió Modo Canciones para procesarlas por separado.');
+        }
 
         // HARD RESET: If loading a new song or replacing in single-track mastering,
         // clear previous tracks, buffers, presets and state completely
-        const isStemsAdding = processingMode === 'stems' && tracks.length > 0;
+        const isStemsAdding = effectiveMode === 'stems' && tracks.length > 0;
         if (!isStemsAdding) {
           await clearBulkArtifactStorage();
           audioEngine.clearAllTracks();
@@ -356,13 +362,13 @@ export default function App() {
         }
 
         const added: Track[] = [];
-        for (const file of newFiles) added.push(await audioEngine.addTrack(file, processingMode === 'bulk'));
+        for (const file of newFiles) added.push(await audioEngine.addTrack(file, effectiveMode === 'bulk'));
 
         let allTracks = isStemsAdding ? [...tracks, ...added] : added;
         let newParams = getNeutralMasteringParams();
         
         // Stems auto-balance logic if in stems mode
-        if (processingMode === 'stems' && allTracks.length > 1) {
+        if (effectiveMode === 'stems' && allTracks.length > 1) {
             allTracks = audioEngine.autoBalanceTracks(allTracks);
             newParams.gain = 1.0;
         }
@@ -373,7 +379,7 @@ export default function App() {
         newParams.limiter.breathe = 0;
         
         // Initialize tracks in trackMasterMap if in bulk mode
-        if (processingMode === 'bulk') {
+        if (effectiveMode === 'bulk') {
           setTrackMasterMap(prev => {
             const next = { ...prev };
             added.forEach(t => {
@@ -395,7 +401,7 @@ export default function App() {
         setIsBypassed(true); // HARD RESET: New audio is always auditioned as ORIGINAL raw first
         setMasteringReport(null); // Clear old report
         if (added.length > 0) {
-          const newActiveId = (processingMode === 'bulk' || !activeTrackId || !allTracks.some(t => t.id === activeTrackId))
+          const newActiveId = (effectiveMode === 'bulk' || !activeTrackId || !allTracks.some(t => t.id === activeTrackId))
             ? added[0].id 
             : activeTrackId;
           setActiveTrackId(newActiveId);
@@ -1821,3 +1827,10 @@ const getStemsMixStateKey = (tracks: Track[]): string =>
     ].join(':'))
     .sort()
     .join('|');
+
+const looksLikeSongBatch = (files: File[]): boolean => {
+  if (files.length < 3) return false;
+  const stemTerms = /(?:^|[\s_.-])(lead[\s_.-]*vocals?|back(?:ing)?[\s_.-]*vocals?|vocals?|vox|acapella|drums?|kick|snare|percussion|perc|bass|808|sub|guitars?|keys?|keyboard|piano|synth|strings?|brass|fx|other|stems?)(?:[\s_.-]|$)/i;
+  const stemLike = files.filter(file => stemTerms.test(file.name.replace(/\.[^/.]+$/, ''))).length;
+  return stemLike / files.length < 0.4;
+};
