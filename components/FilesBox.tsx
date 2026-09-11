@@ -12,7 +12,9 @@ import {
   Archive, 
   FileAudio,
   Play,
-  RotateCw
+  RotateCw,
+  Maximize2,
+  X
 } from 'lucide-react';
 import { Track, SkinMode, ProcessingMode, TrackMasterInfo, AIMasteringResult } from '../types';
 import { MixerChannel } from './MixerChannel';
@@ -64,6 +66,7 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
   const t = getT(lang);
   const isClear = skin === 'clear';
   const isStems = processingMode === 'stems';
+  const [isMultitrackOpen, setIsMultitrackOpen] = useState(false);
 
   const masteredCount = tracks.filter(t => trackMasterMap[t.id]?.isMastered).length;
 
@@ -118,6 +121,16 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
               ? '🎛️ Suma todos los canales en 1 master final'
               : '⚡ Procesa y masteriza cada archivo por separado'}
           </span>
+          {isStems && tracks.length > 0 && (
+            <button
+              onClick={() => setIsMultitrackOpen(true)}
+              className="ml-2 px-2 py-0.5 rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 font-semibold flex items-center gap-1"
+              title="Abrir mezclador multitrack en una ventana amplia"
+            >
+              <Maximize2 size={10} />
+              Multitrack
+            </button>
+          )}
           {!isStems && tracks.length > 0 && (
             <span className="font-mono font-bold">
               {masteredCount}/{tracks.length} Masterizados
@@ -367,6 +380,44 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
         <Plus size={14} />
         <span>{isStems ? 'Importar Stems' : 'Importar Archivos (Bulk)'}</span>
       </button>
+
+      {isStems && isMultitrackOpen && (
+        <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-md flex items-center justify-center p-4" onClick={() => setIsMultitrackOpen(false)}>
+          <div
+            className="w-full max-w-5xl max-h-[88vh] overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl flex flex-col"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Layers size={16} className="text-cyan-400" />
+                  Mezclador multitrack de stems
+                </h3>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Ajusta volumen, paneo, mute y solo antes de generar una única mezcla estéreo masterizada.
+                </p>
+              </div>
+              <button onClick={() => setIsMultitrackOpen(false)} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10" title="Cerrar multitrack">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-2">
+              {tracks.map(track => (
+                <MixerChannel
+                  key={track.id}
+                  track={track}
+                  onChange={onTrackChange}
+                  onRemove={onRemoveTrack}
+                  onSelect={onSelectTrack}
+                  isSelected={activeTrackId === track.id}
+                  variant="minimal"
+                  skin={skin}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

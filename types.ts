@@ -853,6 +853,8 @@ export interface BulkMasteringSummary {
   bulkSessionId?: string;
   totalTracks: number;
   completedCount: number;
+  readyCount?: number;
+  reviewRequiredCount?: number;
   warningCount?: number;
   failedCount: number;
   originalAvgLUFS: number;

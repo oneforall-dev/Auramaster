@@ -54,6 +54,8 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
   const completedCount = Number(summary.completedCount ?? (summary as any).completedTracks ?? 0);
   const totalCount = Number(summary.totalTracks ?? 0);
   const failedCount = Number(summary.failedCount ?? (summary as any).failedTracks ?? 0);
+  const readyCount = Number(summary.readyCount ?? completedCount);
+  const reviewRequiredCount = Number(summary.reviewRequiredCount ?? summary.warningCount ?? 0);
   const vocalApproved = Number((summary.vocalApprovedCount ?? (summary as any).vocalProtectedCount ?? 0) + (summary.vocalPartialCount ?? 0));
   const instCount = Number(summary.instrumentalCount ?? 0);
 
@@ -149,8 +151,10 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
                 </span>
                 <span className="text-xs font-mono text-slate-400">dBTP</span>
               </div>
-              <span className="text-[10px] text-emerald-400 font-semibold">
-                {completedCount > 0 ? '✓ Ceiling ≤ -1.0 dBTP' : 'Sin medición disponible'}
+              <span className={`text-[10px] font-semibold ${maxTP <= -1.0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {completedCount > 0
+                  ? (maxTP <= -1.0 ? '✓ Ceiling ≤ -1.0 dBTP' : 'Revisar: ceiling excedido')
+                  : 'Sin medición disponible'}
               </span>
             </div>
 
@@ -182,7 +186,9 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
                 <span className="text-xs font-mono text-slate-400">validadas</span>
               </div>
               <span className="text-[10px] text-slate-400">
-                {instCount > 0 ? `${instCount} sin voz confirmada` : (completedCount > 0 ? '0 enmascaramientos' : 'Sin análisis vocal')}
+                {reviewRequiredCount > 0
+                  ? `${reviewRequiredCount} requieren revisión`
+                  : instCount > 0 ? `${instCount} sin voz confirmada` : (completedCount > 0 ? '0 pendientes' : 'Sin análisis vocal')}
               </span>
             </div>
           </div>
@@ -306,7 +312,8 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
               ? <XCircle size={15} className="text-rose-400" />
               : <CheckCircle2 size={15} className="text-emerald-400" />}
             <span>
-              {completedCount} canciones listas para distribución streaming
+              {readyCount} canciones listas para distribución streaming
+              {reviewRequiredCount > 0 ? ` · ${reviewRequiredCount} requieren revisión` : ''}
               {failedCount > 0 ? ` · ${failedCount} fallidas` : ''}
             </span>
           </div>

@@ -1290,6 +1290,22 @@ export class AudioEngine {
   // Render Raw Mix (Unmastered Stems Sum)
   async renderRawMix(tracks: Track[]): Promise<AudioBuffer | null> {
     if (this.tracks.size === 0) return null;
+    for (const track of tracks) {
+      if (!track.muted && !this.tracks.get(track.id)?.buffer) {
+        await this.ensureTrackLoaded(track);
+      }
+    }
+    if (tracks.length === 1) {
+      const track = tracks[0];
+      const source = track.buffer || this.tracks.get(track.id)?.buffer;
+      const isUnitySource = source && !track.muted && !track.soloed
+        && Math.abs(track.volume - 1) < 1e-6
+        && Math.abs(track.pan) < 1e-6
+        && Math.abs(track.startTime) < 1e-6
+        && Math.abs(track.fadeIn) < 1e-6
+        && Math.abs(track.fadeOut) < 1e-6;
+      if (source && isUnitySource) return this.cloneAudioBuffer(source);
+    }
     const sampleRate = this.getSourceSampleRate();
     const offline = new OfflineAudioContext(2, Math.max(1, Math.ceil(this.maxDuration * sampleRate)), sampleRate);
     const sum = offline.createGain();
@@ -1299,7 +1315,7 @@ export class AudioEngine {
       const internal = this.tracks.get(t.id);
       const hasSolo = tracks.some(tr => tr.soloed);
       const isMuted = state?.muted || (hasSolo && !state?.soloed);
-      if (!state || isMuted || !internal) continue;
+      if (!state || isMuted || !internal?.buffer) continue;
 
       const s = offline.createBufferSource();
       s.buffer = internal.buffer;
@@ -7061,9 +7077,21 @@ export class AudioEngine {
     // HARD RESET: Never inherit parameters from previous tracks!
     this.resetTrackProcessingState(freshSessionId);
     const neutralParams = getNeutralMasteringParams();
+    // A song in Bulk is a self-contained source. Never inherit attenuation,
+    // panning, mute or solo state left by the multitrack mixer.
+    const isolatedTrack: Track = {
+      ...track,
+      volume: 1,
+      pan: 0,
+      muted: false,
+      soloed: false,
+      startTime: 0,
+      fadeIn: 0,
+      fadeOut: 0
+    };
     return this.runMixerFixerAIMastering(
       neutralParams,
-      [track],
+      [isolatedTrack],
       userAIConfig,
       track.sourceId || track.id,
       freshSessionId,
@@ -7082,10 +7110,36 @@ export class AudioEngine {
     previousErrors: string[] = [],
     onPhaseChange?: (phase: 'reset' | 'analyze' | 'dsp' | 'vocal_audit' | 'render' | 'validate' | 'complete') => void
   ): Promise<AIMasteringResult> {
-    onPhaseChange?.('reset');
     const source = await this.ensureTrackLoaded(track);
+    return this.runSafeRecoveryMasterFromBuffer(
+      source, track.sourceId || track.id, trackSessionId, previousErrors, onPhaseChange
+    );
+  }
+
+  async runSafeRecoveryMasterForTracks(
+    tracks: Track[],
+    trackSessionId: string,
+    previousErrors: string[] = [],
+    onPhaseChange?: (phase: 'reset' | 'analyze' | 'dsp' | 'vocal_audit' | 'render' | 'validate' | 'complete') => void
+  ): Promise<AIMasteringResult> {
+    for (const track of tracks) await this.ensureTrackLoaded(track);
+    const source = await this.renderRawMix(tracks);
+    if (!source) throw new Error('No se pudo construir la mezcla estéreo de los stems.');
+    const sourceId = `stems_${tracks.map(t => t.sourceId || t.id).sort().join('_')}`;
+    return this.runSafeRecoveryMasterFromBuffer(
+      source, sourceId, trackSessionId, previousErrors, onPhaseChange
+    );
+  }
+
+  private async runSafeRecoveryMasterFromBuffer(
+    source: AudioBuffer,
+    sourceId: string,
+    trackSessionId: string,
+    previousErrors: string[],
+    onPhaseChange?: (phase: 'reset' | 'analyze' | 'dsp' | 'vocal_audit' | 'render' | 'validate' | 'complete') => void
+  ): Promise<AIMasteringResult> {
+    onPhaseChange?.('reset');
     this.resetTrackProcessingState(trackSessionId);
-    const sourceId = track.sourceId || track.id;
     this.setOriginalBuffer(source, sourceId);
 
     onPhaseChange?.('analyze');
@@ -7824,7 +7878,7 @@ export class AudioEngine {
     let maxNoiseFloor = -95; 
     tracks.forEach(t => {
         const internal = this.tracks.get(t.id);
-        if (!internal) return;
+        if (!internal?.buffer) return;
         const data = internal.buffer.getChannelData(0);
         const sr = internal.buffer.sampleRate;
         const length = data.length;
@@ -7863,7 +7917,7 @@ export class AudioEngine {
     // 1. Calculate suggested volume based on STEM TYPE and energy
     const suggestions = tracks.map(t => {
         const internal = this.tracks.get(t.id);
-        if (!internal) return { id: t.id, gain: t.volume };
+        if (!internal?.buffer) return { id: t.id, gain: t.volume };
         
         const data = internal.buffer.getChannelData(0);
         let sumSq = 0;
@@ -7919,6 +7973,11 @@ export class AudioEngine {
 
   async renderPreview(params: MasteringChainParams, tracks: Track[]): Promise<AudioBuffer | null> {
     if (this.tracks.size === 0 || tracks.length === 0) return null;
+    for (const track of tracks) {
+      if (!track.muted && !this.tracks.get(track.id)?.buffer && !track.buffer) {
+        await this.ensureTrackLoaded(track);
+      }
+    }
 
     // If stem-assisted mastering is active and single track is provided (and not already recombined):
     let effectiveTracks = tracks;

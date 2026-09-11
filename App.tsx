@@ -289,13 +289,20 @@ export default function App() {
         const artifact = processingMode === 'bulk' && activeTrackId
           ? trackMasterMap[activeTrackId]?.finalMasterArtifact
           : masteringReport?.finalMasterArtifact;
-        if (artifact) {
+        if (artifact && !(processingMode === 'stems' && isBypassed)) {
           buffer = artifact.finalDecodedPCM;
         } else if (processingMode === 'bulk' && activeTrackId) {
           const currentTrack = tracks.find(t => t.id === activeTrackId);
           if (currentTrack) {
             const trackParams = trackMasterMap[activeTrackId]?.params || params;
             buffer = await audioEngine.renderPreview(trackParams, [currentTrack]);
+          }
+        } else if (processingMode === 'stems') {
+          buffer = isBypassed
+            ? await audioEngine.renderRawMix(tracks)
+            : await audioEngine.renderPreview(params, tracks);
+          if (buffer && isBypassed) {
+            audioEngine.setOriginalBuffer(buffer, getStemsSourceId(tracks));
           }
         } else {
           buffer = await audioEngine.renderPreview(params, tracks);
@@ -314,7 +321,7 @@ export default function App() {
         setIsPreviewRendering(false);
     }, 400);
     return () => clearTimeout(timer);
-  }, [params, tracks, loadingAudio, isBulkMastering, processingMode, activeTrackId, trackMasterMap, masteringReport]);
+  }, [params, tracks, loadingAudio, isBulkMastering, processingMode, activeTrackId, trackMasterMap, masteringReport, isBypassed]);
 
   // Throttled time updater for UI text (4Hz interval instead of 60Hz full-tree re-renders)
   useEffect(() => {
@@ -795,8 +802,12 @@ export default function App() {
       const summaryTracks = tracks.map(t => {
         const info = updatedMap[t.id];
         const res = info?.result;
-        const rowStatus = (info?.isMastered ? 'completed' : info?.currentPhase === 'error' ? 'failed' : 'skipped') as 'completed' | 'warning' | 'failed' | 'skipped';
         const detection = res?.vocalReport?.vocalDetection ?? res?.vocalReport?.original?.vocalDetection;
+        const vocalValidated = detection?.classification === 'VOCAL_PRESENT';
+        const deliveryValidated = Boolean(res?.targetMet && res?.qcVerification?.passed);
+        const rowStatus = (info?.isMastered
+          ? (vocalValidated && deliveryValidated ? 'completed' : 'warning')
+          : info?.currentPhase === 'error' ? 'failed' : 'skipped') as 'completed' | 'warning' | 'failed' | 'skipped';
         const vocStatus = rowStatus === 'failed'
           ? 'Falló'
           : rowStatus === 'skipped'
@@ -818,12 +829,16 @@ export default function App() {
           errorMessage: info?.errorMessage
         };
       });
+      const readyCount = summaryTracks.filter(t => t.status === 'completed').length;
+      const reviewRequiredCount = summaryTracks.filter(t => t.status === 'warning').length;
 
       const summary: BulkMasteringSummary = {
         bulkSessionId: `bulk_${Date.now().toString(36)}`,
         totalTracks,
         completedCount: completedTracks,
-        warningCount: 0,
+        readyCount,
+        reviewRequiredCount,
+        warningCount: reviewRequiredCount,
         failedCount,
         originalAvgLUFS: parseFloat(avgOrigLUFS.toFixed(1)),
         masterAvgLUFS: parseFloat(avgMasterLUFS.toFixed(1)),
@@ -999,19 +1014,28 @@ export default function App() {
                   }
                 } else {
                   const targetSessionId = currentSessionIdRef.current;
+                  for (const track of tracks) await audioEngine.ensureTrackLoaded(track);
                   const balancedTracks = audioEngine.autoBalanceTracks(tracks);
                   setTracks(balancedTracks);
-                  const activeSourceId = tracks[0]?.sourceId || `stems_${tracks.map(t => t.sourceId || t.id).join('_')}`;
-                  const result = await audioEngine.runMixerFixerAIMastering(
-                    newParams, 
-                    balancedTracks,
-                    null,
-                    activeSourceId,
-                    targetSessionId,
-                    (phase) => {
-                      setSmartMasterPhase(phase);
-                    }
-                  );
+                  const activeSourceId = getStemsSourceId(balancedTracks);
+                  let result: AIMasteringResult;
+                  try {
+                    result = await audioEngine.runMixerFixerAIMastering(
+                      newParams,
+                      balancedTracks,
+                      null,
+                      activeSourceId,
+                      targetSessionId,
+                      (phase) => setSmartMasterPhase(phase)
+                    );
+                  } catch (primaryError: any) {
+                    result = await audioEngine.runSafeRecoveryMasterForTracks(
+                      balancedTracks,
+                      targetSessionId,
+                      [primaryError?.message || 'Las variantes avanzadas no fueron aprobadas'],
+                      (phase) => setSmartMasterPhase(phase)
+                    );
+                  }
                   // Verify session is still active
                   if (result.sessionId === currentSessionIdRef.current) {
                     newParams = result.appliedParams;
@@ -1329,7 +1353,7 @@ export default function App() {
                               const activeTrack = tracks.find(t => t.id === activeTrackId) || tracks[0];
                               const hasActiveMaster = processingMode === 'bulk'
                                 ? Boolean(activeTrack && trackMasterMap[activeTrack.id]?.isMastered && trackMasterMap[activeTrack.id]?.result?.sourceId === (activeTrack.sourceId || activeTrack.id) && audioEngine.hasValidMaster(activeTrack.sourceId || activeTrack.id))
-                                : Boolean(audioEngine.hasValidMaster() && masteringReport && activeTrack && masteringReport.sourceId === (activeTrack.sourceId || activeTrack.id));
+                                : Boolean(audioEngine.hasValidMaster(getStemsSourceId(tracks)) && masteringReport?.sourceId === getStemsSourceId(tracks));
                               const comparisonGainDb = audioEngine.getComparisonGainDb();
 
                               return (
@@ -1392,8 +1416,8 @@ export default function App() {
                     {(() => {
                       const activeTrack = tracks.find(t => t.id === activeTrackId) || tracks[0];
                       const activeTrackBuf = activeTrack ? audioEngine.getTrackBuffer(activeTrack.id) : null;
-                      const visBuffer = isBypassed 
-                        ? (activeTrackBuf || processedBuffer) 
+                      const visBuffer = isBypassed
+                        ? (processingMode === 'stems' ? (processedBuffer || activeTrackBuf) : (activeTrackBuf || processedBuffer))
                         : (processedBuffer || activeTrackBuf);
                       const visDuration = duration > 0 
                         ? duration 
@@ -1642,3 +1666,6 @@ const isTransientAudioMemoryError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error || '');
   return /array buffer|allocation failed|createBuffer\(|startRendering failed|out of memory|memory limit/i.test(message);
 };
+
+const getStemsSourceId = (tracks: Track[]): string =>
+  `stems_${tracks.map(track => track.sourceId || track.id).sort().join('_')}`;
