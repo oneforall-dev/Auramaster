@@ -47,6 +47,12 @@ interface InternalTrackNode {
   fxNodes: AudioNode[];
 }
 
+export interface AudioSelectionSnapshot {
+  startSample: number;
+  endSample: number;
+  channels: Float32Array[];
+}
+
 export function hashString(str: string): number {
   let hash = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
@@ -8764,19 +8770,39 @@ export class AudioEngine {
     this.recalculateMaxDuration();
   }
 
+  captureSelectionSnapshot(targetBuffer: AudioBuffer, startSec: number, endSec: number): AudioSelectionSnapshot {
+    const sampleRate = targetBuffer.sampleRate;
+    const startSample = Math.max(0, Math.min(targetBuffer.length, Math.floor(startSec * sampleRate)));
+    const endSample = Math.max(startSample, Math.min(targetBuffer.length, Math.floor(endSec * sampleRate)));
+    const channels: Float32Array[] = [];
+    for (let c = 0; c < targetBuffer.numberOfChannels; c++) {
+      channels.push(targetBuffer.getChannelData(c).slice(startSample, endSample));
+    }
+    return { startSample, endSample, channels };
+  }
+
+  restoreSelectionSnapshot(targetBuffer: AudioBuffer, snapshot: AudioSelectionSnapshot): AudioBuffer {
+    const length = Math.max(0, snapshot.endSample - snapshot.startSample);
+    for (let c = 0; c < Math.min(targetBuffer.numberOfChannels, snapshot.channels.length); c++) {
+      targetBuffer.getChannelData(c).set(snapshot.channels[c].subarray(0, length), snapshot.startSample);
+    }
+    return targetBuffer;
+  }
+
   applySelectionEdit(
     targetBuffer: AudioBuffer,
     startSec: number,
     endSec: number,
     action: 'gain' | 'fadeIn' | 'fadeOut' | 'mute',
-    valueDb: number = 0
+    valueDb: number = 0,
+    inPlace: boolean = false
   ): AudioBuffer {
     const numChannels = targetBuffer.numberOfChannels;
     const sampleRate = targetBuffer.sampleRate;
     const length = targetBuffer.length;
 
     const ctx = this.audioContext || new (window.AudioContext || (window as any).webkitAudioContext)();
-    const newBuffer = ctx.createBuffer(numChannels, length, sampleRate);
+    const newBuffer = inPlace ? targetBuffer : ctx.createBuffer(numChannels, length, sampleRate);
 
     const startSample = Math.max(0, Math.min(length, Math.floor(startSec * sampleRate)));
     const endSample = Math.max(startSample, Math.min(length, Math.floor(endSec * sampleRate)));
@@ -8788,7 +8814,7 @@ export class AudioEngine {
     for (let c = 0; c < numChannels; c++) {
       const src = targetBuffer.getChannelData(c);
       const dst = newBuffer.getChannelData(c);
-      dst.set(src); // clone entire channel
+      if (!inPlace) dst.set(src); // clone entire channel only when requested
 
       for (let i = startSample; i < endSample; i++) {
         // Include both endpoints so fade-in finishes at unity and fade-out reaches

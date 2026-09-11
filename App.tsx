@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, Activity, Download, Loader2, Globe, Sparkles, Zap, Disc, Plus, FileAudio, FolderOpen, Settings2, Sliders, Cpu, Headphones, Music, Guitar, Leaf, CheckCircle2, Monitor, Maximize2, Minimize2, VolumeX, PenTool, UploadCloud, BrainCircuit, BarChart2, Archive, Undo2 } from 'lucide-react';
-import { audioEngine, getNeutralMasteringParams } from './services/audioEngine';
+import { audioEngine, getNeutralMasteringParams, AudioSelectionSnapshot } from './services/audioEngine';
 import { MasteringChainParams, PlaybackState, Track, SkinMode, ProcessingMode, TrackMasterInfo, AIMasteringResult, ReferenceTrack, ReferenceMasteringConfig, BulkMasteringSummary } from './types';
 import { Visualizer } from './components/Visualizer';
 import { EffectRack } from './components/EffectRack';
@@ -111,7 +111,7 @@ export default function App() {
   const [exportedQC, setExportedQC] = useState<AIMasteringResult['qcVerification'] | null>(null);
   const [editHistory, setEditHistory] = useState<{
     trackId: string;
-    buffer: AudioBuffer;
+    snapshot: AudioSelectionSnapshot;
     description: string;
     target: 'source' | 'master';
   }[]>([]);
@@ -444,14 +444,18 @@ export default function App() {
     if (editHistory.length === 0) return;
     const lastEntry = editHistory[editHistory.length - 1];
     try {
-      let restoredBuffer = lastEntry.buffer;
+      const activeResult = processingMode === 'bulk'
+        ? trackMasterMap[lastEntry.trackId]?.result
+        : masteringReport || undefined;
+      const currentTarget = lastEntry.target === 'master'
+        ? activeResult?.finalMasterArtifact?.finalDecodedPCM
+        : audioEngine.getTrackBuffer(lastEntry.trackId);
+      if (!currentTarget) throw new Error('No se encontró el audio que se debe restaurar.');
+      let restoredBuffer = audioEngine.restoreSelectionSnapshot(currentTarget, lastEntry.snapshot);
       if (lastEntry.target === 'master') {
-        const activeResult = processingMode === 'bulk'
-          ? trackMasterMap[lastEntry.trackId]?.result
-          : masteringReport || undefined;
         if (!activeResult) throw new Error('No se encontró el master que se debe restaurar.');
-        const restoredResult = await audioEngine.replaceFinalMasterBuffer(activeResult, lastEntry.buffer, 'Deshacer edición');
-        restoredBuffer = restoredResult.finalMasterArtifact?.finalDecodedPCM || lastEntry.buffer;
+        const restoredResult = await audioEngine.replaceFinalMasterBuffer(activeResult, restoredBuffer, 'Deshacer edición');
+        restoredBuffer = restoredResult.finalMasterArtifact?.finalDecodedPCM || restoredBuffer;
         if (processingMode === 'bulk') {
           setTrackMasterMap(prev => ({
             ...prev,
@@ -466,14 +470,14 @@ export default function App() {
         audioEngine.setBypass(false);
         setIsBypassed(false);
       } else {
-        audioEngine.setTrackBuffer(lastEntry.trackId, lastEntry.buffer);
+        audioEngine.setTrackBuffer(lastEntry.trackId, restoredBuffer);
         const restoredTrack = tracks.find(t => t.id === lastEntry.trackId);
         const sourceId = processingMode === 'stems'
           ? getStemsSourceId(tracks)
           : (restoredTrack?.sourceId || lastEntry.trackId);
         const playbackBuffer = processingMode === 'stems'
-          ? (await audioEngine.renderRawMix(tracks) || lastEntry.buffer)
-          : lastEntry.buffer;
+          ? (await audioEngine.renderRawMix(tracks) || restoredBuffer)
+          : restoredBuffer;
         audioEngine.invalidateMasterAfterSourceEdit(playbackBuffer, sourceId);
         if (processingMode === 'bulk') {
           setTrackMasterMap(prev => ({
@@ -1189,9 +1193,10 @@ export default function App() {
       }
       if (!currentBuf) return;
 
-      // Save snapshot for undo
-      const prevClone = audioEngine.cloneAudioBuffer(currentBuf);
-      const editedBuf = audioEngine.applySelectionEdit(currentBuf, selection.start, selection.end, action, valueDb);
+      // Save only the selected samples for undo. Full-song clones can exhaust
+      // browser memory on long masters and large stem sessions.
+      const editSnapshot = audioEngine.captureSelectionSnapshot(currentBuf, selection.start, selection.end);
+      const editedBuf = audioEngine.applySelectionEdit(currentBuf, selection.start, selection.end, action, valueDb, true);
       let audibleBuffer = editedBuf;
       // Give immediate visual confirmation while WAV re-export and QC continue.
       setProcessedBuffer(editedBuf);
@@ -1241,7 +1246,7 @@ export default function App() {
 
       setEditHistory(prev => [...prev.slice(-15), {
         trackId: targetTrackId,
-        buffer: prevClone,
+        snapshot: editSnapshot,
         description: action,
         target: editingMaster ? 'master' : 'source'
       }]);
