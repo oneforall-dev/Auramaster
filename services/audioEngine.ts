@@ -1471,6 +1471,77 @@ export class AudioEngine {
     return await offline.startRendering();
   }
 
+  /**
+   * Collapse decoded stems to one stereo working mix, then release the large
+   * per-stem PCM buffers. The File objects remain on Track, so a later manual
+   * remix can load them again when needed.
+   */
+  async prepareStemsMixForMastering(
+    tracks: Track[],
+    sourceId: string,
+    existingPreview?: AudioBuffer | null
+  ): Promise<AudioBuffer> {
+    const mix = existingPreview || await this.renderRawMix(tracks);
+    if (!mix) throw new Error('No se pudo crear la mezcla estéreo de los stems.');
+    this.setOriginalBuffer(mix, sourceId);
+    for (const track of tracks) {
+      const internal = this.tracks.get(track.id);
+      if (internal) internal.buffer = undefined;
+    }
+    this.maxDuration = mix.duration;
+    return mix;
+  }
+
+  /** Run the existing mastering pipeline from an already summed stem mix. */
+  async runMixerFixerAIFromPreparedMix(
+    currentParams: MasteringChainParams,
+    mix: AudioBuffer,
+    sourceId: string,
+    sessionId: string,
+    onPhaseChange?: (phase: 'reset' | 'analyze' | 'dsp' | 'vocal_audit' | 'render' | 'validate' | 'complete') => void
+  ): Promise<AIMasteringResult> {
+    this.init();
+    const ctx = this.audioContext!;
+    const id = `prepared_stems_${Date.now().toString(36)}`;
+    const gainNode = ctx.createGain();
+    const pannerNode = ctx.createStereoPanner();
+    const { input: fxIn, output: fxOut, nodes: fxNodes } = this.createStemChain(ctx, 'other');
+    fxOut.connect(gainNode);
+    gainNode.connect(pannerNode);
+    pannerNode.connect(this.masterSumNode!);
+    this.tracks.set(id, { buffer: mix, source: null, outNode: fxIn, gainNode, pannerNode, fxNodes });
+    const virtualTrack: Track = {
+      id,
+      name: 'Stems Mixdown',
+      volume: 1,
+      pan: 0,
+      muted: false,
+      soloed: false,
+      color: '#06b6d4',
+      startTime: 0,
+      fadeIn: 0,
+      fadeOut: 0,
+      sourceId,
+      buffer: mix
+    };
+    try {
+      return await this.runMixerFixerAIMastering(
+        currentParams,
+        [virtualTrack],
+        null,
+        sourceId,
+        sessionId,
+        onPhaseChange
+      );
+    } finally {
+      gainNode.disconnect();
+      pannerNode.disconnect();
+      fxNodes.forEach(node => node.disconnect());
+      this.tracks.delete(id);
+      this.maxDuration = mix.duration;
+    }
+  }
+
   // 4. MIXER FIXER AI - Comprehensive 5-Stage DSP Mastering Engine
   async runMixerFixerAIMastering(
     currentParams: MasteringChainParams,
@@ -7262,7 +7333,7 @@ export class AudioEngine {
     );
   }
 
-  private async runSafeRecoveryMasterFromBuffer(
+  public async runSafeRecoveryMasterFromBuffer(
     source: AudioBuffer,
     sourceId: string,
     trackSessionId: string,

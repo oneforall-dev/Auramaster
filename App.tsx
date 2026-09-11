@@ -115,6 +115,7 @@ export default function App() {
     description: string;
     target: 'source' | 'master';
   }[]>([]);
+  const stemsPreviewKeyRef = useRef<string>('');
 
   // Multi-Reference AI Mastering State
   const [references, setReferences] = useState<ReferenceTrack[]>([]);
@@ -245,6 +246,7 @@ export default function App() {
     setMasteringReport(null);
     setSelection(null);
     setEditHistory([]);
+    stemsPreviewKeyRef.current = '';
     setTrackMasterMap({});
     setExportedQC(null);
     setFileStats({ peak: -90, integrated: -90, shortTerm: -90 });
@@ -284,7 +286,7 @@ export default function App() {
 
   // Render preview buffer (summed stems or single active track in bulk mode)
   useEffect(() => {
-    if (tracks.length === 0 || loadingAudio || isBulkMastering) {
+    if (tracks.length === 0 || loadingAudio || isBulkMastering || isSmartAdjusting) {
       setProcessedBuffer(null);
       return;
     }
@@ -308,6 +310,7 @@ export default function App() {
             : await audioEngine.renderPreview(params, tracks);
           if (buffer && isBypassed) {
             audioEngine.setOriginalBuffer(buffer, getStemsSourceId(tracks));
+            stemsPreviewKeyRef.current = getStemsMixStateKey(tracks);
           }
         } else {
           buffer = await audioEngine.renderPreview(params, tracks);
@@ -326,7 +329,7 @@ export default function App() {
         setIsPreviewRendering(false);
     }, 400);
     return () => clearTimeout(timer);
-  }, [params, tracks, loadingAudio, isBulkMastering, processingMode, activeTrackId, trackMasterMap, masteringReport, isBypassed]);
+  }, [params, tracks, loadingAudio, isBulkMastering, isSmartAdjusting, processingMode, activeTrackId, trackMasterMap, masteringReport, isBypassed]);
 
   // Throttled time updater for UI text (4Hz interval instead of 60Hz full-tree re-renders)
   useEffect(() => {
@@ -1070,19 +1073,30 @@ export default function App() {
                   const balancedTracks = audioEngine.autoBalanceTracks(tracks);
                   setTracks(balancedTracks);
                   const activeSourceId = getStemsSourceId(balancedTracks);
+                  // Render the stems once, then release their decoded PCM before
+                  // the candidate pipeline allocates its analysis/render buffers.
+                  const preparedMix = await audioEngine.prepareStemsMixForMastering(
+                    balancedTracks,
+                    activeSourceId,
+                    isBypassed &&
+                    !isPreviewRendering &&
+                    stemsPreviewKeyRef.current === getStemsMixStateKey(balancedTracks)
+                      ? processedBuffer
+                      : null
+                  );
                   let result: AIMasteringResult;
                   try {
-                    result = await audioEngine.runMixerFixerAIMastering(
+                    result = await audioEngine.runMixerFixerAIFromPreparedMix(
                       newParams,
-                      balancedTracks,
-                      null,
+                      preparedMix,
                       activeSourceId,
                       targetSessionId,
                       (phase) => setSmartMasterPhase(phase)
                     );
                   } catch (primaryError: any) {
-                    result = await audioEngine.runSafeRecoveryMasterForTracks(
-                      balancedTracks,
+                    result = await audioEngine.runSafeRecoveryMasterFromBuffer(
+                      preparedMix,
+                      activeSourceId,
                       targetSessionId,
                       [primaryError?.message || 'Las variantes avanzadas no fueron aprobadas'],
                       (phase) => setSmartMasterPhase(phase)
@@ -1162,6 +1176,7 @@ export default function App() {
     const editingMaster = !isBypassed && Boolean(activeResult?.finalMasterArtifact);
 
     try {
+      setIsPreviewRendering(true);
       let currentBuf: AudioBuffer | undefined;
       if (editingMaster && activeResult?.finalMasterArtifact) {
         currentBuf = activeResult.finalMasterArtifact.finalDecodedPCM;
@@ -1178,6 +1193,9 @@ export default function App() {
       const prevClone = audioEngine.cloneAudioBuffer(currentBuf);
       const editedBuf = audioEngine.applySelectionEdit(currentBuf, selection.start, selection.end, action, valueDb);
       let audibleBuffer = editedBuf;
+      // Give immediate visual confirmation while WAV re-export and QC continue.
+      setProcessedBuffer(editedBuf);
+      setSelection(null);
 
       if (editingMaster && activeResult) {
         const labels = { gain: 'Ganancia', fadeIn: 'Fade in', fadeOut: 'Fade out', mute: 'Silencio' };
@@ -1230,7 +1248,6 @@ export default function App() {
 
       // Update state references for instant visualizer waveform redraw
       setProcessedBuffer(audibleBuffer);
-      setSelection(null);
 
       // Re-seek only after the edited playback/export buffer is committed.
       if (playbackState === PlaybackState.PLAYING) {
@@ -1248,6 +1265,8 @@ export default function App() {
     } catch (err: any) {
       console.error("Selection edit error:", err);
       alert(`No se pudo aplicar la edición: ${err?.message || 'Error desconocido'}`);
+    } finally {
+      setIsPreviewRendering(false);
     }
   };
 
@@ -1782,3 +1801,18 @@ const isTransientAudioMemoryError = (error: unknown): boolean => {
 
 const getStemsSourceId = (tracks: Track[]): string =>
   `stems_${tracks.map(track => track.sourceId || track.id).sort().join('_')}`;
+
+const getStemsMixStateKey = (tracks: Track[]): string =>
+  tracks
+    .map(track => [
+      track.sourceId || track.id,
+      track.volume.toFixed(5),
+      track.pan.toFixed(5),
+      track.muted ? '1' : '0',
+      track.soloed ? '1' : '0',
+      track.startTime.toFixed(5),
+      track.fadeIn.toFixed(5),
+      track.fadeOut.toFixed(5)
+    ].join(':'))
+    .sort()
+    .join('|');
