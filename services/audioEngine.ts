@@ -1885,7 +1885,9 @@ export class AudioEngine {
         && !delivery.unusedCleanHeadroomFlag
         && !(mathComparison?.isOriginalPreservedWithoutMastering && winningCandidate.id !== 'candidate_a'),
       statusNote: mathComparison?.isOriginalPreservedWithoutMastering
-        ? `Original Preservado — Sin Masterización Sustancial (MQS: ${bestMqs?.totalScore ?? 84}/100) | ${finalMeasuredLUFS.toFixed(1)} LUFS-I · TP: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`
+        ? (Math.abs(mathComparison.gainOffsetDb) >= 0.3
+            ? `Original Preservado — Calibración de Entrega Limpia (${mathComparison.gainOffsetDb >= 0 ? '+' : ''}${mathComparison.gainOffsetDb.toFixed(1)} dB) | ${finalMeasuredLUFS.toFixed(1)} LUFS-I · TP: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`
+            : `Original Preservado — Sin Masterización Sustancial (MQS: ${bestMqs?.totalScore ?? 84}/100) | ${finalMeasuredLUFS.toFixed(1)} LUFS-I · TP: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`)
         : isFallbackApplied
           ? `Fallback Transparente (MQS: ${bestMqs?.totalScore ?? 90}/100) | ${finalMeasuredLUFS.toFixed(1)} LUFS-I · TP: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`
           : `${gainDescription} | MQS: ${bestMqs?.totalScore ?? 92}/100 | ${finalMeasuredLUFS.toFixed(1)} LUFS-I · TP: ${afterStats.truePeakDbTP.toFixed(1)} dBTP`,
@@ -3711,9 +3713,10 @@ export class AudioEngine {
       const testParams: MasteringChainParams = JSON.parse(JSON.stringify(winningParams));
       testParams.gain = baseLinearGain * Math.pow(10, stepOffset / 20);
       testParams.limiter.enabled = true;
-      // Codec-safe ceiling without treating -14 LUFS as a delivery target.
-      // Hotter masters receive slightly more inter-sample margin while retaining impact.
-      let ceiling = winnerPreDeliveryLUFS + stepOffset > -11.5 ? -1.5 : -1.2;
+      // Spotify Delivery Boundary:
+      // Pistas a -14.0 LUFS o menor: True Peak <= -1.0 dBTP (margen estándar de distribución)
+      // Pistas más fuertes que -14.0 LUFS: True Peak <= -2.0 dBTP (protección contra distorsión de transcodificación AAC/Ogg)
+      let ceiling = (winnerPreDeliveryLUFS + stepOffset > -14.0) ? -2.0 : -1.0;
       testParams.limiter.threshold = ceiling;
       // Render every delivery variant once from the source tracks. The winning
       // buffer already contains its Pass A limiter, so applying another limiter
@@ -3721,8 +3724,8 @@ export class AudioEngine {
       // the total peak/crest change in the selected master.
       let rendered = (await this.renderPreview(testParams, tracks)) || winningBuffer;
       let metrics = await this.calculateAccurateDSPMetrics(rendered);
-      if (metrics.integratedLUFS > -11.5 && ceiling > -1.5) {
-        ceiling = -1.5;
+      if (metrics.integratedLUFS > -14.0 && ceiling > -2.0) {
+        ceiling = -2.0;
         testParams.limiter.threshold = ceiling;
         rendered = (await this.renderPreview(testParams, tracks)) || winningBuffer;
         metrics = await this.calculateAccurateDSPMetrics(rendered);
@@ -3771,7 +3774,10 @@ export class AudioEngine {
       const qualityScore = mqs.totalScore;
 
       const reasons: string[] = [];
-      if (metrics.truePeakDbTP > ceiling + 0.01) {
+      const spotifyMaxAllowedTP = metrics.integratedLUFS > -14.0 ? -2.0 : -1.0;
+      if (metrics.truePeakDbTP > spotifyMaxAllowedTP + 0.01) {
+        reasons.push(`True Peak fuera del perfil Spotify (${metrics.integratedLUFS > -14.0 ? '> -14 LUFS exige TP <= -2.0 dBTP' : '<= -14 LUFS exige TP <= -1.0 dBTP'}): ${metrics.truePeakDbTP.toFixed(2)} dBTP > ${spotifyMaxAllowedTP.toFixed(1)} dBTP`);
+      } else if (metrics.truePeakDbTP > ceiling + 0.01) {
         reasons.push(`True Peak fuera del perfil: ${metrics.truePeakDbTP.toFixed(2)} dBTP > ${ceiling.toFixed(1)} dBTP`);
       }
       if (!isInstrumental) {

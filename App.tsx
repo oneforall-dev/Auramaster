@@ -136,8 +136,12 @@ export default function App() {
     if (!result || !artifact) {
       throw new Error('No existe un FinalMasterArtifact verificado para esta canción. Vuelve a ejecutar Master Fixer.');
     }
-    if (expectedSourceId && artifact.sourceId !== expectedSourceId) {
-      throw new Error('El master pertenece a otra canción. Se bloqueó la descarga.');
+    if (expectedSourceId) {
+      const matchesDirectly = artifact.sourceId === expectedSourceId;
+      const matchesStemsPrefix = artifact.sourceId === `stems_${expectedSourceId}` || `stems_${artifact.sourceId}` === expectedSourceId;
+      if (!matchesDirectly && !matchesStemsPrefix) {
+        throw new Error('El master pertenece a otra canción. Se bloqueó la descarga.');
+      }
     }
     const exploration = result.loudnessExploration;
     if (!exploration?.selectedVariantId || artifact.deliveryVariantId !== exploration.selectedVariantId) {
@@ -1302,11 +1306,12 @@ export default function App() {
       const artifact = selectedResult?.finalMasterArtifact;
 
       let blob: Blob | null = null;
+      const expectedSourceId = activeTrack ? (activeTrack.sourceId || activeTrack.id) : getStemsSourceId(tracks);
       if (artifact) {
         if (bitDepth === 24) {
-          blob = await getVerifiedMasterBlob(selectedResult, activeTrack?.sourceId || activeTrack?.id);
+          blob = await getVerifiedMasterBlob(selectedResult, expectedSourceId);
         } else {
-          const verifiedBlob = await getVerifiedMasterBlob(selectedResult, activeTrack?.sourceId || activeTrack?.id);
+          const verifiedBlob = await getVerifiedMasterBlob(selectedResult, expectedSourceId);
           if (!artifact.finalDecodedPCM) {
             artifact.finalDecodedPCM = await audioEngine.decodeAudioFile(new File([verifiedBlob], 'master.wav', { type: 'audio/wav' }));
           }
@@ -1353,7 +1358,8 @@ export default function App() {
               await handleDownloadSingleTrack(activeTrack);
             }
           } else {
-          const blob = await getVerifiedMasterBlob(masteringReport || undefined, tracks[0]?.sourceId || tracks[0]?.id);
+          const expectedSourceId = processingMode === 'bulk' ? (tracks[0]?.sourceId || tracks[0]?.id) : getStemsSourceId(tracks);
+          const blob = await getVerifiedMasterBlob(masteringReport || undefined, expectedSourceId);
           if (blob) {
               const url = URL.createObjectURL(blob);
               const a = document.createElement('a');
@@ -1379,7 +1385,7 @@ export default function App() {
           }
         } catch (err) {
           console.error("Export error:", err);
-          alert("Error exporting audio.");
+          alert(err?.message || "Error exporting audio.");
         } finally {
           setIsExporting(false);
         }
