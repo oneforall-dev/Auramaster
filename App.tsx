@@ -392,11 +392,10 @@ export default function App() {
     return () => clearInterval(interval);
   }, [playbackState]);
 
-  const handleAddTrack = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      setLoadingAudio(true);
-      try {
-        const newFiles = Array.from(e.target.files) as File[];
+  const handleAddFiles = async (newFiles: File[]) => {
+    if (newFiles.length === 0) return;
+    setLoadingAudio(true);
+    try {
         const shouldUseBulk = processingMode === 'stems' && looksLikeSongBatch(newFiles);
         const effectiveMode: ProcessingMode = shouldUseBulk ? 'bulk' : processingMode;
         if (shouldUseBulk) {
@@ -470,14 +469,17 @@ export default function App() {
             });
           }
         }
-      } catch (err) {
-        console.error(err);
-        alert("Error loading files.");
-      } finally {
-        setLoadingAudio(false);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      }
+    } catch (err) {
+      console.error(err);
+      alert("Error loading files.");
+    } finally {
+      setLoadingAudio(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleAddTrack = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    await handleAddFiles(Array.from(e.target.files || []));
   };
 
   const handleRemoveTrack = (id: string) => {
@@ -1710,6 +1712,7 @@ export default function App() {
                   processingMode={processingMode}
                   onModeChange={setProcessingMode}
                   onImportClick={() => fileInputRef.current?.click()}
+                  onFilesDrop={handleAddFiles}
                   trackMasterMap={trackMasterMap}
                   onMasterSingleTrack={handleMasterSingleTrack}
                   onMasterAllTracks={handleMasterAllTracks}
@@ -1725,7 +1728,7 @@ export default function App() {
                   skin="modern"
                   lang={lang}
                 />
-                <input type="file" multiple ref={fileInputRef} onChange={handleAddTrack} className="hidden" />
+                <input type="file" multiple accept="audio/*,.wav,.wave,.mp3,.flac,.aac,.m4a,.ogg,.opus,.webm" ref={fileInputRef} onChange={handleAddTrack} className="hidden" />
             </div>
          </div>
 

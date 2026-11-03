@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   FolderOpen,
   Layers,
@@ -29,6 +29,7 @@ interface FilesBoxProps {
   processingMode: ProcessingMode;
   onModeChange: (mode: ProcessingMode) => void;
   onImportClick: () => void;
+  onFilesDrop: (files: File[]) => void | Promise<void>;
   trackMasterMap: Record<string, TrackMasterInfo>;
   onMasterSingleTrack: (track: Track) => Promise<void>;
   onMasterAllTracks: () => Promise<void>;
@@ -51,6 +52,7 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
   processingMode,
   onModeChange,
   onImportClick,
+  onFilesDrop,
   trackMasterMap,
   onMasterSingleTrack,
   onMasterAllTracks,
@@ -67,11 +69,73 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
   const isClear = skin === 'clear';
   const isStems = processingMode === 'stems';
   const [isMultitrackOpen, setIsMultitrackOpen] = useState(false);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const dragDepthRef = useRef(0);
+
+  const isSupportedAudioFile = (file: File) =>
+    file.type.startsWith('audio/') || /\.(wav|wave|mp3|flac|aac|m4a|ogg|opus|webm)$/i.test(file.name);
+
+  const handleDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+    dragDepthRef.current += 1;
+    setIsDraggingFiles(true);
+  };
+
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsDraggingFiles(false);
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = 0;
+    setIsDraggingFiles(false);
+    const audioFiles = Array.from(event.dataTransfer.files).filter(isSupportedAudioFile);
+    if (audioFiles.length > 0) void onFilesDrop(audioFiles);
+  };
 
   const masteredCount = tracks.filter(t => trackMasterMap[t.id]?.isMastered).length;
 
   return (
-    <div className="flex flex-col gap-3 p-4 flex-1 h-full min-h-0 overflow-hidden rounded-2xl transition-all bg-slate-900/90 border border-slate-800/80 backdrop-blur-xl shadow-2xl text-slate-200">
+    <div
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`relative flex flex-col gap-3 p-4 flex-1 h-full min-h-0 overflow-hidden rounded-2xl transition-all bg-slate-900/90 backdrop-blur-xl shadow-2xl text-slate-200 ${
+        isDraggingFiles
+          ? 'border-2 border-lime-400 ring-4 ring-lime-400/15 bg-lime-950/30'
+          : 'border border-slate-800/80'
+      }`}
+    >
+      {isDraggingFiles && (
+        <div className="absolute inset-2 z-50 rounded-xl border-2 border-dashed border-lime-300 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center gap-3 text-center pointer-events-none">
+          <div className="w-12 h-12 rounded-full bg-lime-400/15 border border-lime-400/30 flex items-center justify-center shadow-lg shadow-lime-500/10">
+            <UploadCloud size={25} className="text-lime-300" />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-white">
+              {lang === 'es' ? 'Suelta tus archivos de audio aquí' : 'Drop your audio files here'}
+            </p>
+            <p className="text-[10px] text-slate-400 mt-1">
+              {isStems
+                ? (lang === 'es' ? 'Se agregarán como canales de una mezcla' : 'They will be added as mix channels')
+                : (lang === 'es' ? 'Cada canción se procesará de forma independiente' : 'Each song will be processed independently')}
+            </p>
+          </div>
+        </div>
+      )}
       {/* Top Header & Mode Toggle */}
       <div className="flex flex-col gap-2.5 shrink-0">
         <div className="flex items-center justify-between">
@@ -200,7 +264,9 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
               <UploadCloud size={24} className="text-lime-500" />
             </div>
             <span className="text-[10px] font-bold uppercase tracking-wider">
-              {isStems ? 'Click para Cargar Stems' : 'Click para Cargar Archivos para Bulk Master'}
+              {isStems
+                ? (lang === 'es' ? 'Clic o arrastra stems aquí' : 'Click or drop stems here')
+                : (lang === 'es' ? 'Clic o arrastra canciones aquí' : 'Click or drop songs here')}
             </span>
           </div>
         ) : isStems ? (
@@ -378,7 +444,11 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
         }`}
       >
         <Plus size={14} />
-        <span>{isStems ? 'Importar Stems' : 'Importar Archivos (Bulk)'}</span>
+        <span>
+          {isStems
+            ? (lang === 'es' ? 'Importar Stems · o arrastra aquí' : 'Import Stems · or drop here')
+            : (lang === 'es' ? 'Importar Canciones · o arrastra aquí' : 'Import Songs · or drop here')}
+        </span>
       </button>
 
       {isStems && isMultitrackOpen && (
