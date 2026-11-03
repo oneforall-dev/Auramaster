@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
-import { 
-  FolderOpen, 
-  Layers, 
-  Sparkles, 
-  Download, 
-  Trash2, 
-  CheckCircle2, 
-  UploadCloud, 
-  Plus, 
-  Loader2, 
-  Archive, 
+import {
+  FolderOpen,
+  Layers,
+  Sparkles,
+  Download,
+  Trash2,
+  CheckCircle2,
+  UploadCloud,
+  Plus,
+  Loader2,
+  Archive,
   FileAudio,
   Play,
   RotateCw,
@@ -76,7 +76,7 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
       <div className="flex flex-col gap-2.5 shrink-0">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wider flex items-center gap-2 text-slate-300">
-            <FolderOpen size={14} className="text-cyan-400" />
+            <FolderOpen size={14} className="text-lime-400" />
             <span>{t.filesListTitle} ({tracks.length})</span>
           </h3>
 
@@ -86,7 +86,7 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
               onClick={() => onModeChange('stems')}
               className={`px-3 py-1 rounded-lg text-[10px] font-semibold transition-all flex items-center gap-1.5 ${
                 isStems
-                  ? 'bg-gradient-to-r from-cyan-600 to-cyan-500 text-white shadow-md'
+                  ? 'bg-gradient-to-r from-lime-600 to-lime-500 text-white shadow-md'
                   : 'text-slate-400 hover:text-white'
               }`}
               title="Stems Mode"
@@ -99,7 +99,7 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
               onClick={() => onModeChange('bulk')}
               className={`px-3 py-1 rounded-lg text-[10px] font-semibold transition-all flex items-center gap-1.5 ${
                 !isStems
-                  ? 'bg-gradient-to-r from-cyan-600 to-cyan-500 text-white shadow-md'
+                  ? 'bg-gradient-to-r from-lime-600 to-lime-500 text-white shadow-md'
                   : 'text-slate-400 hover:text-white'
               }`}
               title="Songs Mode"
@@ -113,18 +113,18 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
         {/* Mode Explanatory Subtitle */}
         <div className={`text-[10px] px-2.5 py-1 rounded-lg flex items-center justify-between border ${
           isStems
-            ? (isClear ? 'bg-cyan-50 text-cyan-900 border-cyan-200' : 'bg-cyan-950/30 text-cyan-300 border-cyan-500/20')
-            : (isClear ? 'bg-indigo-50 text-indigo-900 border-indigo-200' : 'bg-indigo-950/30 text-indigo-300 border-indigo-500/20')
+            ? (isClear ? 'bg-lime-50 text-lime-900 border-lime-200' : 'bg-lime-950/30 text-lime-300 border-lime-500/20')
+            : (isClear ? 'bg-cyan-50 text-cyan-900 border-cyan-200' : 'bg-cyan-950/30 text-cyan-300 border-cyan-500/20')
         }`}>
           <span>
-            {isStems 
+            {isStems
               ? '🎛️ Suma todos los canales en 1 master final'
               : '⚡ Procesa y masteriza cada archivo por separado'}
           </span>
           {isStems && tracks.length > 0 && (
             <button
               onClick={() => setIsMultitrackOpen(true)}
-              className="ml-2 px-2 py-0.5 rounded-md border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 font-semibold flex items-center gap-1"
+              className="ml-2 px-2 py-0.5 rounded-md border border-lime-500/30 bg-lime-500/10 text-lime-300 hover:bg-lime-500/20 font-semibold flex items-center gap-1"
               title="Abrir mezclador multitrack en una ventana amplia"
             >
               <Maximize2 size={10} />
@@ -147,8 +147,8 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
             disabled={isBulkMastering}
             className={`flex-1 py-1.5 px-3 rounded-xl text-[10px] font-bold flex items-center justify-center gap-1.5 shadow-md transition-all ${
               isBulkMastering
-                ? 'bg-cyan-700 text-cyan-200 cursor-not-allowed opacity-80'
-                : 'bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white'
+                ? 'bg-lime-700 text-lime-200 cursor-not-allowed opacity-80'
+                : 'bg-gradient-to-r from-lime-600 to-cyan-600 hover:from-lime-500 hover:to-cyan-500 text-white'
             }`}
             title="Masterizar todos los archivos simultáneamente con Mixer Fixer AI"
           >
@@ -189,15 +189,15 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
 
       {/* File List Content with scroll */}
       <div className={`flex-1 overflow-y-auto min-h-0 pr-1 flex flex-col gap-1.5 rounded-xl transition-all ${
-        tracks.length === 0 ? 'border-2 border-dashed border-white/10 hover:border-cyan-500/30 p-4' : ''
+        tracks.length === 0 ? 'border-2 border-dashed border-white/10 hover:border-lime-500/30 p-4' : ''
       }`}>
         {tracks.length === 0 ? (
-          <div 
+          <div
             onClick={onImportClick}
             className="flex-1 flex flex-col items-center justify-center gap-2 opacity-40 hover:opacity-70 text-center cursor-pointer transition-opacity"
           >
             <div className="p-3 bg-white/5 rounded-full">
-              <UploadCloud size={24} className="text-cyan-500" />
+              <UploadCloud size={24} className="text-lime-500" />
             </div>
             <span className="text-[10px] font-bold uppercase tracking-wider">
               {isStems ? 'Click para Cargar Stems' : 'Click para Cargar Archivos para Bulk Master'}
@@ -207,19 +207,19 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
           /* STEMS MODE: Minimal mixer channels */
           <div className="flex flex-col gap-1">
             {tracks.map(t => (
-              <div 
-                key={t.id} 
+              <div
+                key={t.id}
                 className="mixer-channel-item"
                 onClick={() => onSelectTrack(t.id)}
               >
-                <MixerChannel 
-                  track={t} 
-                  onChange={onTrackChange} 
-                  onRemove={onRemoveTrack} 
+                <MixerChannel
+                  track={t}
+                  onChange={onTrackChange}
+                  onRemove={onRemoveTrack}
                   onSelect={onSelectTrack}
                   isSelected={activeTrackId === t.id}
-                  variant="minimal" 
-                  skin={skin} 
+                  variant="minimal"
+                  skin={skin}
                 />
               </div>
             ))}
@@ -239,9 +239,9 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
                   onClick={() => onSelectTrack(t.id)}
                   className={`p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 ${
                     isActive
-                      ? (isClear 
-                          ? 'bg-slate-100/90 border-slate-400 ring-1 ring-slate-400/20 shadow-sm' 
-                          : 'bg-cyan-950/30 border-cyan-500/50 ring-1 ring-cyan-500/30 shadow-md')
+                      ? (isClear
+                          ? 'bg-slate-100/90 border-slate-400 ring-1 ring-slate-400/20 shadow-sm'
+                          : 'bg-lime-950/30 border-lime-500/50 ring-1 ring-lime-500/30 shadow-md')
                       : (isClear
                           ? 'bg-white/90 border-slate-200 hover:border-slate-300'
                           : 'bg-slate-900/60 border-white/5 hover:border-white/10')
@@ -250,14 +250,14 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
                   {/* Row 1: File Name, Active Indicator & Remove */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <div 
-                        className="w-2 h-2 rounded-full shrink-0" 
-                        style={{ backgroundColor: isMastered ? '#10b981' : t.color }} 
+                      <div
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: isMastered ? '#10b981' : t.color }}
                       />
-                      <span 
+                      <span
                         className={`text-xs font-mono font-bold truncate block ${
                           isClear ? 'text-slate-900' : 'text-slate-100'
-                        }`} 
+                        }`}
                         title={t.name}
                       >
                         {t.name}
@@ -282,7 +282,7 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
                   <div className="flex items-center justify-between gap-1.5 pt-0.5">
                     {/* Status Pill with real-time phase progression */}
                     {isProcessingThis ? (
-                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center gap-1 animate-pulse">
+                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-lime-500/10 text-lime-400 border border-lime-500/30 flex items-center gap-1 animate-pulse">
                         <Loader2 size={10} className="animate-spin" />
                         <span>
                           {info?.currentPhase === 'reset' ? (lang === 'es' ? 'Reseteando...' : 'Resetting...') :
@@ -319,7 +319,7 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
                         className={`p-1 px-2 rounded-lg text-[9px] font-bold flex items-center gap-1 transition-all border ${
                           isClear
                             ? 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200'
-                            : 'bg-white/5 hover:bg-white/10 text-cyan-300 border-white/10'
+                            : 'bg-white/5 hover:bg-white/10 text-lime-300 border-white/10'
                         }`}
                         title="Masterizar este archivo con Mixer Fixer AI (-14 LUFS | -1 dBTP)"
                       >
@@ -336,8 +336,8 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
                           }}
                           className={`p-1 px-1.5 rounded-lg text-[9px] font-bold transition-all border ${
                             isClear
-                              ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200'
-                              : 'bg-indigo-950/40 hover:bg-indigo-900/40 text-indigo-300 border-indigo-500/30'
+                              ? 'bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border-cyan-200'
+                              : 'bg-cyan-950/40 hover:bg-cyan-900/40 text-cyan-300 border-cyan-500/30'
                           }`}
                           title="Ver Reporte DSP"
                         >
@@ -372,9 +372,9 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
       <button
         onClick={onImportClick}
         className={`w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-sm shrink-0 ${
-          isClear 
-            ? 'bg-slate-900 hover:bg-slate-800 text-white' 
-            : 'bg-cyan-600 hover:bg-cyan-500 text-white'
+          isClear
+            ? 'bg-slate-900 hover:bg-slate-800 text-white'
+            : 'bg-lime-600 hover:bg-lime-500 text-white'
         }`}
       >
         <Plus size={14} />
@@ -390,7 +390,7 @@ export const FilesBox: React.FC<FilesBoxProps> = ({
             <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Layers size={16} className="text-cyan-400" />
+                  <Layers size={16} className="text-lime-400" />
                   Mezclador multitrack de stems
                 </h3>
                 <p className="text-[10px] text-slate-400 mt-1">

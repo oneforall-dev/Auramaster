@@ -1,7 +1,10 @@
 @import "tailwindcss";
 
 :root {
-  --bg-pattern: radial-gradient(#ffffff 1px, transparent 1px);
+  --brand-bg: #060a0f;
+  --brand-acid: #c8ff2e;
+  --brand-cyan: #12e7e4;
+  --bg-pattern: radial-gradient(rgba(200, 255, 46, 0.7) 1px, transparent 1px);
 }
 
 html, body, #root {
@@ -11,10 +14,10 @@ html, body, #root {
 }
 
 body {
-  background-color: #030712;
+  background-color: var(--brand-bg);
   color: #f8fafc;
   overscroll-behavior: none;
-  font-family: 'Inter', sans-serif;
+  font-family: 'DM Sans', 'Inter', sans-serif;
 }
 
 .font-mono {
@@ -44,11 +47,11 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(200, 255, 46, 0.18);
   border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(18, 231, 228, 0.3);
 }
 
 .no-scrollbar::-webkit-scrollbar {

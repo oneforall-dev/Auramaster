@@ -126,11 +126,11 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
       <div className="bg-slate-900 border border-slate-700/90 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col">
-        
+
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-950/60">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-cyan-500/10 rounded-2xl border border-cyan-500/20 text-cyan-400 shadow-lg shadow-cyan-500/10">
+            <div className="p-2.5 bg-lime-500/10 rounded-2xl border border-lime-500/20 text-lime-400 shadow-lg shadow-lime-500/10">
               <Lock size={20} />
             </div>
             <div>
@@ -145,7 +145,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
               </p>
             </div>
           </div>
-          <button 
+          <button
             onClick={onClose}
             className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
           >
@@ -157,7 +157,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
         <div className="px-5 pt-4">
           <div className="p-3 rounded-2xl bg-slate-950/90 border border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <UserCheck size={16} className="text-cyan-400 shrink-0" />
+              <UserCheck size={16} className="text-lime-400 shrink-0" />
               <div className="flex flex-col">
                 <span className="text-[11px] font-bold text-slate-200">
                   {user ? user.name : 'Usuario Autenticado'}
@@ -177,7 +177,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
 
         {/* Body Form */}
         <div className="p-5 flex flex-col gap-4 overflow-y-auto max-h-[60vh]">
-          
+
           {/* Provider Selection */}
           <div>
             <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-2">
@@ -190,8 +190,8 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                   type="button"
                   onClick={() => handleProviderChange(p)}
                   className={`p-2.5 rounded-xl border text-xs font-bold capitalize flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    provider === p 
-                      ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200 shadow-md shadow-cyan-950/50' 
+                    provider === p
+                      ? 'bg-lime-500/20 border-lime-400 text-lime-200 shadow-md shadow-lime-950/50'
                       : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-white'
                   }`}
                 >
@@ -212,7 +212,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
               value={model}
               onChange={(e) => setModel(e.target.value)}
               placeholder="e.g. gemini-2.5-flash, gpt-4o-mini"
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono transition-colors"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-lime-500 font-mono transition-colors"
             />
           </div>
 
@@ -228,14 +228,14 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
                 </span>
               )}
             </div>
-            
+
             <div className="relative">
               <input
                 type={showKey ? 'text' : 'password'}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder={vaultStatus?.configured ? 'Dejar en blanco para mantener la clave actual' : 'Pega tu clave (AIzaSy... o sk-...) aquí'}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-3.5 pr-10 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono transition-colors"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-3.5 pr-10 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-lime-500 font-mono transition-colors"
               />
               <button
                 type="button"
@@ -253,8 +253,8 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
           {/* Test Status Feedback */}
           {testResult && (
             <div className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs animate-in fade-in ${
-              testResult.success 
-                ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300' 
+              testResult.success
+                ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
                 : 'bg-rose-950/40 border-rose-500/30 text-rose-300'
             }`}>
               {testResult.success ? <CheckCircle2 size={16} className="shrink-0 mt-0.5" /> : <AlertCircle size={16} className="shrink-0 mt-0.5" />}
@@ -292,7 +292,7 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-cyan-400 hover:from-cyan-400 hover:to-cyan-300 text-black text-xs font-extrabold flex items-center gap-1.5 shadow-lg shadow-cyan-500/20 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+              className="px-5 py-2 rounded-xl bg-gradient-to-r from-lime-500 to-lime-400 hover:from-lime-400 hover:to-lime-300 text-black text-xs font-extrabold flex items-center gap-1.5 shadow-lg shadow-lime-500/20 transition-all cursor-pointer active:scale-95 disabled:opacity-50"
             >
               <ShieldCheck size={14} />
               <span>{saving ? 'Cifrando...' : 'Guardar y Cifrar'}</span>

@@ -15,7 +15,7 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dragNode, setDragNode] = useState<EQBandKey | null>(null);
-  
+
   const isClear = skin === 'clear';
 
   // Ref to hold params for the animation loop to read from without needing to be in dependency array
@@ -24,7 +24,7 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
 
   const minGain = -15;
   const maxGain = 15;
-  
+
   const minLog = Math.log10(20);
   const maxLog = Math.log10(20000);
 
@@ -32,7 +32,7 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
       const freqLog = Math.log10(Math.max(20, Math.min(20000, freq)));
       return ((freqLog - minLog) / (maxLog - minLog)) * width;
   };
-  
+
   const getFreq = (x: number, width: number) => {
       const logFreq = (x / width) * (maxLog - minLog) + minLog;
       return Math.pow(10, logFreq);
@@ -43,7 +43,7 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
       const normalized = (gain - minGain) / range;
       return height - (normalized * height);
   };
-  
+
   const getGain = (y: number, height: number) => {
       const range = maxGain - minGain;
       const normalized = (height - y) / height;
@@ -60,7 +60,7 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
       } else if (type === 'lowshelf') {
           const sigmoid = 1 / (1 + Math.pow(ratio, 4));
           return gain * sigmoid;
-      } else { 
+      } else {
           const sigmoid = 1 / (1 + Math.pow(1/ratio, 4));
           return gain * sigmoid;
       }
@@ -74,7 +74,7 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
-        
+
         const currentParams = paramsRef.current; // Read from ref
 
         // Resize logic (could be optimized to only run on resize event, but robust here)
@@ -90,12 +90,12 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
             } else {
                  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             }
-            
+
             const width = rect.width;
             const height = rect.height;
-            
+
             ctx.clearRect(0, 0, width, height);
-            
+
             // 1. Grid
             ctx.strokeStyle = isClear ? "#f1f5f9" : "#1e293b";
             ctx.lineWidth = 1;
@@ -117,14 +117,14 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
 
             // 3. Draw Curve
             ctx.beginPath();
-            ctx.strokeStyle = isClear ? "#6366f1" : "#c084fc"; 
+            ctx.strokeStyle = isClear ? "#12e7e4" : "#c8ff2e";
             ctx.lineWidth = 2;
-            
+
             if (!isClear) {
-                ctx.shadowColor = "#c084fc";
+                ctx.shadowColor = "#c8ff2e";
                 ctx.shadowBlur = 10;
             }
-            
+
             const bands: EQBandKey[] = ['low', 'lowMid', 'mid', 'highMid', 'high'];
             const types: Record<string, 'lowshelf' | 'peaking' | 'highshelf'> = {
                 low: 'lowshelf', lowMid: 'peaking', mid: 'peaking', highMid: 'peaking', high: 'highshelf'
@@ -133,21 +133,21 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
             for (let x = 0; x < width; x+=3) { // Step 3 for perf, looks fine
                 const freq = getFreq(x, width);
                 let totalGain = 0;
-                
+
                 bands.forEach(b => {
                     const p = currentParams[b];
                     totalGain += getResponse(freq, types[b], p.frequency, p.gain, p.q);
                 });
-                
+
                 const y = getY(totalGain, height);
                 if (x === 0) ctx.moveTo(x, y);
                 else ctx.lineTo(x, y);
             }
             ctx.stroke();
-            
+
             // Reset shadow for fill
             ctx.shadowBlur = 0;
-            
+
             // Fill Area
             ctx.lineTo(width, yZero);
             ctx.lineTo(0, yZero);
@@ -159,19 +159,19 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
                 const p = currentParams[n];
                 const x = getX(p.frequency, width);
                 const y = getY(p.gain, height);
-                
+
                 const isSelected = selectedBand === n;
                 // Note: dragNode is state, can be read directly here
-                const isDragging = dragNode === n; 
+                const isDragging = dragNode === n;
 
                 ctx.beginPath();
                 ctx.arc(x, y, isSelected || isDragging ? 8 : 6, 0, Math.PI * 2);
-                ctx.fillStyle = isSelected || isDragging ? (isClear ? "#4338ca" : "#ffffff") : (isClear ? "#fff" : "#c084fc");
+                ctx.fillStyle = isSelected || isDragging ? (isClear ? "#12e7e4" : "#ffffff") : (isClear ? "#fff" : "#c8ff2e");
                 ctx.fill();
-                ctx.strokeStyle = isClear ? "#4338ca" : "#581c87";
+                ctx.strokeStyle = isClear ? "#12e7e4" : "#365314";
                 ctx.lineWidth = 2;
                 ctx.stroke();
-                
+
                 if (isSelected || isDragging) {
                     ctx.fillStyle = isClear ? "#1e293b" : "white";
                     ctx.font = isClear ? "10px sans-serif" : "10px sans-serif";
@@ -187,7 +187,7 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
 
     render();
     return () => cancelAnimationFrame(animationFrameId);
-  }, [dragNode, selectedBand, skin]); 
+  }, [dragNode, selectedBand, skin]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
       if (!canvasRef.current) return;
@@ -210,7 +210,7 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
               closest = n;
           }
       });
-      
+
       if (closest) {
           setDragNode(closest);
           if (onSelectBand) onSelectBand(closest);
@@ -228,13 +228,13 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
           const y = e.clientY - rect.top;
           const width = rect.width;
           const height = rect.height;
-          
+
           const newGain = getGain(y, height);
           const newFreq = getFreq(x, width);
 
           const clampedGain = Math.max(minGain, Math.min(maxGain, newGain));
           const clampedFreq = Math.max(20, Math.min(20000, newFreq));
-          
+
           onChange(dragNode, { ...params[dragNode], frequency: clampedFreq, gain: clampedGain });
       };
 
@@ -254,8 +254,8 @@ export const VisualEQ: React.FC<VisualEQProps> = ({ params, onChange, onSelectBa
   }, [dragNode, params, onChange]);
 
   return (
-    <div 
-        ref={containerRef} 
+    <div
+        ref={containerRef}
         className={`w-full h-64 rounded-lg relative cursor-default touch-none overflow-hidden ${isClear ? "bg-white border-b border-black/5" : "bg-slate-900 border border-slate-700"}`}
         onMouseDown={handleMouseDown}
     >

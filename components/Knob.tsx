@@ -18,19 +18,19 @@ interface SliderControlProps {
 
 const variantStyles: Record<SliderVariant, { text: string; shadow: string; thumb: string }> = {
   default: { text: "text-slate-400", shadow: "shadow-slate-500/50", thumb: "bg-slate-400" },
-  cyan: { text: "text-cyan-400", shadow: "shadow-cyan-500/50", thumb: "bg-cyan-400" },
+  cyan: { text: "text-lime-400", shadow: "shadow-lime-500/50", thumb: "bg-lime-400" },
   purple: { text: "text-purple-400", shadow: "shadow-purple-500/50", thumb: "bg-purple-400" },
   orange: { text: "text-orange-400", shadow: "shadow-orange-500/50", thumb: "bg-orange-400" },
   pink: { text: "text-pink-400", shadow: "shadow-pink-500/50", thumb: "bg-pink-400" },
 };
 
-export const SliderControl: React.FC<SliderControlProps> = ({ 
+export const SliderControl: React.FC<SliderControlProps> = ({
   label, value, min, max, step, unit = '', onChange, className = '', variant = 'default', skin = 'modern'
 }) => {
   const styles = variantStyles[variant];
   const [inputValue, setInputValue] = useState(value.toString());
   const inputRef = useRef<HTMLInputElement>(null);
-  
+
   const isClear = skin === 'clear';
 
   const getDecimals = () => {
@@ -69,7 +69,7 @@ export const SliderControl: React.FC<SliderControlProps> = ({
       <div className="flex justify-between items-baseline">
         <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${isClear ? "text-slate-500" : "text-slate-500 group-hover:text-slate-300"}`}>{label}</span>
         <div className="flex items-center gap-0.5">
-            <input 
+            <input
                 ref={inputRef}
                 type="text"
                 value={inputValue}
@@ -94,7 +94,7 @@ export const SliderControl: React.FC<SliderControlProps> = ({
                   <div className={`h-full ${styles.thumb} opacity-50`} style={{ width: `${percentage}%` }} />
              </div>
         )}
-        
+
         {/* Native Input (Invisible but interactive) */}
         <input
           type="range"
@@ -108,13 +108,13 @@ export const SliderControl: React.FC<SliderControlProps> = ({
 
         {/* Custom Thumb (Visual only) */}
         {isClear ? (
-            <div 
+            <div
                 className="absolute h-3 w-3 bg-white border border-slate-300 rounded-full shadow-sm transition-transform duration-75 ease-out pointer-events-none z-0"
                 style={{ left: `calc(${percentage}% - 6px)` }}
             >
             </div>
         ) : (
-            <div 
+            <div
                 className={`absolute h-3 w-3 rounded-full border-[1.5px] border-black ${styles.thumb} ${styles.shadow} shadow-[0_0_12px_currentColor] transition-transform duration-75 ease-out pointer-events-none z-0`}
                 style={{ left: `calc(${percentage}% - 6px)` }}
             />

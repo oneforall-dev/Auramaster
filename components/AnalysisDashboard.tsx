@@ -28,7 +28,7 @@ const Card: React.FC<CardProps> = ({ title, children, status = 'neutral', isSket
          bad: isSketch ? "text-rose-600" : "text-rose-400",
          neutral: isSketch ? "text-amber-600" : "text-yellow-400"
      };
-     
+
      return (
          <div className={`p-4 rounded-xl flex flex-col justify-between h-32 transition-all ${colSpan} ${isSketch ? "bg-white border border-black/5 shadow-sm" : "bg-white/5 border border-white/5"}`}>
              <div className="flex justify-between items-start">
@@ -37,9 +37,9 @@ const Card: React.FC<CardProps> = ({ title, children, status = 'neutral', isSket
                  </h4>
                  <div className="flex items-center gap-2">
                      {onAutoFix && status === 'bad' && (
-                          <button 
+                          <button
                             onClick={onAutoFix}
-                            className={`flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded transition-all animate-in fade-in zoom-in ${isSketch ? "bg-slate-900 text-white hover:bg-slate-800" : "bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/30"}`}
+                            className={`flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded transition-all animate-in fade-in zoom-in ${isSketch ? "bg-slate-900 text-white hover:bg-slate-800" : "bg-lime-500/20 text-lime-400 hover:bg-lime-500/30 border border-lime-500/30"}`}
                             title={title === 'Mono Compatibility' ? "Reduce Stereo Width" : "Apply Fix"}
                           >
                              <Sparkles size={10} />
@@ -79,7 +79,7 @@ const Bar: React.FC<BarProps> = ({ label, value, maxValue, min, max, target, col
       const pct = Math.max(0, Math.min(100, (value - min) / (max - min) * 100));
       const maxPct = maxValue !== undefined ? Math.max(0, Math.min(100, (maxValue - min) / (max - min) * 100)) : 0;
       const targetPct = target !== undefined ? Math.max(0, Math.min(100, (target - min) / (max - min) * 100)) : 0;
-      
+
       const effectiveMax = maxValue !== undefined ? maxValue : value;
       const isNearTarget = target !== undefined && Math.abs(effectiveMax - target) < 0.5;
       const displayValue = effectiveMax;
@@ -90,9 +90,9 @@ const Bar: React.FC<BarProps> = ({ label, value, maxValue, min, max, target, col
                   <span className={`text-xs ${isSketch ? "text-slate-500" : "text-slate-400"}`}>{label}</span>
                   <div className="flex items-center gap-2">
                       {onAutoFix && !isNearTarget && displayValue > -80 && (
-                          <button 
+                          <button
                             onClick={onAutoFix}
-                            className={`flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded transition-all animate-in fade-in zoom-in ${isSketch ? "bg-slate-900 text-white hover:bg-slate-800" : "bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/30"}`}
+                            className={`flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded transition-all animate-in fade-in zoom-in ${isSketch ? "bg-slate-900 text-white hover:bg-slate-800" : "bg-lime-500/20 text-lime-400 hover:bg-lime-500/30 border border-lime-500/30"}`}
                             title={`Auto-adjust gain to reach ${target}dB based on Max Peak`}
                           >
                              <Sparkles size={10} />
@@ -102,12 +102,12 @@ const Bar: React.FC<BarProps> = ({ label, value, maxValue, min, max, target, col
                       <span className={`font-mono text-sm font-bold ${isSketch ? "text-slate-900" : "text-slate-200"}`}>{displayValue > -100 ? displayValue.toFixed(1) : "--"} <span className="text-[10px] opacity-50">{label.includes('Loudness') ? 'LUFS' : 'dB'}</span></span>
                   </div>
               </div>
-              
+
               <div className="h-6 w-full relative">
                   <div className={`absolute top-2 left-0 right-0 h-2 rounded-full overflow-hidden ${isSketch ? "bg-slate-200" : "bg-slate-800"}`}>
                       <div className={`absolute top-0 left-0 h-full transition-all duration-100 ease-out ${colorClass}`} style={{ width: `${pct}%` }} />
                   </div>
-                  
+
                   {/* Target Line */}
                   {target !== undefined && (
                       <div className="absolute top-0 bottom-0 w-px z-10" style={{ left: `${targetPct}%` }}>
@@ -147,7 +147,7 @@ export const AnalysisDashboard: React.FC<AnalysisDashboardProps> = ({ skin = 'mo
     stereoField: 'Normal',
     tonalBalance: [0, 0, 0, 0]
   });
-  
+
   const isClear = skin === 'clear';
 
   useEffect(() => {
@@ -156,12 +156,12 @@ export const AnalysisDashboard: React.FC<AnalysisDashboardProps> = ({ skin = 'mo
       const newMetrics = audioEngine.getAnalysisMetrics();
       setMetrics(newMetrics);
     }, 100);
-    
+
     return () => {
         clearInterval(interval);
     };
   }, []);
-  
+
   // Use pre-calculated stats if available (better for offline/preset updates)
   const displayIntegrated = analysisStats && analysisStats.integrated > -100 ? analysisStats.integrated : metrics.integratedLoudness;
   const displayPeak = analysisStats && analysisStats.peak > -100 ? analysisStats.peak : metrics.maxTruePeak;
@@ -170,7 +170,7 @@ export const AnalysisDashboard: React.FC<AnalysisDashboardProps> = ({ skin = 'mo
       if (onApplyGainChange && displayPeak > -100) {
           const delta = -1.0 - displayPeak;
           onApplyGainChange(delta);
-          audioEngine.resetAnalysis(); 
+          audioEngine.resetAnalysis();
       }
   };
 
@@ -181,11 +181,11 @@ export const AnalysisDashboard: React.FC<AnalysisDashboardProps> = ({ skin = 'mo
           audioEngine.resetAnalysis();
       }
   };
-  
+
   const handleReset = () => {
       audioEngine.resetAnalysis();
   };
-  
+
   const dr = metrics.dynamicRange;
   let drStatus: 'good' | 'neutral' | 'bad' = 'good';
   if (dr < 5) drStatus = 'bad';
@@ -196,14 +196,14 @@ export const AnalysisDashboard: React.FC<AnalysisDashboardProps> = ({ skin = 'mo
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in zoom-in-95 duration-300">
-        
+
         {/* Row 1 */}
         <Card title="Sample Rate" isSketch={isClear}>
             <div className={`text-2xl font-bold ${isClear ? "text-slate-900" : "text-slate-200"}`}>
                 {metrics.sampleRate / 1000} <span className="text-sm opacity-60">kHz</span>
             </div>
         </Card>
-        
+
         <Card title="Bit Depth" isSketch={isClear}>
             <div className={`text-2xl font-bold ${isClear ? "text-slate-900" : "text-slate-200"}`}>
                 {metrics.bitDepth.split(' ')[0]} <span className="text-sm opacity-60">{metrics.bitDepth.split(' ').slice(1).join(' ')}</span>
@@ -241,7 +241,7 @@ export const AnalysisDashboard: React.FC<AnalysisDashboardProps> = ({ skin = 'mo
                     {dr.toFixed(1)} dB
                  </div>
             </div>
-            
+
             {/* Custom Meter for Dynamics */}
             <div className="w-full h-4 rounded-full relative bg-gradient-to-r from-rose-500 via-yellow-500 to-emerald-500 opacity-80 overflow-hidden">
                 <div className={`absolute top-0 bottom-0 right-0 transition-all duration-300 ${isClear ? "bg-slate-200" : "bg-slate-900"}`} style={{ width: `${Math.max(0, 100 - (dr / 14) * 100)}%` }}></div>
@@ -249,14 +249,14 @@ export const AnalysisDashboard: React.FC<AnalysisDashboardProps> = ({ skin = 'mo
                 <div className="absolute top-0 bottom-0 w-0.5 bg-black/20 left-[35%]"></div> {/* 5dB mark approx */}
                 <div className="absolute top-0 bottom-0 w-0.5 bg-black/20 left-[57%]"></div> {/* 8dB mark approx */}
             </div>
-            
+
             <div className="flex justify-between text-[9px] uppercase tracking-wider font-bold mt-2 opacity-60">
                  <span>Crushed (Fatigue)</span>
                  <span>Competitive</span>
                  <span>Dynamic (Open)</span>
             </div>
              <p className={`text-[10px] mt-2 ${isClear ? "text-slate-500" : "text-slate-400"}`}>
-                 {drStatus === 'bad' 
+                 {drStatus === 'bad'
                     ? "Warning: Your track has very little dynamic range. It may sound loud but flat ('Wall of Sound'). Reduce limiting or use the Transient Shaper."
                     : drStatus === 'neutral'
                     ? "Good: Your track is loud and competitive for modern genres (Pop/EDM/Rap) without being completely crushed."
@@ -266,21 +266,21 @@ export const AnalysisDashboard: React.FC<AnalysisDashboardProps> = ({ skin = 'mo
 
         {/* Row 4 - Bars */}
         <div className={`p-4 rounded-xl flex flex-col justify-center gap-4 transition-all ${isClear ? "bg-white border border-black/5 shadow-sm" : "bg-white/5 border border-white/5"}`}>
-            <Bar 
-                label="Integrated Loudness" 
+            <Bar
+                label="Integrated Loudness"
                 value={metrics.integratedLoudness}
-                maxValue={displayIntegrated} 
+                maxValue={displayIntegrated}
                 min={-40} max={0} target={-14}
-                colorClass={isClear ? "bg-blue-600" : "bg-gradient-to-r from-cyan-600 to-blue-500"}
+                colorClass={isClear ? "bg-blue-600" : "bg-gradient-to-r from-lime-600 to-blue-500"}
                 isSketch={isClear}
                 onAutoFix={handleAutoLoudness}
             />
         </div>
 
         <div className={`p-4 rounded-xl flex flex-col justify-center gap-4 transition-all ${isClear ? "bg-white border border-black/5 shadow-sm" : "bg-white/5 border border-white/5"}`}>
-            <Bar 
-                label="True Peak" 
-                value={metrics.truePeak} 
+            <Bar
+                label="True Peak"
+                value={metrics.truePeak}
                 maxValue={displayPeak}
                 min={-20} max={3} target={-1.0}
                 colorClass={displayPeak > -0.1 ? (isClear ? "bg-rose-500" : "bg-rose-500") : (isClear ? "bg-emerald-500" : "bg-emerald-500")}
@@ -301,9 +301,9 @@ export const AnalysisDashboard: React.FC<AnalysisDashboardProps> = ({ skin = 'mo
 
                 {metrics.tonalBalance.map((val, i) => (
                     <div key={i} className="flex-1 flex flex-col justify-end h-full gap-2 group relative">
-                        <div 
-                            className={`w-full transition-all duration-300 rounded-t-sm ${isClear ? "bg-emerald-600/80" : "bg-emerald-500/20 border-t-2 border-emerald-500"}`} 
-                            style={{ height: `${Math.max(5, val * 100)}%` }} 
+                        <div
+                            className={`w-full transition-all duration-300 rounded-t-sm ${isClear ? "bg-emerald-600/80" : "bg-emerald-500/20 border-t-2 border-emerald-500"}`}
+                            style={{ height: `${Math.max(5, val * 100)}%` }}
                         />
                         <span className={`text-[9px] text-center uppercase tracking-wider absolute bottom-2 w-full ${isClear ? "text-slate-500 font-bold" : "text-slate-500"}`}>
                             {i === 0 ? "Low" : i === 1 ? "Low-Mid" : i === 2 ? "High-Mid" : "High"}

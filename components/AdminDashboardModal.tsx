@@ -46,10 +46,10 @@ export const AdminDashboardModal: React.FC<Props> = ({ isOpen, onClose }) => {
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
       <div className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 text-white shadow-2xl">
         <header className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-950/95 px-6 py-5 backdrop-blur-xl">
-          <div className="flex items-center gap-3"><ShieldCheck className="text-cyan-300" /><div><h2 className="text-xl font-black">Panel Admin · Configuración comercial</h2><p className="text-xs text-slate-400">Controla el precio cobrado por Bold y la oferta visible.</p></div></div>
+          <div className="flex items-center gap-3"><ShieldCheck className="text-lime-300" /><div><h2 className="text-xl font-black">Panel Admin · Configuración comercial</h2><p className="text-xs text-slate-400">Controla el precio cobrado por Bold y la oferta visible.</p></div></div>
           <div className="flex gap-2"><button onClick={load} className="rounded-xl p-2 text-slate-400 hover:bg-slate-800"><RefreshCw size={18} /></button><button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-800"><X size={20} /></button></div>
         </header>
-        {loading ? <div className="flex min-h-64 items-center justify-center"><Loader2 className="animate-spin text-cyan-300" /></div> : config && <div className="space-y-5 p-6">
+        {loading ? <div className="flex min-h-64 items-center justify-center"><Loader2 className="animate-spin text-lime-300" /></div> : config && <div className="space-y-5 p-6">
           <div className="grid gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-5 sm:grid-cols-2">
             <Field label="Moneda cobrada por Bold"><select value={config.currency} onChange={e => setConfig({ ...config, currency: e.target.value as 'COP' | 'USD' })} className="input-admin"><option value="COP">COP · Peso colombiano</option><option value="USD">USD · Dólar estadounidense</option></select></Field>
             <Field label="Masterizaciones gratis iniciales"><input type="number" min="0" max="100" value={config.freeGenerations} onChange={e => setConfig({ ...config, freeGenerations: Number(e.target.value) })} className="input-admin" /></Field>
@@ -63,13 +63,13 @@ export const AdminDashboardModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 <Field label={`Precio base (${config.currency})`}><input type="number" min="1" step="0.01" value={plan.baseAmount} onChange={e => updatePlan(key, { baseAmount: Number(e.target.value) })} className="input-admin" /></Field>
                 <Field label="Precio visible antes del descuento (USD)"><input type="number" min="0" step="0.01" value={plan.displayPriceUsd} onChange={e => updatePlan(key, { displayPriceUsd: Number(e.target.value) })} className="input-admin" /></Field>
                 <Field label="Descuento (%)"><input type="number" min="0" max="100" step="0.01" value={plan.discountPercent} onChange={e => updatePlan(key, { discountPercent: Number(e.target.value) })} className="input-admin" /></Field>
-                <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs text-cyan-100">Bold cobrará <strong>{effective.toLocaleString('es-CO', { maximumFractionDigits: 2 })} {config.currency}</strong><br />El cliente verá <strong>${(plan.displayPriceUsd * (1 - plan.discountPercent / 100)).toFixed(2)} USD</strong></div>
+                <div className="rounded-xl border border-lime-500/20 bg-lime-500/5 p-3 text-xs text-lime-100">Bold cobrará <strong>{effective.toLocaleString('es-CO', { maximumFractionDigits: 2 })} {config.currency}</strong><br />El cliente verá <strong>${(plan.displayPriceUsd * (1 - plan.discountPercent / 100)).toFixed(2)} USD</strong></div>
               </div>
             </section>;
           })}</div>
           {error && <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">{error}</div>}
           {message && <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300">{message}</div>}
-          <div className="flex justify-end"><button onClick={save} disabled={saving} className="flex items-center gap-2 rounded-xl bg-cyan-400 px-5 py-3 text-xs font-black text-slate-950 hover:bg-cyan-300 disabled:opacity-50">{saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Guardar configuración</button></div>
+          <div className="flex justify-end"><button onClick={save} disabled={saving} className="flex items-center gap-2 rounded-xl bg-lime-400 px-5 py-3 text-xs font-black text-slate-950 hover:bg-lime-300 disabled:opacity-50">{saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Guardar configuración</button></div>
         </div>}
       </div>
       <style>{`.input-admin{width:100%;border:1px solid rgb(51 65 85);border-radius:.75rem;background:rgb(2 6 23);padding:.65rem .75rem;font-size:.8rem;color:white;outline:none}.input-admin:focus{border-color:rgb(34 211 238)}`}</style>

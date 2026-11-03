@@ -41,7 +41,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = React.memo(({
   // Compute adaptive ruler tick marks based on song duration
   const rulerTicks = useMemo(() => {
     if (duration <= 0) return [];
-    
+
     // Choose sensible interval based on duration
     let majorInterval = 10; // in seconds
     if (duration > 600) majorInterval = 60; // >10 min -> 1 min
@@ -162,8 +162,8 @@ export const TimelineBar: React.FC<TimelineBarProps> = React.memo(({
       <div className="flex items-center justify-between text-[11px] font-mono px-1">
         {/* Current Time Badge */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 shadow-sm">
-            <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? 'bg-cyan-400 animate-ping' : 'bg-slate-500'}`} />
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-lime-500/10 border border-lime-500/20 text-lime-300 shadow-sm">
+            <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? 'bg-lime-400 animate-ping' : 'bg-slate-500'}`} />
             <span ref={currentTimeTextRef} className="font-bold tracking-wider">
               {formatTime(currentTime, true)}
             </span>
@@ -188,7 +188,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = React.memo(({
       </div>
 
       {/* Interactive Timeline Ruler Bar */}
-      <div 
+      <div
         ref={trackRef}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -198,9 +198,9 @@ export const TimelineBar: React.FC<TimelineBarProps> = React.memo(({
         {/* Background Track with Subtle Glow */}
         <div className="absolute inset-x-0 bottom-0 h-4 bg-slate-950/90 rounded-lg border border-slate-800/90 overflow-hidden shadow-inner">
           {/* Active Progress Fill */}
-          <div 
+          <div
             ref={progressFillRef}
-            className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-cyan-600/50 to-cyan-400/70 border-r border-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.4)] transition-[width] duration-75 ease-out"
+            className="absolute top-0 bottom-0 left-0 bg-gradient-to-r from-lime-600/50 to-lime-400/70 border-r border-lime-300 shadow-[0_0_12px_rgba(6,182,212,0.4)] transition-[width] duration-75 ease-out"
             style={{ width: '0%' }}
           />
         </div>
@@ -208,7 +208,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = React.memo(({
         {/* Tick Marks Overlay */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden">
           {rulerTicks.map((tick, idx) => (
-            <div 
+            <div
               key={idx}
               className="absolute bottom-0 flex flex-col items-center -translate-x-1/2"
               style={{ left: `${tick.pct}%` }}
@@ -218,7 +218,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = React.memo(({
                   {tick.label}
                 </span>
               )}
-              <div 
+              <div
                 className={`w-px ${tick.isMajor ? 'h-3.5 bg-slate-500/80' : 'h-1.5 bg-slate-700/50'}`}
               />
             </div>
@@ -227,27 +227,27 @@ export const TimelineBar: React.FC<TimelineBarProps> = React.memo(({
 
         {/* Hover Time Tooltip Indicator */}
         {hoverPos !== null && hoverTime !== null && (
-          <div 
+          <div
             className="absolute top-0 -translate-x-1/2 pointer-events-none z-30 flex flex-col items-center animate-in fade-in duration-100"
             style={{ left: `${hoverPos}%` }}
           >
-            <div className="px-1.5 py-0.5 rounded bg-slate-800 border border-cyan-500/40 text-cyan-300 font-mono text-[9px] font-bold shadow-lg">
+            <div className="px-1.5 py-0.5 rounded bg-slate-800 border border-lime-500/40 text-lime-300 font-mono text-[9px] font-bold shadow-lg">
               {formatTime(hoverTime, true)}
             </div>
-            <div className="w-px h-5 bg-cyan-400/60" />
+            <div className="w-px h-5 bg-lime-400/60" />
           </div>
         )}
 
         {/* Playhead Needle Cursor */}
-        <div 
+        <div
           ref={playheadRef}
           className="absolute bottom-0 -translate-x-1/2 pointer-events-none z-20 flex flex-col items-center"
           style={{ left: '0%' }}
         >
           {/* Top Diamond Pip */}
-          <div className="w-2.5 h-2.5 rotate-45 bg-cyan-300 border border-white shadow-[0_0_8px_#22d3ee] -mb-1" />
+          <div className="w-2.5 h-2.5 rotate-45 bg-lime-300 border border-white shadow-[0_0_8px_#c8ff2e] -mb-1" />
           {/* Vertical Needle */}
-          <div className="w-0.5 h-5 bg-cyan-300 shadow-[0_0_8px_#22d3ee]" />
+          <div className="w-0.5 h-5 bg-lime-300 shadow-[0_0_8px_#c8ff2e]" />
         </div>
       </div>
     </div>

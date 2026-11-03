@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  X, CheckCircle2, Sparkles, VolumeX, ArrowRight, ShieldCheck, 
+  X, CheckCircle2, Sparkles, VolumeX, ArrowRight, ShieldCheck,
   Activity, Music2, Cpu, Disc, Sliders, Layers, BarChart2, Gauge, Mic,
   Scale, Binary, Trophy, Target,
   Compass, Flame, Zap, AlertTriangle
@@ -85,20 +85,20 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-6 animate-in fade-in duration-200">
       <div className={`w-full max-w-3xl rounded-2xl overflow-hidden shadow-2xl border flex flex-col max-h-[92vh] ${
-        isClear 
-          ? 'bg-white border-slate-200 text-slate-900' 
+        isClear
+          ? 'bg-white border-slate-200 text-slate-900'
           : 'bg-slate-900 border-slate-800 text-slate-100'
       }`}>
-        
+
         {/* Header */}
         <div className={`p-5 flex items-center justify-between border-b ${
           isClear ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/60 border-slate-800'
         }`}>
           <div className="flex items-center gap-3">
             <div className={`p-2.5 rounded-xl shadow-md text-white ${
-              referenceReport 
-                ? 'bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500' 
-                : 'bg-gradient-to-br from-indigo-500 to-cyan-500'
+              referenceReport
+                ? 'bg-gradient-to-br from-cyan-500 via-purple-500 to-pink-500'
+                : 'bg-gradient-to-br from-cyan-500 to-lime-500'
             }`}>
               <Sparkles size={20} />
             </div>
@@ -109,15 +109,15 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 </h3>
                 <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
                   result.qualityVerdict === 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING'
-                    ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
-                    : targetMet 
-                      ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' 
-                      : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                    ? 'bg-lime-500/10 text-lime-300 border-lime-500/30'
+                    : targetMet
+                      ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
+                      : 'bg-lime-500/10 text-lime-400 border-lime-500/30'
                 }`}>
                   {result.qualityVerdict === 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING'
                     ? 'Original Preservado (Sin Masterización Sustancial)'
-                    : referenceReport 
-                      ? `Match Sónico: ${referenceReport.matchingScorePercent}%` 
+                    : referenceReport
+                      ? `Match Sónico: ${referenceReport.matchingScorePercent}%`
                       : targetMet ? 'Objetivo Cumplido' : 'Revisión requerida'}
                 </span>
               </div>
@@ -126,7 +126,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
               </p>
             </div>
           </div>
-          <button 
+          <button
             onClick={onClose}
             className={`p-2 rounded-xl transition-colors ${
               isClear ? 'text-slate-400 hover:text-slate-900 hover:bg-slate-100' : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -138,19 +138,19 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
         {/* Body */}
         <div className="p-6 overflow-y-auto space-y-6 custom-scrollbar">
-          
+
           {/* Target Compliance Banner */}
           <div className={`p-4 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-4 ${
-            isClear 
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-950' 
+            isClear
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
               : 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
           }`}>
             <div className="flex items-center gap-3">
               <ShieldCheck size={26} className="text-emerald-500 shrink-0" />
               <div>
                 <div className="font-bold text-sm">
-                  {referenceReport 
-                    ? 'Perfil de Referencia Calibrado & True Peak Protegido' 
+                  {referenceReport
+                    ? 'Perfil de Referencia Calibrado & True Peak Protegido'
                     : 'Estándar de Distribución & Streaming Calibrado'}
                 </div>
                 <div className="text-xs opacity-90 font-mono mt-0.5">
@@ -196,20 +196,20 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
           {/* Identidad del Audio & Fuente Única de Verdad (WAV Exportado & Reabierto) */}
           {result.audioIdentity && (
             <div className={`p-4 rounded-xl border space-y-3 ${
-              isClear 
-                ? 'bg-slate-50 border-slate-200 text-slate-800' 
+              isClear
+                ? 'bg-slate-50 border-slate-200 text-slate-800'
                 : 'bg-slate-950/70 border-slate-800 text-slate-200'
             }`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
                 <div className="flex items-center gap-2">
-                  <Binary size={18} className="text-cyan-400" />
+                  <Binary size={18} className="text-lime-400" />
                   <span className="font-bold text-xs uppercase tracking-wider text-slate-300">
                     Fuente Única de Verdad: WAV Decodificado & Verificado
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   {result.reportConsistencyCheck?.passed && (
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-lime-500/15 text-lime-300 border border-lime-500/30">
                       ✓ Consistencia Criptográfica Verificada
                     </span>
                   )}
@@ -224,7 +224,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 {/* 1. File Hash SHA-256 */}
                 <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
                   <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Hash Criptográfico SHA-256</span>
-                  <div className="mt-1 font-mono font-bold text-cyan-300 truncate" title={result.audioIdentity.fileHash}>
+                  <div className="mt-1 font-mono font-bold text-lime-300 truncate" title={result.audioIdentity.fileHash}>
                     {result.audioIdentity.fileHash ? `${result.audioIdentity.fileHash.substring(0, 16)}...` : 'Verificado'}
                   </div>
                   <div className="text-[9px] font-mono text-slate-400 mt-0.5">
@@ -253,7 +253,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                   <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Compensación A/B (Loudness)</span>
                   <div className="flex items-baseline justify-between mt-1">
                     <span className="font-mono font-bold text-purple-300">
-                      {result.audioIdentity.comparisonGainDb !== undefined 
+                      {result.audioIdentity.comparisonGainDb !== undefined
                         ? `${result.audioIdentity.comparisonGainDb >= 0 ? '+' : ''}${result.audioIdentity.comparisonGainDb.toFixed(1)} dB`
                         : '0.0 dB'}
                     </span>
@@ -292,9 +292,9 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     {/* 0. Intención Musical y Perfil Estético Autónomo (V2) */}
           {result.musicalIntent && (
             <div className={`p-4 rounded-xl border space-y-3 ${
-              isClear 
-                ? 'bg-gradient-to-r from-amber-50/70 via-indigo-50/50 to-slate-50 border-amber-200/80 text-slate-800' 
-                : 'bg-gradient-to-r from-amber-950/25 via-indigo-950/30 to-slate-900/80 border-amber-500/30 text-slate-200'
+              isClear
+                ? 'bg-gradient-to-r from-amber-50/70 via-cyan-50/50 to-slate-50 border-amber-200/80 text-slate-800'
+                : 'bg-gradient-to-r from-amber-950/25 via-cyan-950/30 to-slate-900/80 border-amber-500/30 text-slate-200'
             }`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
                 <div className="flex items-center gap-2">
@@ -356,13 +356,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
           {/* 1. Diagnóstico Acústico Multidimensional ({result.acousticDiagnosis.length} Dimensiones Clasificadas) */}
           {result.acousticDiagnosis && result.acousticDiagnosis.length > 0 && (
             <div className={`p-4 rounded-xl border space-y-3 ${
-              isClear 
-                ? 'bg-slate-50 border-slate-200 text-slate-800' 
+              isClear
+                ? 'bg-slate-50 border-slate-200 text-slate-800'
                 : 'bg-slate-950/70 border-slate-800 text-slate-200'
             }`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
                 <div className="flex items-center gap-2">
-                  <Activity size={18} className="text-cyan-400" />
+                  <Activity size={18} className="text-lime-400" />
                   <span className="font-bold text-xs uppercase tracking-wider text-slate-300">
                     1. Diagnóstico Acústico Multidimensional (17 Aspectos)
                   </span>
@@ -379,8 +379,8 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                 {result.acousticDiagnosis.map((item, idx) => (
-                  <div 
-                    key={idx} 
+                  <div
+                    key={idx}
                     className={`p-2.5 rounded-lg border text-xs flex flex-col justify-between ${
                       item.status === 'excelente'
                         ? 'bg-emerald-950/20 border-emerald-500/30'
@@ -406,7 +406,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                           {item.status === 'excelente' ? '✓ Excelente (Proteger)' : item.status.toUpperCase()}
                         </span>
                       </div>
-                      <div className="text-[10px] font-mono text-cyan-300 mb-1">
+                      <div className="text-[10px] font-mono text-lime-300 mb-1">
                         {item.measuredValue}
                       </div>
                       <p className="text-[10px] text-slate-400 line-clamp-2">
@@ -414,7 +414,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                       </p>
                     </div>
                     <div className="mt-2 pt-1 border-t border-slate-800/60 text-[10px] font-mono text-slate-300 flex items-center gap-1">
-                      <span className="text-cyan-400">↳</span>
+                      <span className="text-lime-400">↳</span>
                       <span className="truncate" title={item.recommendation}>{item.recommendation}</span>
                     </div>
                   </div>
@@ -426,20 +426,20 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
           {/* 2. Dirección de Mastering Específica */}
           {result.masteringDirection && (
             <div className={`p-4 rounded-xl border space-y-2.5 ${
-              isClear 
-                ? 'bg-gradient-to-r from-indigo-50 to-cyan-50 border-indigo-200 text-slate-800' 
-                : 'bg-gradient-to-r from-indigo-950/40 to-cyan-950/30 border-indigo-500/30 text-slate-200'
+              isClear
+                ? 'bg-gradient-to-r from-cyan-50 to-lime-50 border-cyan-200 text-slate-800'
+                : 'bg-gradient-to-r from-cyan-950/40 to-lime-950/30 border-cyan-500/30 text-slate-200'
             }`}>
               <div className="flex items-center gap-2">
-                <Target size={18} className="text-indigo-400" />
+                <Target size={18} className="text-cyan-400" />
                 <span className="font-bold text-xs uppercase tracking-wider text-slate-300">
                   2. Dirección de Mastering Específica Formulada para esta Canción
                 </span>
               </div>
               <div className="flex flex-wrap gap-2 pt-1">
                 {result.masteringDirection.selectedGoals.map((goal, gIdx) => (
-                  <span key={gIdx} className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-200 border border-indigo-500/40 shadow-sm flex items-center gap-1.5">
-                    <Sparkles size={12} className="text-indigo-400" />
+                  <span key={gIdx} className="px-3 py-1 rounded-full text-xs font-bold bg-cyan-500/20 text-cyan-200 border border-cyan-500/40 shadow-sm flex items-center gap-1.5">
+                    <Sparkles size={12} className="text-cyan-400" />
                     {goal}
                   </span>
                 ))}
@@ -453,8 +453,8 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
           {/* 3. Torneo de Candidatos a Loudness Igualado */}
           {result.tournamentReport && (
             <div className={`p-4 rounded-xl border space-y-4 ${
-              isClear 
-                ? 'bg-slate-50 border-slate-200 text-slate-800' 
+              isClear
+                ? 'bg-slate-50 border-slate-200 text-slate-800'
                 : 'bg-slate-950/70 border-slate-800 text-slate-200'
             }`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
@@ -481,8 +481,8 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 {result.tournamentReport.candidates.map((cand) => {
                   const isWinner = cand.id === result.tournamentReport?.winnerCandidateId;
                   return (
-                    <div 
-                      key={cand.id} 
+                    <div
+                      key={cand.id}
                       className={`p-3 rounded-xl border flex flex-col justify-between relative transition-all ${
                         cand.isDisqualified
                           ? 'bg-rose-950/15 border-rose-500/30 opacity-75'
@@ -511,8 +511,8 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
                         <div className="flex items-center gap-2 mb-2">
                           <span className={`text-[9px] font-mono px-2 py-0.5 rounded font-bold border ${
-                            cand.approved 
-                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
+                            cand.approved
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
                               : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
                           }`}>
                             {cand.approved ? '✓ Aprobado' : '✗ No Aprobado'}
@@ -631,7 +631,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                         </span>
                       )}
                     </div>
-                    <div className="text-[10px] font-mono text-cyan-300 flex items-center gap-2">
+                    <div className="text-[10px] font-mono text-lime-300 flex items-center gap-2">
                       <span>Orig: <strong className="text-slate-200">{result.loudnessExploration.naturalLUFS.toFixed(1)}</strong></span>
                       {result.loudnessExploration.adaptiveTargetLUFS !== undefined && (
                         <span>Objetivo adaptativo: <strong className="text-amber-300">{result.loudnessExploration.adaptiveTargetLUFS.toFixed(1)}</strong></span>
@@ -648,21 +648,21 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     {result.loudnessExploration.testedLoudnessLevels.map((lvl, lIdx) => {
                       const isSelected = Boolean(lvl.variantId && lvl.variantId === result.loudnessExploration!.selectedVariantId);
                       return (
-                        <div 
-                          key={lIdx} 
+                        <div
+                          key={lIdx}
                           className={`p-2 rounded border flex flex-col justify-between ${
-                            isSelected 
+                            isSelected
                               ? 'bg-amber-500/15 border-amber-500/50 text-amber-200 ring-1 ring-amber-500/30 font-bold'
-                              : lvl.approved 
-                                ? 'bg-slate-950/60 border-slate-800 text-slate-300' 
+                              : lvl.approved
+                                ? 'bg-slate-950/60 border-slate-800 text-slate-300'
                                 : 'bg-rose-950/20 border-rose-500/30 text-rose-300 opacity-60'
                           }`}
                         >
                           <div>
                             <div className="flex justify-between items-center text-[9px] mb-1">
-                              <span className={`font-semibold ${lvl.isRefinementStep ? 'text-cyan-400' : 'text-slate-400'}`}>
+                              <span className={`font-semibold ${lvl.isRefinementStep ? 'text-lime-400' : 'text-slate-400'}`}>
                                 {lvl.levelName.split(' ')[0]}
-                                {lvl.isRefinementStep && <span className="text-[7px] ml-1 px-1 rounded bg-cyan-950 border border-cyan-800 text-cyan-300">Ref</span>}
+                                {lvl.isRefinementStep && <span className="text-[7px] ml-1 px-1 rounded bg-lime-950 border border-lime-800 text-lime-300">Ref</span>}
                               </span>
                               <span>{lvl.gainDb >= 0 ? `+${lvl.gainDb.toFixed(2)}` : lvl.gainDb.toFixed(2)} dB</span>
                             </div>
@@ -711,8 +711,8 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
               {/* Safety & Loudness note */}
               {result.tournamentReport.sweetSpotLoudnessNote && (
-                <div className="text-[11px] font-mono text-cyan-300 bg-cyan-950/30 border border-cyan-500/30 p-2.5 rounded-lg flex items-center gap-2">
-                  <Gauge size={16} className="text-cyan-400 shrink-0" />
+                <div className="text-[11px] font-mono text-lime-300 bg-lime-950/30 border border-lime-500/30 p-2.5 rounded-lg flex items-center gap-2">
+                  <Gauge size={16} className="text-lime-400 shrink-0" />
                   <span>{result.tournamentReport.sweetSpotLoudnessNote}</span>
                 </div>
               )}
@@ -722,22 +722,22 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
           {/* 3-Tier Adaptive Architecture Status Badge */}
           {result.masteringTierApplied && (
             <div className={`p-4 rounded-xl border flex flex-col gap-3 ${
-              isClear 
-                ? 'bg-slate-50 border-slate-200' 
+              isClear
+                ? 'bg-slate-50 border-slate-200'
                 : 'bg-slate-950/70 border-slate-800 text-slate-200'
             }`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
                 <div className="flex items-center gap-2">
-                  <Layers size={18} className="text-cyan-400" />
+                  <Layers size={18} className="text-lime-400" />
                   <span className="font-bold text-xs uppercase tracking-wider text-slate-300">
                     Arquitectura DSP Adaptativa de 3 Niveles
                   </span>
                 </div>
                 <span className={`text-[11px] font-mono px-3 py-1 rounded-full font-bold border ${
                   result.masteringTierApplied === 'stereo_direct'
-                    ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                    ? 'bg-lime-500/10 text-lime-400 border-lime-500/30'
                     : result.masteringTierApplied === 'stereo_microscopic_guided'
-                      ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+                      ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
                       : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                 }`}>
                   {result.masteringTierApplied === 'stereo_direct'
@@ -751,7 +751,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
               {/* Microscopic diagnostic findings if available */}
               {result.microscopicMasking && (
                 <div className="flex flex-col gap-1.5 text-xs text-slate-300 bg-slate-900/80 p-3 rounded-lg border border-slate-800">
-                  <div className="flex items-center justify-between font-mono text-[11px] text-cyan-300 font-bold">
+                  <div className="flex items-center justify-between font-mono text-[11px] text-lime-300 font-bold">
                     <span>🔬 Diagnóstico Microscópico de Enmascaramiento:</span>
                     <span>{result.microscopicMasking.activeVocalBlocks} bloques vocales analizados</span>
                   </div>
@@ -785,14 +785,14 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
           {/* MASTERING QUALITY SCORE (MQS) AUDIT: EL MASTER DEBE SUPERAR AL ORIGINAL */}
           {result.mqs && (
             <div className={`p-4 rounded-xl border space-y-4 ${
-              isClear 
-                ? 'bg-gradient-to-br from-indigo-50/70 via-slate-50 to-emerald-50/50 border-indigo-200/80 text-slate-800' 
-                : 'bg-gradient-to-br from-indigo-950/40 via-slate-900/80 to-emerald-950/30 border-indigo-500/30 text-slate-200'
+              isClear
+                ? 'bg-gradient-to-br from-cyan-50/70 via-slate-50 to-emerald-50/50 border-cyan-200/80 text-slate-800'
+                : 'bg-gradient-to-br from-cyan-950/40 via-slate-900/80 to-emerald-950/30 border-cyan-500/30 text-slate-200'
             }`}>
               {/* Header with Title & Overall Score */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 border-slate-700/50">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 text-white shadow-lg shrink-0">
+                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-500 to-lime-500 text-white shadow-lg shrink-0">
                     <Gauge size={20} />
                   </div>
                   <div>
@@ -802,24 +802,24 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                       </h4>
                       <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
                         result.qualityVerdict === 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING'
-                          ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                          ? 'bg-lime-500/10 text-lime-300 border-lime-500/30'
                           : result.isFallbackApplied
-                            ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                            ? 'bg-lime-500/10 text-lime-400 border-lime-500/30'
                             : result.mqs.isApproved
                               ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                               : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                       }`}>
                         {result.qualityVerdict === 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING'
                           ? 'Original Preservado — Sin Masterización Sustancial'
-                          : result.isFallbackApplied 
-                            ? 'Fallback Transparente' 
+                          : result.isFallbackApplied
+                            ? 'Fallback Transparente'
                             : result.mqs.isApproved ? 'Master Superior Aprobado' : 'Revisión Requerida'}
                       </span>
                     </div>
                     <p className="text-xs opacity-75 font-mono mt-0.5">
                       {result.qualityVerdict === 'ORIGINAL_PRESERVED_NO_SUBSTANTIAL_MASTERING'
                         ? 'Mezcla terminada en origen. Correlación > 0.99999 y residuo < -80 dBFS: puntuación calibrada a nivel honesto.'
-                        : result.isFallbackApplied 
+                        : result.isFallbackApplied
                           ? 'La mezcla original ya posee balance sobresaliente; se aplicó preservación pura sin sobreprocesar.'
                           : (() => {
                               const origPts = result.originalMqs?.totalScore;
@@ -844,7 +844,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     result.mqs.totalScore >= 90
                       ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
                       : result.mqs.totalScore >= 80
-                        ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300'
+                        ? 'bg-lime-500/15 border-lime-500/40 text-lime-300'
                         : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
                   }`}>
                     <span className="text-2xl font-black font-mono leading-none">{result.mqs.totalScore}</span>
@@ -872,11 +872,11 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
                   <span className="text-[10px] text-slate-400 uppercase font-mono block">2. Balance Tonal</span>
                   <div className="flex items-baseline justify-between mt-1">
-                    <span className="font-bold font-mono text-cyan-400">{result.mqs.tonalBalance ?? 0}</span>
+                    <span className="font-bold font-mono text-lime-400">{result.mqs.tonalBalance ?? 0}</span>
                     <span className="text-[10px] font-mono text-slate-500">/15 pts</span>
                   </div>
                   <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
-                    <div className="bg-cyan-400 h-full rounded-full" style={{ width: `${Math.min(100, (((result.mqs.tonalBalance ?? 0) / 15) * 100))}%` }}></div>
+                    <div className="bg-lime-400 h-full rounded-full" style={{ width: `${Math.min(100, (((result.mqs.tonalBalance ?? 0) / 15) * 100))}%` }}></div>
                   </div>
                   <span className="text-[9px] text-slate-500 block mt-1">Curva adaptativa sin asperezas</span>
                 </div>
@@ -940,11 +940,11 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 <div className={`p-2.5 rounded-lg border text-xs ${isClear ? 'bg-white border-slate-200' : 'bg-slate-900/90 border-slate-800'}`}>
                   <span className="text-[10px] text-slate-400 uppercase font-mono block">7. Profundidad 3D</span>
                   <div className="flex items-baseline justify-between mt-1">
-                    <span className="font-bold font-mono text-indigo-400">{result.mqs.depth3D ?? 0}</span>
+                    <span className="font-bold font-mono text-cyan-400">{result.mqs.depth3D ?? 0}</span>
                     <span className="text-[10px] font-mono text-slate-500">/5 pts</span>
                   </div>
                   <div className="w-full bg-slate-800 h-1 rounded-full mt-1.5 overflow-hidden">
-                    <div className="bg-indigo-400 h-full rounded-full" style={{ width: `${Math.min(100, (((result.mqs.depth3D ?? 0) / 5) * 100))}%` }}></div>
+                    <div className="bg-cyan-400 h-full rounded-full" style={{ width: `${Math.min(100, (((result.mqs.depth3D ?? 0) / 5) * 100))}%` }}></div>
                   </div>
                   <span className="text-[9px] text-slate-500 block mt-1">Planos y microdinámica</span>
                 </div>
@@ -1000,8 +1000,8 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     <div className="flex items-center gap-2">
                       <Flame size={16} className={result.bodyValidation.passed ? 'text-amber-400' : 'text-rose-400'} />
                       <span className="font-bold">
-                        {result.bodyValidation.thinningPatternDetected 
-                          ? 'Alerta: Adelgazamiento Detectado y Compensado' 
+                        {result.bodyValidation.thinningPatternDetected
+                          ? 'Alerta: Adelgazamiento Detectado y Compensado'
                           : 'Validación de Cuerpo Acústico: APROBADA (Sin Adelgazamiento)'}
                       </span>
                     </div>
@@ -1031,8 +1031,8 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-slate-300 uppercase">Ajustes Registrados del MQS:</span>
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      result.mqs.scoreAdjustments.totalAdjustment >= 0 
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
+                      result.mqs.scoreAdjustments.totalAdjustment >= 0
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                         : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                     }`}>
                       Delta Neto: {result.mqs.scoreAdjustments.totalAdjustment >= 0 ? '+' : ''}{result.mqs.scoreAdjustments.totalAdjustment} pts
@@ -1071,15 +1071,15 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
           {/* Transparent Fallback Acoustic Verification Table */}
           {result.isFallbackApplied && result.fallbackBandDeltas && result.fallbackBandDeltas.length > 0 && (
             <div className={`p-4 rounded-xl border space-y-3 ${
-              isClear 
-                ? 'bg-cyan-50/60 border-cyan-200 text-slate-800' 
-                : 'bg-cyan-950/20 border-cyan-500/30 text-slate-200'
+              isClear
+                ? 'bg-lime-50/60 border-lime-200 text-slate-800'
+                : 'bg-lime-950/20 border-lime-500/30 text-slate-200'
             }`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2.5 border-slate-700/50">
                 <div className="flex items-center gap-2">
-                  <ShieldCheck size={18} className="text-cyan-400 shrink-0" />
+                  <ShieldCheck size={18} className="text-lime-400 shrink-0" />
                   <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-cyan-300">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-lime-300">
                       Verificación de Fallback Transparente (Medición Acústica en Render)
                     </h4>
                     <p className="text-[11px] opacity-75 font-mono">
@@ -1087,7 +1087,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     </p>
                   </div>
                 </div>
-                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 shrink-0">
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-lime-500/10 text-lime-300 border border-lime-500/30 shrink-0">
                   Bit-Transparent + True Peak Safe
                 </span>
               </div>
@@ -1118,14 +1118,14 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
           {/* AUDITORÍA MATEMÁTICA COMPARATIVA (MASTER VS ORIGINAL A GANANCIA COMPENSADA) */}
           {result.mathematicalComparison && (
             <div className={`p-4 rounded-xl border space-y-4 ${
-              isClear 
-                ? 'bg-gradient-to-br from-cyan-50/70 via-slate-50 to-indigo-50/50 border-cyan-200 text-slate-800' 
-                : 'bg-gradient-to-br from-slate-950/90 via-slate-900/80 to-cyan-950/30 border-cyan-500/30 text-slate-200'
+              isClear
+                ? 'bg-gradient-to-br from-lime-50/70 via-slate-50 to-cyan-50/50 border-lime-200 text-slate-800'
+                : 'bg-gradient-to-br from-slate-950/90 via-slate-900/80 to-lime-950/30 border-lime-500/30 text-slate-200'
             }`}>
               {/* Header */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 border-slate-700/50">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-cyan-500 to-indigo-600 text-white shadow-lg shrink-0">
+                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-lime-500 to-cyan-600 text-white shadow-lg shrink-0">
                     <Scale size={20} />
                   </div>
                   <div>
@@ -1135,9 +1135,9 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                       </h4>
                       <span className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
                         result.mathematicalComparison.isOriginalPreservedWithoutMastering
-                          ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                          ? 'bg-lime-500/10 text-lime-300 border-lime-500/30'
                           : result.mathematicalComparison.classification === 'TECHNICAL_TRANSPARENT_DELIVERY'
-                            ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+                            ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
                             : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                       }`}>
                         {result.mathematicalComparison.classificationLabel}
@@ -1152,7 +1152,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 <div className="flex items-center gap-2 self-end sm:self-center font-mono text-[11px]">
                   <span className={`px-2.5 py-1 rounded-lg border font-bold ${
                     result.mathematicalComparison.isOriginalPreservedWithoutMastering
-                      ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                      ? 'bg-lime-500/10 text-lime-300 border-lime-500/30'
                       : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                   }`}>
                     {result.mathematicalComparison.isOriginalPreservedWithoutMastering
@@ -1172,13 +1172,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 }`}>
                   <div>
                     <span className="text-[10px] text-slate-400 uppercase font-mono block">Correlación Muestral (r)</span>
-                    <span className="text-base font-bold font-mono text-cyan-400 block mt-1">
+                    <span className="text-base font-bold font-mono text-lime-400 block mt-1">
                       {result.mathematicalComparison.sampleCorrelation.toFixed(6)}
                     </span>
                   </div>
                   <div className="mt-1.5 pt-1 border-t border-slate-800 text-[10px] font-mono flex items-center justify-between">
                     <span className="text-slate-500">Umbral: &gt; 0.99999</span>
-                    <span className={result.mathematicalComparison.sampleCorrelation >= 0.99999 ? 'text-cyan-400 font-bold' : 'text-emerald-400'}>
+                    <span className={result.mathematicalComparison.sampleCorrelation >= 0.99999 ? 'text-lime-400 font-bold' : 'text-emerald-400'}>
                       {result.mathematicalComparison.sampleCorrelation >= 0.99999 ? 'Identidad' : 'No lineal'}
                     </span>
                   </div>
@@ -1190,13 +1190,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 }`}>
                   <div>
                     <span className="text-[10px] text-slate-400 uppercase font-mono block">Nivel RMS Residuo</span>
-                    <span className="text-base font-bold font-mono text-indigo-400 block mt-1">
+                    <span className="text-base font-bold font-mono text-cyan-400 block mt-1">
                       {result.mathematicalComparison.residualRmsDb.toFixed(1)} dBFS
                     </span>
                   </div>
                   <div className="mt-1.5 pt-1 border-t border-slate-800 text-[10px] font-mono flex items-center justify-between">
                     <span className="text-slate-500">Umbral: &lt; -80 dBFS</span>
-                    <span className={result.mathematicalComparison.residualRmsDb <= -80 ? 'text-cyan-400 font-bold' : 'text-amber-400'}>
+                    <span className={result.mathematicalComparison.residualRmsDb <= -80 ? 'text-lime-400 font-bold' : 'text-amber-400'}>
                       {result.mathematicalComparison.residualRmsDb <= -80 ? 'Inaudible' : 'Medible'}
                     </span>
                   </div>
@@ -1215,8 +1215,8 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                   <div className="mt-1.5 pt-1 border-t border-slate-800 text-[10px] font-mono flex items-center justify-between">
                     <span className="text-slate-500">Error Máx Real</span>
                     <span className="text-slate-300 font-bold">
-                      {result.mathematicalComparison.residualMaxErrorDb !== undefined 
-                        ? `${result.mathematicalComparison.residualMaxErrorDb.toFixed(1)} dBFS` 
+                      {result.mathematicalComparison.residualMaxErrorDb !== undefined
+                        ? `${result.mathematicalComparison.residualMaxErrorDb.toFixed(1)} dBFS`
                         : `${result.mathematicalComparison.residualPeakDb.toFixed(1)} dBFS`}
                     </span>
                   </div>
@@ -1245,14 +1245,14 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                   <div>
                     <span className="text-[10px] text-slate-400 uppercase font-mono block">Δ Espectral Máx</span>
                     <span className={`text-base font-bold font-mono block mt-1 ${
-                      result.mathematicalComparison.maxSpectralDeltaDb <= 0.05 ? 'text-cyan-400' : 'text-emerald-400'
+                      result.mathematicalComparison.maxSpectralDeltaDb <= 0.05 ? 'text-lime-400' : 'text-emerald-400'
                     }`}>
                       ±{result.mathematicalComparison.maxSpectralDeltaDb.toFixed(3)} dB
                     </span>
                   </div>
                   <div className="mt-1.5 pt-1 border-t border-slate-800 text-[10px] font-mono flex items-center justify-between">
                     <span className="text-slate-500">Límite: ±0.05 dB</span>
-                    <span className={result.mathematicalComparison.maxSpectralDeltaDb <= 0.05 ? 'text-cyan-400 font-bold' : 'text-slate-400'}>
+                    <span className={result.mathematicalComparison.maxSpectralDeltaDb <= 0.05 ? 'text-lime-400 font-bold' : 'text-slate-400'}>
                       {result.mathematicalComparison.maxSpectralDeltaDb <= 0.05 ? 'Idéntico' : 'Ajustado'}
                     </span>
                   </div>
@@ -1262,7 +1262,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
               {/* 5-Band Spectral Differences Table */}
               <div className="space-y-2">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                  <Activity size={13} className="text-cyan-400" />
+                  <Activity size={13} className="text-lime-400" />
                   Diferencias Espectrales por Bandas a Ganancia Compensada (Tolerancia: ±0.05 dB)
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-5 gap-2 font-mono text-[11px]">
@@ -1275,11 +1275,11 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                         <span className="text-[9px] text-slate-500">{band.fLow}-{band.fHigh >= 1000 ? `${band.fHigh / 1000}k` : band.fHigh}Hz</span>
                       </div>
                       <div className="flex items-baseline justify-between mt-0.5">
-                        <span className={`font-bold ${band.passed ? 'text-cyan-400' : 'text-emerald-400'}`}>
+                        <span className={`font-bold ${band.passed ? 'text-lime-400' : 'text-emerald-400'}`}>
                           {band.deltaDb >= 0 ? `+${band.deltaDb.toFixed(3)}` : band.deltaDb.toFixed(3)} dB
                         </span>
                         <span className={`text-[9px] font-bold uppercase px-1 py-0.2 rounded ${
-                          band.passed ? 'bg-cyan-500/10 text-cyan-300' : 'bg-emerald-500/10 text-emerald-400'
+                          band.passed ? 'bg-lime-500/10 text-lime-300' : 'bg-emerald-500/10 text-emerald-400'
                         }`}>
                           {band.passed ? 'Sin cambio' : 'EQ Real'}
                         </span>
@@ -1357,7 +1357,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
               {/* Real Action of Each DSP Module */}
               <div className="space-y-2">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                  <Binary size={13} className="text-indigo-400" />
+                  <Binary size={13} className="text-cyan-400" />
                   Acción Real de Cada Módulo DSP en la Forma de Onda
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -1388,10 +1388,10 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
               {/* Honest Engineering Notice */}
               <div className={`p-3 rounded-lg border text-xs flex items-start gap-2.5 ${
                 result.mathematicalComparison.isOriginalPreservedWithoutMastering
-                  ? 'bg-cyan-950/40 border-cyan-500/40 text-cyan-200'
-                  : 'bg-indigo-950/40 border-indigo-500/40 text-indigo-200'
+                  ? 'bg-lime-950/40 border-lime-500/40 text-lime-200'
+                  : 'bg-cyan-950/40 border-cyan-500/40 text-cyan-200'
               }`}>
-                <ShieldCheck size={18} className="shrink-0 text-cyan-400 mt-0.5" />
+                <ShieldCheck size={18} className="shrink-0 text-lime-400 mt-0.5" />
                 <div className="space-y-1">
                   <div className="font-bold text-xs">
                     {result.mathematicalComparison.isOriginalPreservedWithoutMastering
@@ -1416,11 +1416,11 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
             <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                  <BarChart2 size={14} className="text-indigo-400" />
+                  <BarChart2 size={14} className="text-cyan-400" />
                   Comparativa Cuádruple: Original vs. Referencia vs. Master
                 </h4>
                 <div className="flex items-center gap-2 text-[10px] font-mono">
-                  <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                  <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
                     Modo: {formatMode(referenceReport.config.mode)}
                   </span>
                   <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40">
@@ -1436,18 +1436,18 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     <tr>
                       <th className="p-3">Métrica</th>
                       <th className="p-3 text-center">Original (Mix)</th>
-                      <th className="p-3 text-center text-indigo-300">Referencia (Obj.)</th>
+                      <th className="p-3 text-center text-cyan-300">Referencia (Obj.)</th>
                       <th className="p-3 text-center text-emerald-400 font-bold">Master Final</th>
                       <th className="p-3 text-right">Resultado / Delta</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 font-mono text-[11px]">
-                    
+
                     {/* Integrated LUFS */}
                     <tr className="hover:bg-white/5 transition-colors">
                       <td className="p-3 font-sans font-semibold text-slate-200">Integrated LUFS</td>
                       <td className="p-3 text-center text-slate-400">{referenceReport.originalProfile.integratedLUFS.toFixed(1)}</td>
-                      <td className="p-3 text-center text-indigo-300">{referenceReport.targetProfile.integratedLUFS.toFixed(1)}</td>
+                      <td className="p-3 text-center text-cyan-300">{referenceReport.targetProfile.integratedLUFS.toFixed(1)}</td>
                       <td className="p-3 text-center text-emerald-400 font-bold">{referenceReport.finalProfile.integratedLUFS.toFixed(1)}</td>
                       <td className="p-3 text-right text-slate-300">
                         {Math.abs(referenceReport.finalProfile.integratedLUFS - referenceReport.originalProfile.integratedLUFS) < 0.2
@@ -1460,7 +1460,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     <tr className="hover:bg-white/5 transition-colors">
                       <td className="p-3 font-sans font-semibold text-slate-200">True Peak (dBTP)</td>
                       <td className="p-3 text-center text-slate-400">{referenceReport.originalProfile.truePeakDbTP.toFixed(1)}</td>
-                      <td className="p-3 text-center text-indigo-300">{referenceReport.targetProfile.truePeakDbTP.toFixed(1)}</td>
+                      <td className="p-3 text-center text-cyan-300">{referenceReport.targetProfile.truePeakDbTP.toFixed(1)}</td>
                       <td className="p-3 text-center text-emerald-400 font-bold">{referenceReport.finalProfile.truePeakDbTP.toFixed(1)}</td>
                       <td className="p-3 text-right text-emerald-400">≤ -1.0 dBTP Seguro</td>
                     </tr>
@@ -1469,8 +1469,8 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     <tr className="hover:bg-white/5 transition-colors">
                       <td className="p-3 font-sans font-semibold text-slate-200">Dynamic Range (LRA)</td>
                       <td className="p-3 text-center text-slate-400">{referenceReport.originalProfile.dynamicRangeLRA.toFixed(1)} LU</td>
-                      <td className="p-3 text-center text-indigo-300">{referenceReport.targetProfile.dynamicRangeLRA.toFixed(1)} LU</td>
-                      <td className="p-3 text-center text-cyan-400 font-bold">{referenceReport.finalProfile.dynamicRangeLRA.toFixed(1)} LU</td>
+                      <td className="p-3 text-center text-cyan-300">{referenceReport.targetProfile.dynamicRangeLRA.toFixed(1)} LU</td>
+                      <td className="p-3 text-center text-lime-400 font-bold">{referenceReport.finalProfile.dynamicRangeLRA.toFixed(1)} LU</td>
                       <td className="p-3 text-right text-slate-300">
                         {Math.abs(referenceReport.finalProfile.dynamicRangeLRA - referenceReport.originalProfile.dynamicRangeLRA) < 0.2
                           ? 'Dinámica Preservada'
@@ -1482,7 +1482,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     <tr className="hover:bg-white/5 transition-colors">
                       <td className="p-3 font-sans font-semibold text-slate-200">Crest Factor (Pegada)</td>
                       <td className="p-3 text-center text-slate-400">{referenceReport.originalProfile.crestFactor.toFixed(1)} dB</td>
-                      <td className="p-3 text-center text-indigo-300">{referenceReport.targetProfile.crestFactor.toFixed(1)} dB</td>
+                      <td className="p-3 text-center text-cyan-300">{referenceReport.targetProfile.crestFactor.toFixed(1)} dB</td>
                       <td className="p-3 text-center text-emerald-400 font-bold">{referenceReport.finalProfile.crestFactor.toFixed(1)} dB</td>
                       <td className="p-3 text-right text-slate-300">Transientes Intactos</td>
                     </tr>
@@ -1491,16 +1491,16 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     <tr className="hover:bg-white/5 transition-colors">
                       <td className="p-3 font-sans font-semibold text-slate-200">Ancho Estéreo (M/S)</td>
                       <td className="p-3 text-center text-slate-400">{referenceReport.originalProfile.stereoWidthRatio.toFixed(2)}x</td>
-                      <td className="p-3 text-center text-indigo-300">{referenceReport.targetProfile.stereoWidthRatio.toFixed(2)}x</td>
-                      <td className="p-3 text-center text-cyan-400 font-bold">{referenceReport.finalProfile.stereoWidthRatio.toFixed(2)}x</td>
-                      <td className="p-3 text-right text-cyan-400">Sub Mono &lt; 105 Hz</td>
+                      <td className="p-3 text-center text-cyan-300">{referenceReport.targetProfile.stereoWidthRatio.toFixed(2)}x</td>
+                      <td className="p-3 text-center text-lime-400 font-bold">{referenceReport.finalProfile.stereoWidthRatio.toFixed(2)}x</td>
+                      <td className="p-3 text-right text-lime-400">Sub Mono &lt; 105 Hz</td>
                     </tr>
 
                     {/* Transient Punch */}
                     <tr className="hover:bg-white/5 transition-colors">
                       <td className="p-3 font-sans font-semibold text-slate-200">Punch de Transientes</td>
                       <td className="p-3 text-center text-slate-400">{referenceReport.originalProfile.transientPunch}/100</td>
-                      <td className="p-3 text-center text-indigo-300">{referenceReport.targetProfile.transientPunch}/100</td>
+                      <td className="p-3 text-center text-cyan-300">{referenceReport.targetProfile.transientPunch}/100</td>
                       <td className="p-3 text-center text-emerald-400 font-bold">{referenceReport.finalProfile.transientPunch}/100</td>
                       <td className="p-3 text-right text-emerald-400">Calibrado</td>
                     </tr>
@@ -1512,7 +1512,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
               {/* Spectral Comparison Bar */}
               <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/50 space-y-3">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                  <Activity size={14} className="text-indigo-400" />
+                  <Activity size={14} className="text-cyan-400" />
                   Distribución Espectral de 5 Bandas (Master Final)
                 </span>
                 <div className="grid grid-cols-5 gap-2 font-mono text-center text-[10px]">
@@ -1523,7 +1523,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                       <div key={idx} className="p-2 rounded-lg bg-slate-900 border border-slate-800/80 flex flex-col gap-1">
                         <span className="text-slate-400 text-[9px] font-sans truncate">{bandName}</span>
                         <span className="font-bold text-slate-200">{finalVal.toFixed(1)} dB</span>
-                        <span className="text-[9px] text-indigo-400">Ref: {targetVal.toFixed(1)} dB</span>
+                        <span className="text-[9px] text-cyan-400">Ref: {targetVal.toFixed(1)} dB</span>
                       </div>
                     );
                   })}
@@ -1533,7 +1533,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
               {/* Reference Track Sources */}
               <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/40 text-xs">
                 <div className="font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
-                  <Disc size={13} className="text-indigo-400" />
+                  <Disc size={13} className="text-cyan-400" />
                   <span>Referencias Utilizadas ({referenceReport.references.length}):</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -1541,7 +1541,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     <div key={i} className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 flex items-center gap-2 text-[11px]">
                       <span className="font-medium text-slate-200">{r.name}</span>
                       {r.isPrimary && (
-                        <span className="text-[9px] font-black uppercase text-indigo-400 bg-indigo-950/60 px-1 rounded">
+                        <span className="text-[9px] font-black uppercase text-cyan-400 bg-cyan-950/60 px-1 rounded">
                           Primaria
                         </span>
                       )}
@@ -1554,7 +1554,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
           ) : (
             /* Standard Before vs After Metric Grid */
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              
+
               {/* Integrated Loudness */}
               <div className={`p-4 rounded-xl border flex flex-col justify-between ${
                 isClear ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/50 border-slate-800'
@@ -1567,7 +1567,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     <span className="text-[10px] opacity-60 block">ORIGINAL</span>
                     <span className="font-mono text-sm font-bold opacity-80">{before.integratedLUFS.toFixed(1)}</span>
                   </div>
-                  <ArrowRight size={16} className="text-cyan-500 opacity-60" />
+                  <ArrowRight size={16} className="text-lime-500 opacity-60" />
                   <div className="text-center">
                     <span className="text-[10px] text-emerald-500 font-bold block">MASTER</span>
                     <span className="font-mono text-base font-black text-emerald-500">{finalMeasuredLUFS.toFixed(1)}</span>
@@ -1594,7 +1594,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                       {before.truePeakDbTP.toFixed(1)}
                     </span>
                   </div>
-                  <ArrowRight size={16} className="text-cyan-500 opacity-60" />
+                  <ArrowRight size={16} className="text-lime-500 opacity-60" />
                   <div className="text-center">
                     <span className="text-[10px] text-emerald-500 font-bold block">PICO MEDIDO</span>
                     <span className="font-mono text-base font-black text-emerald-500">{after.truePeakDbTP.toFixed(1)}</span>
@@ -1617,10 +1617,10 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     <span className="text-[10px] opacity-60 block">ORIGINAL</span>
                     <span className="font-mono text-sm font-bold opacity-80">{before.dynamicRangeLRA.toFixed(1)} LU</span>
                   </div>
-                  <ArrowRight size={16} className="text-cyan-500 opacity-60" />
+                  <ArrowRight size={16} className="text-lime-500 opacity-60" />
                   <div className="text-center">
-                    <span className="text-[10px] text-cyan-400 font-bold block">MASTER</span>
-                    <span className="font-mono text-base font-black text-cyan-400">{after.dynamicRangeLRA.toFixed(1)} LU</span>
+                    <span className="text-[10px] text-lime-400 font-bold block">MASTER</span>
+                    <span className="font-mono text-base font-black text-lime-400">{after.dynamicRangeLRA.toFixed(1)} LU</span>
                   </div>
                 </div>
                 <div className="text-[10px] opacity-70 font-mono text-center">
@@ -1642,9 +1642,9 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
             return (
             <div className={`p-4 rounded-xl border space-y-3.5 ${
-              isClear 
-                ? 'bg-indigo-50/70 border-indigo-200 text-slate-800' 
-                : 'border-indigo-500/30 bg-indigo-950/25 text-slate-100'
+              isClear
+                ? 'bg-cyan-50/70 border-cyan-200 text-slate-800'
+                : 'border-cyan-500/30 bg-cyan-950/25 text-slate-100'
             }`}>
               {/* Instrumental Detection Banner */}
               {isInstrumentalTrack && (
@@ -1691,19 +1691,19 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
               {/* Header with Title & 5-State Validation Badge */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div className="flex items-center gap-2.5">
-                  <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 shrink-0">
+                  <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-400 shrink-0">
                     <Mic size={18} />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-300">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-cyan-300">
                         Validación General de Protección Vocal
                       </h4>
-                      <span className="text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                      <span className="text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
                         Multi-Masker Audit
                       </span>
                       {result.vocalReport.iterationsPerformed && (
-                        <span className="text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                        <span className="text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded bg-lime-500/20 text-lime-300 border border-lime-500/30">
                           {result.vocalReport.iterationsPerformed > 1
                             ? `${result.vocalReport.iterationsPerformed} iteraciones closed-loop`
                             : '1 iteración'}
@@ -1720,14 +1720,14 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                     result.vocalReport.vocalStatus === 'approved'
                       ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                       : result.vocalReport.vocalStatus === 'acceptable'
-                      ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                      ? 'bg-lime-500/10 text-lime-400 border-lime-500/30'
                       : result.vocalReport.vocalStatus === 'partially_achieved'
-                      ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
+                      ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
                       : result.vocalReport.vocalStatus === 'warning'
                       ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                       : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
                   }`}>
-                    {result.vocalReport.statusLabel || (result.vocalReport.verdict === 'EXCELLENT' ? 'Protección aprobada' : 'Protección aceptable')} 
+                    {result.vocalReport.statusLabel || (result.vocalReport.verdict === 'EXCELLENT' ? 'Protección aprobada' : 'Protección aceptable')}
                     {' '}(Δ máx: {result.vocalReport.maxRelativeDeltaDb !== undefined ? (result.vocalReport.maxRelativeDeltaDb >= 0 ? `+${result.vocalReport.maxRelativeDeltaDb.toFixed(2)}` : result.vocalReport.maxRelativeDeltaDb.toFixed(2)) : '0.00'} dB)
                   </span>
                 </div>
@@ -1735,11 +1735,11 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
               {/* Diagnosis Bar: Masking, Vocal Register & Sections Analyzed */}
               <div className={`p-2.5 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] font-mono ${
-                isClear ? 'bg-white/80 border-indigo-100 text-slate-700' : 'bg-slate-950/60 border-slate-800/80 text-slate-300'
+                isClear ? 'bg-white/80 border-cyan-100 text-slate-700' : 'bg-slate-950/60 border-slate-800/80 text-slate-300'
               }`}>
                 <div className="flex items-center gap-2">
                   <span className="text-slate-400 uppercase text-[10px]">Enmascarador principal:</span>
-                  <span className="font-semibold text-indigo-300">{result.vocalReport.maskingElementDetected}</span>
+                  <span className="font-semibold text-cyan-300">{result.vocalReport.maskingElementDetected}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-[10px]">
                   <span>
@@ -1770,13 +1770,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   {/* 1. Sub/Bass vs Vocal Body */}
                   <div className={`p-2 rounded-lg border text-[10px] ${
-                    isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                    isClear ? 'bg-white border-cyan-100' : 'bg-slate-900/80 border-slate-800'
                   }`}>
                     <span className="text-slate-400 block truncate" title="Sub/Graves vs Cuerpo (180-900Hz)">Graves vs Cuerpo</span>
                     <div className="flex items-baseline justify-between mt-1">
                       <span className={`font-bold font-mono ${
                         (result.vocalReport.subBassRelDeltaDb ?? 0) <= 0.30 ? 'text-emerald-400' :
-                        (result.vocalReport.subBassRelDeltaDb ?? 0) <= 0.50 ? 'text-cyan-400' :
+                        (result.vocalReport.subBassRelDeltaDb ?? 0) <= 0.50 ? 'text-lime-400' :
                         (result.vocalReport.subBassRelDeltaDb ?? 0) <= 0.80 ? 'text-amber-400' : 'text-rose-400'
                       }`}>
                         {(result.vocalReport.subBassRelDeltaDb ?? 0) >= 0 ? '+' : ''}{(result.vocalReport.subBassRelDeltaDb ?? 0).toFixed(2)} dB
@@ -1787,13 +1787,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
                   {/* 2. Low-Mid Res vs Vocal Body */}
                   <div className={`p-2 rounded-lg border text-[10px] ${
-                    isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                    isClear ? 'bg-white border-cyan-100' : 'bg-slate-900/80 border-slate-800'
                   }`}>
                     <span className="text-slate-400 block truncate" title="Medios-Bajos (250-400Hz) vs Cuerpo">Medios-Bajos vs Cuerpo</span>
                     <div className="flex items-baseline justify-between mt-1">
                       <span className={`font-bold font-mono ${
                         (result.vocalReport.lowMidRelDeltaDb ?? 0) <= 0.30 ? 'text-emerald-400' :
-                        (result.vocalReport.lowMidRelDeltaDb ?? 0) <= 0.50 ? 'text-cyan-400' :
+                        (result.vocalReport.lowMidRelDeltaDb ?? 0) <= 0.50 ? 'text-lime-400' :
                         (result.vocalReport.lowMidRelDeltaDb ?? 0) <= 0.80 ? 'text-amber-400' : 'text-rose-400'
                       }`}>
                         {(result.vocalReport.lowMidRelDeltaDb ?? 0) >= 0 ? '+' : ''}{(result.vocalReport.lowMidRelDeltaDb ?? 0).toFixed(2)} dB
@@ -1804,13 +1804,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
                   {/* 3. Guitars/Synths vs Intelligibility */}
                   <div className={`p-2 rounded-lg border text-[10px] ${
-                    isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                    isClear ? 'bg-white border-cyan-100' : 'bg-slate-900/80 border-slate-800'
                   }`}>
                     <span className="text-slate-400 block truncate" title="Guitarras/Sintes vs Inteligibilidad (1-4kHz)">Sintes/Gtr vs Claridad</span>
                     <div className="flex items-baseline justify-between mt-1">
                       <span className={`font-bold font-mono ${
                         (result.vocalReport.midInstRelDeltaDb ?? 0) <= 0.30 ? 'text-emerald-400' :
-                        (result.vocalReport.midInstRelDeltaDb ?? 0) <= 0.50 ? 'text-cyan-400' :
+                        (result.vocalReport.midInstRelDeltaDb ?? 0) <= 0.50 ? 'text-lime-400' :
                         (result.vocalReport.midInstRelDeltaDb ?? 0) <= 0.80 ? 'text-amber-400' : 'text-rose-400'
                       }`}>
                         {(result.vocalReport.midInstRelDeltaDb ?? 0) >= 0 ? '+' : ''}{(result.vocalReport.midInstRelDeltaDb ?? 0).toFixed(2)} dB
@@ -1821,13 +1821,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
                   {/* 4. High Percussion/Cymbals vs Presence */}
                   <div className={`p-2 rounded-lg border text-[10px] ${
-                    isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                    isClear ? 'bg-white border-cyan-100' : 'bg-slate-900/80 border-slate-800'
                   }`}>
                     <span className="text-slate-400 block truncate" title="Platillos/Brillo vs Presencia (2-5kHz)">Platillos vs Presencia</span>
                     <div className="flex items-baseline justify-between mt-1">
                       <span className={`font-bold font-mono ${
                         (result.vocalReport.highInstRelDeltaDb ?? 0) <= 0.30 ? 'text-emerald-400' :
-                        (result.vocalReport.highInstRelDeltaDb ?? 0) <= 0.50 ? 'text-cyan-400' :
+                        (result.vocalReport.highInstRelDeltaDb ?? 0) <= 0.50 ? 'text-lime-400' :
                         (result.vocalReport.highInstRelDeltaDb ?? 0) <= 0.80 ? 'text-amber-400' : 'text-rose-400'
                       }`}>
                         {(result.vocalReport.highInstRelDeltaDb ?? 0) >= 0 ? '+' : ''}{(result.vocalReport.highInstRelDeltaDb ?? 0).toFixed(2)} dB
@@ -1838,14 +1838,14 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
                   {/* 5. Side Stereo Width vs Mid Vocal Growth */}
                   <div className={`p-2 rounded-lg border text-[10px] ${
-                    isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                    isClear ? 'bg-white border-cyan-100' : 'bg-slate-900/80 border-slate-800'
                   }`}>
                     <span className="text-slate-400 block truncate" title="Crecimiento Side vs Crecimiento Mid Vocal">Ancho Side vs Centro</span>
                     <div className="flex items-baseline justify-between mt-1">
                       <span className={`font-bold font-mono ${
                         (result.vocalReport.sideStereoRelDeltaDb ?? 0) <= 0 ? 'text-emerald-400' :
                         (result.vocalReport.sideStereoRelDeltaDb ?? 0) <= 0.30 ? 'text-emerald-400' :
-                        (result.vocalReport.sideStereoRelDeltaDb ?? 0) <= 0.50 ? 'text-cyan-400' :
+                        (result.vocalReport.sideStereoRelDeltaDb ?? 0) <= 0.50 ? 'text-lime-400' :
                         (result.vocalReport.sideStereoRelDeltaDb ?? 0) <= 0.80 ? 'text-amber-400' : 'text-rose-400'
                       }`}>
                         {(result.vocalReport.sideStereoRelDeltaDb ?? 0) >= 0 ? '+' : ''}{(result.vocalReport.sideStereoRelDeltaDb ?? 0).toFixed(2)} dB
@@ -1864,11 +1864,11 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
               {((result.vocalReport.responsibleStagesIdentified && result.vocalReport.responsibleStagesIdentified.length > 0) ||
                 (result.vocalReport.dspAdjustmentsSummary && result.vocalReport.dspAdjustmentsSummary.length > 0)) && (
                 <div className={`p-2.5 rounded-lg border text-[11px] space-y-2 ${
-                  isClear ? 'bg-white/80 border-indigo-100 text-slate-700' : 'bg-slate-950/60 border-slate-800 text-slate-300'
+                  isClear ? 'bg-white/80 border-cyan-100 text-slate-700' : 'bg-slate-950/60 border-slate-800 text-slate-300'
                 }`}>
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono uppercase font-bold text-indigo-300 flex items-center gap-1.5">
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                    <span className="text-[10px] font-mono uppercase font-bold text-cyan-300 flex items-center gap-1.5">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-lime-400"></span>
                       Corrección Activa Closed-Loop ({result.vocalReport.iterationsPerformed || 1} {(result.vocalReport.iterationsPerformed || 1) === 1 ? 'paso' : 'iteraciones'})
                     </span>
                     {result.vocalReport.safetyLimitReached && (
@@ -1877,13 +1877,13 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                       </span>
                     )}
                   </div>
-                  
+
                   {result.vocalReport.responsibleStagesIdentified && result.vocalReport.responsibleStagesIdentified.length > 0 && (
                     <div className="text-[10px]">
                       <span className="text-slate-400 font-mono block mb-1">Etapas responsables identificadas:</span>
                       <div className="flex flex-wrap gap-1">
                         {result.vocalReport.responsibleStagesIdentified.map((stg, sIdx) => (
-                          <span key={sIdx} className="px-1.5 py-0.5 rounded bg-slate-800/80 text-cyan-300 border border-slate-700 font-mono text-[9px]">
+                          <span key={sIdx} className="px-1.5 py-0.5 rounded bg-slate-800/80 text-lime-300 border border-slate-700 font-mono text-[9px]">
                             {stg}
                           </span>
                         ))}
@@ -1922,14 +1922,14 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-0.5">
                 {/* 1. Delta Vocal (Presencia) */}
                 <div className={`p-2.5 rounded-lg border text-[11px] ${
-                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                  isClear ? 'bg-white border-cyan-100' : 'bg-slate-900/80 border-slate-800'
                 }`}>
                   <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Presencia Vocal</span>
                   <div className="flex items-baseline justify-between mt-1">
                     <span className="font-bold text-slate-200">
                       {result.vocalReport.vocalDeltaDb >= 0 ? '+' : ''}{result.vocalReport.vocalDeltaDb.toFixed(2)} dB
                     </span>
-                    <span className="text-[10px] font-mono text-indigo-400">@{result.vocalReport.final.exactPresenceFreq}Hz</span>
+                    <span className="text-[10px] font-mono text-cyan-400">@{result.vocalReport.final.exactPresenceFreq}Hz</span>
                   </div>
                   {result.vocalReport.measuredAudioDeltas && (
                     <div className="mt-1 text-[9px] font-mono text-slate-400 truncate" title="Medición real en audio renderizado">
@@ -1940,17 +1940,17 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
                 {/* 2. Mid Compensation */}
                 <div className={`p-2.5 rounded-lg border text-[11px] ${
-                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                  isClear ? 'bg-white border-cyan-100' : 'bg-slate-900/80 border-slate-800'
                 }`}>
                   <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Compensación Mid EQ</span>
                   <div className="flex items-baseline justify-between mt-1">
                     <span className={`font-bold ${result.vocalReport.midCompensationAppliedDb > 0 ? 'text-amber-400' : 'text-slate-200'}`}>
-                      {result.vocalReport.midCompensationAppliedDb > 0 
-                        ? `+${result.vocalReport.midCompensationAppliedDb.toFixed(2)} dB` 
+                      {result.vocalReport.midCompensationAppliedDb > 0
+                        ? `+${result.vocalReport.midCompensationAppliedDb.toFixed(2)} dB`
                         : 'No requerida'}
                     </span>
                     {result.vocalReport.midCompensationAppliedDb > 0 ? (
-                      <span className="text-[10px] font-mono text-indigo-400">@{result.vocalReport.midCompensationFreq}Hz</span>
+                      <span className="text-[10px] font-mono text-cyan-400">@{result.vocalReport.midCompensationFreq}Hz</span>
                     ) : (
                       <span className="text-[9px] font-mono text-slate-500">Timbre original</span>
                     )}
@@ -1964,17 +1964,17 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
                 {/* 3. Adaptive De-Esser */}
                 <div className={`p-2.5 rounded-lg border text-[11px] ${
-                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                  isClear ? 'bg-white border-cyan-100' : 'bg-slate-900/80 border-slate-800'
                 }`}>
                   <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">De-Esser Adaptativo</span>
                   <div className="flex items-baseline justify-between mt-1">
                     <span className="font-bold text-slate-200">
-                      {result.vocalReport.deEsserApplied 
-                        ? `-${result.vocalReport.deEsserReductionDb.toFixed(1)} dB máx` 
+                      {result.vocalReport.deEsserApplied
+                        ? `-${result.vocalReport.deEsserReductionDb.toFixed(1)} dB máx`
                         : 'Bypass (Limpio)'}
                     </span>
                     {result.vocalReport.deEsserApplied && (
-                      <span className="text-[10px] font-mono text-indigo-400">@{result.vocalReport.exactDeEsserFreq}Hz</span>
+                      <span className="text-[10px] font-mono text-cyan-400">@{result.vocalReport.exactDeEsserFreq}Hz</span>
                     )}
                   </div>
                   <div className="mt-1 text-[9px] font-mono text-slate-400 truncate">
@@ -1984,7 +1984,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
                 {/* 4. Mono Compatibility */}
                 <div className={`p-2.5 rounded-lg border text-[11px] ${
-                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                  isClear ? 'bg-white border-cyan-100' : 'bg-slate-900/80 border-slate-800'
                 }`}>
                   <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Compatibilidad Mono</span>
                   <div className="flex items-baseline justify-between mt-1">
@@ -2002,20 +2002,20 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
                 {/* 5. Dynamic Sub Cut (30-75Hz) */}
                 <div className={`p-2.5 rounded-lg border text-[11px] ${
-                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                  isClear ? 'bg-white border-cyan-100' : 'bg-slate-900/80 border-slate-800'
                 }`}>
                   <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">EQ Dinámica Sub</span>
                   <div className="flex items-baseline justify-between mt-1">
                     <span className={`font-bold font-mono ${
                       result.vocalReport.dynamicSubCutAppliedDb && Math.abs(result.vocalReport.dynamicSubCutAppliedDb) > 0.05
-                        ? 'text-cyan-400'
+                        ? 'text-lime-400'
                         : 'text-slate-200'
                     }`}>
                       {result.vocalReport.dynamicSubCutAppliedDb && Math.abs(result.vocalReport.dynamicSubCutAppliedDb) > 0.05
                         ? `${result.vocalReport.dynamicSubCutAppliedDb.toFixed(2)} dB`
                         : '0.00 dB'}
                     </span>
-                    <span className="text-[10px] font-mono text-indigo-400">30-75Hz</span>
+                    <span className="text-[10px] font-mono text-cyan-400">30-75Hz</span>
                   </div>
                   <div className="mt-1 text-[9px] font-mono text-slate-400 truncate">
                     {result.vocalReport.dynamicSubCutAppliedDb && Math.abs(result.vocalReport.dynamicSubCutAppliedDb) > 0.05
@@ -2026,7 +2026,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
                 {/* 6. Vocal Body Recovery (Mid 300-900Hz) */}
                 <div className={`p-2.5 rounded-lg border text-[11px] ${
-                  isClear ? 'bg-white border-indigo-100' : 'bg-slate-900/80 border-slate-800'
+                  isClear ? 'bg-white border-cyan-100' : 'bg-slate-900/80 border-slate-800'
                 }`}>
                   <span className="text-slate-400 block text-[10px] uppercase font-mono tracking-wider">Cuerpo Vocal Mid</span>
                   <div className="flex items-baseline justify-between mt-1">
@@ -2039,7 +2039,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                         ? `+${result.vocalReport.vocalBodyRecoveryAppliedDb.toFixed(2)} dB`
                         : '0.00 dB'}
                     </span>
-                    <span className="text-[10px] font-mono text-indigo-400">300-900Hz</span>
+                    <span className="text-[10px] font-mono text-cyan-400">300-900Hz</span>
                   </div>
                   <div className="mt-1 text-[9px] font-mono text-slate-400 truncate">
                     {result.vocalReport.vocalBodyRecoveryAppliedDb && result.vocalReport.vocalBodyRecoveryAppliedDb > 0.05
@@ -2057,7 +2057,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
-                  <Sliders size={14} className="text-indigo-400" />
+                  <Sliders size={14} className="text-cyan-400" />
                   Telemetría DSP Verificada de 3 Niveles en el Archivo Final
                 </h4>
                 <span className="text-[10px] font-mono text-slate-400">
@@ -2071,11 +2071,11 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                   const isActive = action.limiterState === 'ACTIVE' || action.statusLabel === 'ACTIVE' || action.state === 'ACTIVE';
 
                   return (
-                    <div 
+                    <div
                       key={idx}
                       className={`p-3.5 rounded-xl border flex flex-col justify-between space-y-2.5 transition-all ${
-                        isClear 
-                          ? 'bg-white border-slate-200 shadow-sm' 
+                        isClear
+                          ? 'bg-white border-slate-200 shadow-sm'
                           : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
                       }`}
                     >
@@ -2111,7 +2111,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
                       <div className="space-y-1.5 text-[11px] font-mono">
                         {/* Nivel 1: Intención DSP */}
                         <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-cyan-400 block mb-0.5">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-lime-400 block mb-0.5">
                             🎯 Nivel 1 — Intención DSP:
                           </span>
                           <p className="text-[10px] text-slate-300 leading-relaxed">
@@ -2121,7 +2121,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
 
                         {/* Nivel 2: Acción Configurada */}
                         <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80">
-                          <span className="text-[9px] font-bold uppercase tracking-wider text-indigo-400 block mb-0.5">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-cyan-400 block mb-0.5">
                             ⚙️ Nivel 2 — Acción DSP Configurada:
                           </span>
                           <p className="text-[10px] text-slate-300 leading-relaxed">
@@ -2149,7 +2149,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
           {/* DSP Decisions & Process Applied */}
           <div className="space-y-2">
             <h4 className="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
-              <Cpu size={14} className="text-cyan-400" />
+              <Cpu size={14} className="text-lime-400" />
               Procesamiento y Ajustes Realizados por el Motor DSP
             </h4>
             <div className={`p-4 rounded-xl border space-y-2.5 ${
@@ -2179,7 +2179,7 @@ export const AIMasteringReportModal: React.FC<AIMasteringReportModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="px-5 py-2 bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-bold text-xs rounded-xl shadow-md transition-all"
+            className="px-5 py-2 bg-gradient-to-r from-cyan-600 to-lime-600 hover:from-cyan-500 hover:to-lime-500 text-white font-bold text-xs rounded-xl shadow-md transition-all"
           >
             Entendido
           </button>

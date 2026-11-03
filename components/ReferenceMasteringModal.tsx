@@ -1,14 +1,14 @@
 import React, { useState, useRef } from 'react';
-import { 
-  X, Sparkles, UploadCloud, Trash2, CheckCircle2, ShieldCheck, 
+import {
+  X, Sparkles, UploadCloud, Trash2, CheckCircle2, ShieldCheck,
   Sliders, Music, Disc, Cpu, ArrowRight, Gauge, Layers, Info, Play, Pause, AlertCircle
 } from 'lucide-react';
-import { 
-  ReferenceTrack, 
-  ReferenceMasteringConfig, 
-  ReferenceMasteringMode, 
-  ReferenceMatchIntensity, 
-  SkinMode 
+import {
+  ReferenceTrack,
+  ReferenceMasteringConfig,
+  ReferenceMasteringMode,
+  ReferenceMatchIntensity,
+  SkinMode
 } from '../types';
 import { Language, getT } from '../services/i18n';
 import { audioEngine } from '../services/audioEngine';
@@ -67,7 +67,7 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
       try {
         const buffer = await audioEngine.decodeAudioFile(file);
         const profile = await audioEngine.analyzeReferenceTrack(buffer);
-        
+
         const newTrack: ReferenceTrack = {
           id: Math.random().toString(36).substring(2, 9),
           name: file.name.replace(/\.[^/.]+$/, ""),
@@ -174,17 +174,17 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-6 animate-in fade-in duration-200">
       <div className="w-full max-w-4xl rounded-2xl overflow-hidden shadow-2xl border border-slate-800 bg-slate-900 text-slate-100 flex flex-col max-h-[92vh]">
-        
+
         {/* Header */}
         <div className="p-5 flex items-center justify-between border-b border-slate-800 bg-slate-950/70">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 text-white rounded-xl shadow-lg shadow-purple-900/30">
+            <div className="p-2.5 bg-gradient-to-br from-cyan-500 via-purple-500 to-pink-500 text-white rounded-xl shadow-lg shadow-purple-900/30">
               <Sparkles size={22} className="animate-pulse" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-black text-lg text-white tracking-wide">Mastering Inteligente por Referencia</h3>
-                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
                   AI Multi-Ref 4.0
                 </span>
               </div>
@@ -193,7 +193,7 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
               </p>
             </div>
           </div>
-          <button 
+          <button
             onClick={() => {
               if (previewAudioNode) {
                 try { previewAudioNode.stop(); } catch (_) {}
@@ -208,7 +208,7 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-6 custom-scrollbar">
-          
+
           {/* Upload Dropzone */}
           <div
             onDragOver={handleDragOver}
@@ -216,21 +216,21 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
             className={`border-2 border-dashed rounded-2xl p-6 transition-all text-center cursor-pointer flex flex-col items-center justify-center gap-3 ${
-              isDragging 
-                ? 'border-indigo-400 bg-indigo-950/40 scale-[1.01]' 
+              isDragging
+                ? 'border-cyan-400 bg-cyan-950/40 scale-[1.01]'
                 : 'border-slate-700/80 bg-slate-950/40 hover:bg-slate-800/40 hover:border-slate-600'
             }`}
           >
-            <input 
+            <input
               ref={fileInputRef}
-              type="file" 
-              multiple 
+              type="file"
+              multiple
               accept="audio/*,.wav,.mp3,.flac,.aiff,.m4a"
               className="hidden"
               onChange={(e) => handleFiles(e.target.files)}
             />
 
-            <div className="p-3.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-2xl shadow-inner">
+            <div className="p-3.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 rounded-2xl shadow-inner">
               <UploadCloud size={28} />
             </div>
 
@@ -244,7 +244,7 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
             </div>
 
             {isAnalyzing && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-950/80 border border-indigo-500/40 rounded-full text-xs text-indigo-300 font-mono animate-pulse">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-cyan-950/80 border border-cyan-500/40 rounded-full text-xs text-cyan-300 font-mono animate-pulse">
                 <Cpu size={14} className="animate-spin" />
                 <span>Analizando ADN espectral y dinámico: {analyzingFileName}...</span>
               </div>
@@ -256,7 +256,7 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                  <Disc size={14} className="text-indigo-400" />
+                  <Disc size={14} className="text-cyan-400" />
                   Referencias Cargadas ({references.length})
                 </h4>
                 {references.length > 1 && (
@@ -266,7 +266,7 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
                       <button
                         onClick={() => setBlendMode('primary')}
                         className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all ${
-                          blendMode === 'primary' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+                          blendMode === 'primary' ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
                         }`}
                       >
                         Primaria
@@ -274,7 +274,7 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
                       <button
                         onClick={() => setBlendMode('weighted_average')}
                         className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all ${
-                          blendMode === 'weighted_average' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+                          blendMode === 'weighted_average' ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
                         }`}
                       >
                         Ponderada
@@ -282,7 +282,7 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
                       <button
                         onClick={() => setBlendMode('modular')}
                         className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all ${
-                          blendMode === 'modular' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+                          blendMode === 'modular' ? 'bg-cyan-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
                         }`}
                       >
                         Modular
@@ -298,11 +298,11 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
                   const p = ref.profile;
 
                   return (
-                    <div 
+                    <div
                       key={ref.id}
                       className={`p-4 rounded-xl border transition-all flex flex-col gap-3.5 ${
-                        isPrimary 
-                          ? 'bg-slate-950/80 border-indigo-500/40 shadow-lg shadow-indigo-950/30' 
+                        isPrimary
+                          ? 'bg-slate-950/80 border-cyan-500/40 shadow-lg shadow-cyan-950/30'
                           : 'bg-slate-950/50 border-slate-800 hover:border-slate-700'
                       }`}
                     >
@@ -312,8 +312,8 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
                           <button
                             onClick={() => handleTogglePreview(ref)}
                             className={`p-2 rounded-xl transition-all ${
-                              playingRefId === ref.id 
-                                ? 'bg-amber-500 text-slate-950 shadow-md animate-pulse' 
+                              playingRefId === ref.id
+                                ? 'bg-amber-500 text-slate-950 shadow-md animate-pulse'
                                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
                             }`}
                             title={playingRefId === ref.id ? "Pausar preescucha" : "Preescuchar referencia"}
@@ -325,7 +325,7 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
                             <div className="flex items-center gap-2">
                               <span className="font-bold text-sm text-slate-100">{ref.name}</span>
                               {isPrimary && (
-                                <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
                                   Primaria
                                 </span>
                               )}
@@ -388,11 +388,11 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
                         </div>
                         <div className="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800">
                           <span className="text-[9px] text-slate-500 block">M/S WIDTH</span>
-                          <span className="text-xs font-bold text-cyan-400">{p.stereoWidthRatio.toFixed(2)}x</span>
+                          <span className="text-xs font-bold text-lime-400">{p.stereoWidthRatio.toFixed(2)}x</span>
                         </div>
                         <div className="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800">
                           <span className="text-[9px] text-slate-500 block">PUNCH</span>
-                          <span className="text-xs font-bold text-indigo-400">{p.transientPunch}/100</span>
+                          <span className="text-xs font-bold text-cyan-400">{p.transientPunch}/100</span>
                         </div>
                       </div>
 
@@ -400,16 +400,16 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
                       {blendMode === 'weighted_average' && references.length > 1 && (
                         <div className="flex items-center gap-3 px-1">
                           <span className="text-[10px] font-bold uppercase text-slate-400 w-24">Peso Ponderado:</span>
-                          <input 
+                          <input
                             type="range"
                             min="0.1"
                             max="1.0"
                             step="0.05"
                             value={ref.weight}
                             onChange={(e) => onUpdateReference(ref.id, { weight: parseFloat(e.target.value) })}
-                            className="flex-1 accent-indigo-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                            className="flex-1 accent-cyan-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
                           />
-                          <span className="font-mono text-xs font-bold text-indigo-400 w-12 text-right">
+                          <span className="font-mono text-xs font-bold text-cyan-400 w-12 text-right">
                             {Math.round(ref.weight * 100)}%
                           </span>
                         </div>
@@ -437,8 +437,8 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
                                   });
                                 }}
                                 className={`px-2 py-1 text-[10px] font-bold rounded-md border transition-all ${
-                                  active 
-                                    ? 'bg-indigo-600/30 border-indigo-500/50 text-indigo-300' 
+                                  active
+                                    ? 'bg-cyan-600/30 border-cyan-500/50 text-cyan-300'
                                     : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'
                                 }`}
                               >
@@ -458,30 +458,30 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
           {/* Mode Selection */}
           <div className="space-y-3">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-              <Sliders size={14} className="text-indigo-400" />
+              <Sliders size={14} className="text-cyan-400" />
               Modo de Procesamiento Adaptativo
             </h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              
+
               {/* Replicar */}
               <button
                 onClick={() => setMode('replicate')}
                 className={`p-4 rounded-xl border text-left flex flex-col justify-between transition-all ${
                   mode === 'replicate'
-                    ? 'bg-indigo-950/60 border-indigo-500 shadow-md shadow-indigo-950/40 text-white ring-1 ring-indigo-500'
+                    ? 'bg-cyan-950/60 border-cyan-500 shadow-md shadow-cyan-950/40 text-white ring-1 ring-cyan-500'
                     : 'bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-300'
                 }`}
               >
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="font-bold text-sm text-indigo-200">Replicar Estilo</span>
-                    {mode === 'replicate' && <CheckCircle2 size={16} className="text-indigo-400" />}
+                    <span className="font-bold text-sm text-cyan-200">Replicar Estilo</span>
+                    {mode === 'replicate' && <CheckCircle2 size={16} className="text-cyan-400" />}
                   </div>
                   <p className="text-xs text-slate-400 leading-relaxed">
                     Máxima cercanía sónica al perfil de referencia dentro de los límites físicos del mix.
                   </p>
                 </div>
-                <span className="text-[10px] font-mono text-indigo-400/80 mt-3 block">Ideal: Covers o singles directos</span>
+                <span className="text-[10px] font-mono text-cyan-400/80 mt-3 block">Ideal: Covers o singles directos</span>
               </button>
 
               {/* Adaptar */}
@@ -534,15 +534,15 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
 
           {/* Match Intensity & Safety Protections */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            
+
             {/* Match Intensity */}
             <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/50 flex flex-col justify-between gap-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                  <Gauge size={14} className="text-indigo-400" />
+                  <Gauge size={14} className="text-cyan-400" />
                   Intensidad del Emparejamiento
                 </span>
-                <span className="text-[10px] font-mono text-indigo-400">
+                <span className="text-[10px] font-mono text-cyan-400">
                   {intensity === 'subtle' ? '35% (Sutil)' : intensity === 'moderate' ? '65% (Moderado)' : '90% (Fuerte)'}
                 </span>
               </div>
@@ -550,8 +550,8 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
                 <button
                   onClick={() => setIntensity('subtle')}
                   className={`py-2 px-3 text-xs font-bold rounded-xl border transition-all text-center ${
-                    intensity === 'subtle' 
-                      ? 'bg-indigo-600 text-white border-indigo-500 shadow' 
+                    intensity === 'subtle'
+                      ? 'bg-cyan-600 text-white border-cyan-500 shadow'
                       : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
                   }`}
                 >
@@ -560,8 +560,8 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
                 <button
                   onClick={() => setIntensity('moderate')}
                   className={`py-2 px-3 text-xs font-bold rounded-xl border transition-all text-center ${
-                    intensity === 'moderate' 
-                      ? 'bg-indigo-600 text-white border-indigo-500 shadow' 
+                    intensity === 'moderate'
+                      ? 'bg-cyan-600 text-white border-cyan-500 shadow'
                       : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
                   }`}
                 >
@@ -570,8 +570,8 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
                 <button
                   onClick={() => setIntensity('strong')}
                   className={`py-2 px-3 text-xs font-bold rounded-xl border transition-all text-center ${
-                    intensity === 'strong' 
-                      ? 'bg-indigo-600 text-white border-indigo-500 shadow' 
+                    intensity === 'strong'
+                      ? 'bg-cyan-600 text-white border-cyan-500 shadow'
                       : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
                   }`}
                 >
@@ -612,10 +612,10 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
         {/* Footer */}
         <div className="p-4 border-t border-slate-800 bg-slate-950/80 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs text-slate-400">
-            <Info size={14} className="text-indigo-400" />
+            <Info size={14} className="text-cyan-400" />
             <span>
-              {references.length === 0 
-                ? 'Carga al menos una canción de referencia para comenzar.' 
+              {references.length === 0
+                ? 'Carga al menos una canción de referencia para comenzar.'
                 : `${references.length} referencia${references.length > 1 ? 's' : ''} lista${references.length > 1 ? 's' : ''} para calibración.`}
             </span>
           </div>
@@ -639,7 +639,7 @@ export const ReferenceMasteringModal: React.FC<ReferenceMasteringModalProps> = (
               className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg ${
                 references.length === 0 || isProcessing || isAnalyzing
                   ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-800'
-                  : 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white shadow-purple-900/40 active:scale-95'
+                  : 'bg-gradient-to-r from-cyan-600 via-purple-600 to-pink-600 hover:from-cyan-500 hover:to-pink-500 text-white shadow-purple-900/40 active:scale-95'
               }`}
             >
               <Sparkles size={15} className={isProcessing ? "animate-spin" : ""} />

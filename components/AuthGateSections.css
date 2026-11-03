@@ -1,0 +1,106 @@
+.am-ai {
+  background: radial-gradient(ellipse at 85% 45%, rgba(200, 255, 46, 0.09), transparent 45%), #080e12;
+  border-block: 1px solid #1f302a;
+}
+
+.am-ai-layout {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 72px;
+  align-items: center;
+}
+
+.am-ai-layout > div:first-child > p {
+  color: var(--am-muted);
+  font-size: 16px;
+  max-width: 520px;
+  margin: 24px 0 22px;
+}
+
+.am-ai-layout > div:first-child > small {
+  display: block;
+  color: #74817f;
+  font-size: 10px;
+  max-width: 540px;
+}
+
+.am-ai-card {
+  padding: 24px;
+  border: 1px solid #35503d;
+  border-radius: 21px;
+  background: linear-gradient(150deg, #17251e, #0c1418);
+  box-shadow: 0 26px 80px #0008;
+}
+
+.am-ai-card > b {
+  display: block;
+  color: var(--am-acid);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+  margin-bottom: 13px;
+}
+
+.am-flow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 14px;
+  border-top: 1px solid #293b35;
+}
+
+.am-flow > span {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: #18232a;
+  color: #91a09d;
+  font: 700 11px 'Space Grotesk';
+}
+
+.am-flow div { display: flex; flex-direction: column; }
+.am-flow strong { font: 700 14px 'Space Grotesk'; }
+.am-flow small { color: #82908e; font-size: 10px; }
+
+.am-flow.active {
+  margin-inline: -8px;
+  padding-inline: 22px;
+  border: 1px solid #5d792f;
+  border-radius: 13px;
+  background: linear-gradient(100deg, rgba(200, 255, 46, 0.16), rgba(18, 231, 228, 0.06));
+}
+
+.am-flow.active > span { background: var(--am-acid); color: #15200d; }
+.am-faq { max-width: 880px; }
+.am-faq h2 { margin-bottom: 38px; }
+
+.am-faq details {
+  border-top: 1px solid #314039;
+  padding: 20px 3px;
+}
+
+.am-faq details:last-child { border-bottom: 1px solid #314039; }
+.am-faq details[open] { background: linear-gradient(90deg, rgba(200, 255, 46, 0.03), transparent); }
+
+.am-faq summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  font: 700 16px 'Space Grotesk';
+  color: #dce5e2;
+}
+
+.am-faq summary::-webkit-details-marker { display: none; }
+.am-faq summary::after { content: '+'; color: var(--am-acid); font-size: 22px; }
+.am-faq details[open] summary::after { content: '−'; }
+.am-faq details p { color: var(--am-muted); font-size: 13px; max-width: 700px; margin: 13px 0 0; }
+
+@media (max-width: 720px) {
+  .am-ai-layout { grid-template-columns: 1fr; gap: 36px; }
+  .am-ai-card { padding: 16px; }
+}

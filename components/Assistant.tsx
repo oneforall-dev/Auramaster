@@ -83,7 +83,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
 
     try {
       const suggestedPartial = await getMasteringSuggestionWithUserAI(activePrompt, null, currentParams);
-      
+
       if (currentParams) {
         const mergedParams: MasteringChainParams = {
           ...currentParams,
@@ -96,7 +96,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
         };
         onApplyPreset(mergedParams);
       }
-      
+
       setPrompt('');
       setSuccessMsg(lang === 'es' ? '¡Ajustes de IA aplicados con éxito!' : lang === 'ko' ? 'AI 마스터링 설정이 적용되었습니다!' : lang === 'ja' ? 'AI設定が正常に適用されました！' : 'AI settings applied successfully!');
       setTimeout(() => setSuccessMsg(''), 4000);
@@ -124,7 +124,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
       {/* Top Header Row */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-gradient-to-br from-cyan-500 to-cyan-700 text-white rounded-xl shadow-lg shadow-cyan-500/20 shrink-0">
+          <div className="p-2 bg-gradient-to-br from-lime-500 to-lime-700 text-white rounded-xl shadow-lg shadow-lime-500/20 shrink-0">
             <Sparkles size={20} />
           </div>
           <div>
@@ -146,8 +146,8 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
             </div>
             {!isCollapsed && (
               <p className="text-xs text-slate-400 mt-0.5 hidden sm:block">
-                {vaultStatus?.configured 
-                  ? `${t.aiAssistantDesc} (${vaultStatus.model})` 
+                {vaultStatus?.configured
+                  ? `${t.aiAssistantDesc} (${vaultStatus.model})`
                   : t.aiKeyModalDesc}
               </p>
             )}
@@ -159,7 +159,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
             onClick={() => canManageApiKeys ? setIsModalOpen(true) : onUpgrade?.()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-700/80 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-all shadow-sm cursor-pointer"
           >
-            <Settings size={14} className="text-cyan-400" />
+            <Settings size={14} className="text-lime-400" />
             <span className="hidden sm:inline">{canManageApiKeys ? t.aiSettings : 'Pro'}</span>
           </button>
 
@@ -191,7 +191,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
             /* Disabled State */
             <div className="border border-dashed border-slate-800 bg-slate-950/60 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
-                <div className="p-2.5 bg-cyan-500/10 border border-cyan-500/30 rounded-xl text-cyan-400 shrink-0">
+                <div className="p-2.5 bg-lime-500/10 border border-lime-500/30 rounded-xl text-lime-400 shrink-0">
                   <KeyRound size={22} />
                 </div>
                 <div>
@@ -205,7 +205,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
               </div>
               <button
                 onClick={() => setIsModalOpen(true)}
-                className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-cyan-500/20 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+                className="px-4 py-2 bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-400 hover:to-lime-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-lime-500/20 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
               >
                 <span>{t.connectKey}</span>
                 <ArrowRight size={14} />
@@ -217,7 +217,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
               {/* Quick Preset Buttons */}
               <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
                 <span className="text-[11px] font-semibold text-slate-400 shrink-0 flex items-center gap-1">
-                  <Radio size={12} className="text-cyan-400" />
+                  <Radio size={12} className="text-lime-400" />
                   {t.quickStyles}
                 </span>
                 {QUICK_PROMPTS.map((qp, idx) => (
@@ -247,14 +247,14 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
                     }}
                     placeholder={t.aiPromptPlaceholder}
                     disabled={loading}
-                    className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/50 transition-all disabled:opacity-50"
+                    className="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-lime-500/80 focus:ring-1 focus:ring-lime-500/50 transition-all disabled:opacity-50"
                   />
                 </div>
 
                 <button
                   onClick={() => handleGenerate()}
                   disabled={loading || !prompt.trim()}
-                  className="px-4 sm:px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-slate-950 font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-cyan-500/20 transition-all flex items-center gap-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-95"
+                  className="px-4 sm:px-5 py-2.5 bg-gradient-to-r from-lime-500 to-lime-600 hover:from-lime-400 hover:to-lime-500 text-slate-950 font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-lime-500/20 transition-all flex items-center gap-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-95"
                 >
                   {loading ? (
                     <>

@@ -38,8 +38,8 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200 select-none">
-      <div className="w-full max-w-lg bg-slate-900 border border-slate-700/90 rounded-3xl p-6 sm:p-8 backdrop-blur-2xl shadow-2xl shadow-cyan-950/60 flex flex-col gap-5 relative m-auto max-h-[92vh] overflow-y-auto">
-        
+      <div className="w-full max-w-lg bg-slate-900 border border-slate-700/90 rounded-3xl p-6 sm:p-8 backdrop-blur-2xl shadow-2xl shadow-lime-950/60 flex flex-col gap-5 relative m-auto max-h-[92vh] overflow-y-auto">
+
         {/* Close button */}
         <button
           onClick={onClose}
@@ -52,7 +52,7 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
         {/* Header Success Animation */}
         <div className="flex flex-col items-center text-center gap-2">
           <div className="relative">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-500 to-cyan-500 flex items-center justify-center text-white shadow-xl shadow-emerald-500/25 animate-bounce">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-500 to-lime-500 flex items-center justify-center text-white shadow-xl shadow-emerald-500/25 animate-bounce">
               <Download size={26} />
             </div>
             <div className="absolute -top-1 -right-1 p-1 bg-emerald-400 rounded-full text-slate-950">
@@ -64,7 +64,7 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
             <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
               {lang === 'es' ? '¡Mastering Descargado con Éxito!' : 'Mastering Downloaded Successfully!'}
             </h2>
-            <p className="text-xs font-mono text-cyan-300 truncate max-w-[360px]">
+            <p className="text-xs font-mono text-lime-300 truncate max-w-[360px]">
               📁 {fileName}
             </p>
           </div>
@@ -72,7 +72,7 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
 
         {/* Verified Quality Control (QC) Certificate Card */}
         {qc && (
-          <div className="rounded-2xl p-4 bg-slate-950/90 border border-cyan-500/30 shadow-lg flex flex-col gap-3">
+          <div className="rounded-2xl p-4 bg-slate-950/90 border border-lime-500/30 shadow-lg flex flex-col gap-3">
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
               <div className="flex items-center gap-2">
                 <ShieldCheck size={18} className="text-emerald-400" />
@@ -87,7 +87,7 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
               <div className="p-2 rounded-xl bg-slate-900/90 border border-slate-800">
                 <span className="text-[10px] text-slate-400 font-mono block">Loudness-I</span>
-                <span className="text-sm font-black font-mono text-cyan-300">{qc.lufsIntegrated.toFixed(1)} LUFS</span>
+                <span className="text-sm font-black font-mono text-lime-300">{qc.lufsIntegrated.toFixed(1)} LUFS</span>
               </div>
               <div className="p-2 rounded-xl bg-slate-900/90 border border-slate-800">
                 <span className="text-[10px] text-slate-400 font-mono block">True Peak</span>
@@ -113,7 +113,7 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
           <div className="flex flex-col gap-2 p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800">
             <div className="text-[11px] font-bold text-slate-300 flex items-center justify-between">
               <span>{lang === 'es' ? 'Descargar en otros formatos profesionales:' : 'Download in other formats:'}</span>
-              <span className="text-[10px] text-cyan-400 font-mono">WAV 32 / 24 / 16-bit</span>
+              <span className="text-[10px] text-lime-400 font-mono">WAV 32 / 24 / 16-bit</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <button
@@ -121,7 +121,7 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
                 disabled={downloadingBit !== null}
                 className="py-2.5 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700 text-left transition-all text-xs flex flex-col gap-0.5 cursor-pointer disabled:opacity-50"
               >
-                <div className="flex items-center justify-between text-cyan-300 font-bold text-[11px]">
+                <div className="flex items-center justify-between text-lime-300 font-bold text-[11px]">
                   <span>32-bit Float</span>
                   <Disc size={13} />
                 </div>
@@ -131,7 +131,7 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
               <button
                 onClick={() => handleDownload(24)}
                 disabled={downloadingBit !== null}
-                className="py-2.5 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-cyan-500/40 text-left transition-all text-xs flex flex-col gap-0.5 cursor-pointer disabled:opacity-50 shadow-sm"
+                className="py-2.5 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-lime-500/40 text-left transition-all text-xs flex flex-col gap-0.5 cursor-pointer disabled:opacity-50 shadow-sm"
               >
                 <div className="flex items-center justify-between text-emerald-300 font-bold text-[11px]">
                   <span>24-bit PCM</span>
@@ -156,14 +156,14 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
         )}
 
         {/* Step-by-Step Spotify Distribution & AI Chart Eligibility Card */}
-        <div className="relative overflow-hidden rounded-3xl p-5 bg-gradient-to-br from-indigo-950/90 via-slate-900 to-purple-950/70 border border-cyan-500/40 shadow-xl shadow-indigo-950/50 flex flex-col gap-4">
-          
+        <div className="relative overflow-hidden rounded-3xl p-5 bg-gradient-to-br from-cyan-950/90 via-slate-900 to-purple-950/70 border border-lime-500/40 shadow-xl shadow-cyan-950/50 flex flex-col gap-4">
+
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
               <Trophy size={20} />
             </div>
             <div className="flex flex-col">
-              <span className="text-[10px] font-black uppercase tracking-wider text-cyan-300">
+              <span className="text-[10px] font-black uppercase tracking-wider text-lime-300">
                 {lang === 'es' ? 'Ranking Mundial de Música con IA' : 'Global AI Music Ranking'}
               </span>
               <span className="text-sm font-bold text-white leading-tight">
@@ -180,14 +180,14 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
               </div>
               <p>
                 <strong>{lang === 'es' ? 'Sube tu master a Spotify:' : 'Distribute to Spotify:'}</strong>{' '}
-                {lang === 'es' 
+                {lang === 'es'
                   ? 'Tu pista tiene loudness adaptativo y true peak protegido para distribución. Spotify ajustará el volumen de reproducción según la configuración del oyente.'
                   : 'Your master has adaptive loudness and protected true peak for distribution. Spotify adjusts playback level according to the listener settings.'}
               </p>
             </div>
 
             <div className="flex items-start gap-2.5">
-              <div className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5 border border-cyan-500/40">
+              <div className="w-5 h-5 rounded-full bg-lime-500/20 text-lime-300 font-mono font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5 border border-lime-500/40">
                 2
               </div>
               <p>
@@ -204,9 +204,9 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
             href="https://chart.melodia.top"
             target="_blank"
             rel="noopener noreferrer"
-            className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-cyan-500 via-indigo-500 to-purple-600 hover:from-cyan-400 hover:via-indigo-400 hover:to-purple-500 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-cyan-500/25 transition-all cursor-pointer group active:scale-95"
+            className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-lime-500 via-cyan-500 to-purple-600 hover:from-lime-400 hover:via-cyan-400 hover:to-purple-500 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-lime-500/25 transition-all cursor-pointer group active:scale-95"
           >
-            <Radio size={16} className="text-cyan-200 animate-pulse" />
+            <Radio size={16} className="text-lime-200 animate-pulse" />
             <span>{lang === 'es' ? 'Ver el Chart de Música IA en chart.melodia.top' : 'Explore AI Music Chart at chart.melodia.top'}</span>
             <ExternalLink size={15} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
           </a>
@@ -232,7 +232,7 @@ export const ExportSuccessModal: React.FC<ExportSuccessModalProps> = ({
               }}
               className="w-full sm:flex-1 py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
-              <RefreshCw size={14} className="text-cyan-400" />
+              <RefreshCw size={14} className="text-lime-400" />
               <span>{lang === 'es' ? 'Nuevo Proyecto Limpio' : 'New Clean Project'}</span>
             </button>
           )}

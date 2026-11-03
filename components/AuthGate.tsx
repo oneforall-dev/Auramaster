@@ -1,293 +1,72 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ArrowUpRight, Check, Download, Globe, Loader2, Pause, Play, RotateCcw, ShieldCheck, UploadCloud, WandSparkles, X } from 'lucide-react';
 import { authService, UserProfile } from '../services/authService';
-import { Sparkles, ShieldCheck, Lock, Activity, Cpu, Sliders, Music, Globe, CheckCircle2, ChevronRight, Zap } from 'lucide-react';
-import { Language, LANGUAGES, getT } from '../services/i18n';
+import { Language } from '../services/i18n';
+import './AuthGate.css';
+import './AuthGateSections.css';
 
-interface AuthGateProps {
-  lang: Language;
-  onLanguageChange: (lang: Language) => void;
-  onLoginSuccess?: (user: UserProfile) => void;
-}
+interface AuthGateProps { lang: Language; onLanguageChange: (lang: Language) => void; onLoginSuccess?: (user: UserProfile) => void; }
+type AuthMode = 'login' | 'signup';
+type SelectedPlan = 'free' | 'payg' | 'pro_monthly' | 'pro_annual';
+const waveBars = Array.from({ length: 72 }, (_, index) => 18 + ((index * 37) % 63));
 
 export const AuthGate: React.FC<AuthGateProps> = ({ lang, onLanguageChange, onLoginSuccess }) => {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const googleButtonContainerRef = useRef<HTMLDivElement>(null);
-
-  const t = getT(lang);
-
-  const [googleClientId, setGoogleClientId] = useState<string>(() => {
-    return (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || (process.env as any).GOOGLE_CLIENT_ID || '';
-  });
-
-  // Fetch client ID from VPS backend if not present in build
+  const isEs = lang === 'es';
+  const [loading, setLoading] = useState(false), [error, setError] = useState('');
+  const [authOpen, setAuthOpen] = useState(false), [authMode, setAuthMode] = useState<AuthMode>('signup');
+  const [selectedPlan, setSelectedPlan] = useState<SelectedPlan>('free');
+  const [abMode, setAbMode] = useState<'original' | 'master'>('original'), [playing, setPlaying] = useState(false);
+  const [audioTime, setAudioTime] = useState(0), [audioDuration, setAudioDuration] = useState(16);
+  const audioRef = useRef<HTMLAudioElement>(null);
   useEffect(() => {
-    if (!googleClientId) {
-      fetch('/api/auth/google-client-id')
-        .then(res => res.json())
-        .then(data => {
-          if (data && data.clientId) {
-            setGoogleClientId(data.clientId);
-          }
-        })
-        .catch(() => {});
-    }
-  }, [googleClientId]);
-
-  // Listen for storage and postMessage events from OAuth callback popup
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'auramaster_user_profile' && e.newValue) {
-        try {
-          const userObj = JSON.parse(e.newValue);
-          if (onLoginSuccess) onLoginSuccess(userObj);
-        } catch (err) {}
-      }
-    };
-
-    const handleMessage = (e: MessageEvent) => {
-      if (e.origin === window.location.origin && e.data?.type === 'AURAMASTER_AUTH_SUCCESS' && e.data?.user && e.data?.sessionToken) {
-        const user = authService.completeOAuthSession(e.data.sessionToken, e.data.user);
-        if (onLoginSuccess) onLoginSuccess(user);
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('message', handleMessage);
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('message', handleMessage);
-    };
+    const storage = (event: StorageEvent) => { if (event.key === 'auramaster_user_profile' && event.newValue) try { onLoginSuccess?.(JSON.parse(event.newValue)); } catch {} };
+    const message = (event: MessageEvent) => { if (event.origin === window.location.origin && event.data?.type === 'AURAMASTER_AUTH_SUCCESS' && event.data?.user && event.data?.sessionToken) onLoginSuccess?.(authService.completeOAuthSession(event.data.sessionToken, event.data.user)); };
+    window.addEventListener('storage', storage); window.addEventListener('message', message);
+    return () => { window.removeEventListener('storage', storage); window.removeEventListener('message', message); };
   }, [onLoginSuccess]);
-
-  // Initialize Google Identity Services (GSI)
-  useEffect(() => {
-    if (googleClientId && window.google?.accounts?.id && googleButtonContainerRef.current) {
-      try {
-        window.google.accounts.id.initialize({
-          client_id: googleClientId.trim(),
-          callback: async (response: any) => {
-            if (response.credential) {
-              setLoading(true);
-              setError('');
-              try {
-                const loggedUser = await authService.loginWithGoogleToken(response.credential);
-                if (onLoginSuccess) onLoginSuccess(loggedUser);
-              } catch (err: any) {
-                setError(err.message || 'Error al autenticar token con Google');
-              } finally {
-                setLoading(false);
-              }
-            }
-          },
-          auto_select: false,
-          cancel_on_tap_outside: true,
-        });
-
-        googleButtonContainerRef.current.innerHTML = '';
-        window.google.accounts.id.renderButton(googleButtonContainerRef.current, {
-          theme: 'filled_black',
-          size: 'large',
-          shape: 'pill',
-          width: 320,
-          text: 'signin_with',
-          logo_alignment: 'left'
-        });
-      } catch (err) {
-        console.warn('[Google GSI AuthGate] Init warning:', err);
-      }
-    }
-  }, [googleClientId, onLoginSuccess]);
-
-  // Launch Direct Google OAuth 2.0 Flow
-  const handleLaunchGoogleOAuth = async () => {
-    setLoading(true);
-    setError('');
-    const width = 520;
-    const height = 640;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
-    const popup = window.open(
-      'about:blank',
-      'GoogleOAuthPopup',
-      `width=${width},height=${height},left=${left},top=${top},status=no,toolbar=no,menubar=no,location=no`
-    );
-
-    if (!popup) {
-      setLoading(false);
-      setError(lang === 'es' ? 'El navegador bloqueó la ventana de Google. Habilita ventanas emergentes para AuraMaster.' : 'The browser blocked the Google popup.');
-      return;
-    }
-
-    try {
-      popup.location.href = await authService.getGoogleAuthorizationUrl();
-    } catch (err: any) {
-      popup.close();
-      setLoading(false);
-      setError(err.message || 'No se pudo iniciar Google OAuth');
-      return;
-    }
-
-    const timer = setInterval(() => {
-      if (popup && popup.closed) {
-        clearInterval(timer);
-        setLoading(false);
-        const storedUser = authService.getUser();
-        if (storedUser && onLoginSuccess) {
-          onLoginSuccess(storedUser);
-        }
-      }
-    }, 500);
+  const openAuth = (mode: AuthMode, plan: SelectedPlan = 'free') => {
+    setAuthMode(mode); setSelectedPlan(plan); setError(''); setAuthOpen(true);
+    if (plan !== 'free') localStorage.setItem('auramaster_pending_plan', plan); else localStorage.removeItem('auramaster_pending_plan');
+  };
+  const launchGoogleOAuth = async () => {
+    setLoading(true); setError(''); const width = 520, height = 640;
+    const popup = window.open('about:blank', 'GoogleOAuthPopup', `width=${width},height=${height},left=${window.screenX + (window.outerWidth - width) / 2},top=${window.screenY + (window.outerHeight - height) / 2},status=no,toolbar=no,menubar=no,location=no`);
+    if (!popup) { setLoading(false); setError(isEs ? 'Brave bloqueó la ventana de Google. Permite ventanas emergentes para AuraMaster.' : 'Your browser blocked the Google window. Allow pop-ups for AuraMaster.'); return; }
+    try { popup.location.href = await authService.getGoogleAuthorizationUrl(); } catch (err: any) { popup.close(); setLoading(false); setError(err.message || 'Google OAuth unavailable'); return; }
+    const timer = window.setInterval(() => { if (popup.closed) { window.clearInterval(timer); setLoading(false); const stored = authService.getUser(); if (stored) onLoginSuccess?.(stored); } }, 500);
+  };
+  const switchAudio = (next: 'original' | 'master') => {
+    const audio = audioRef.current, resumeAt = audio?.currentTime || 0, shouldPlay = Boolean(audio && !audio.paused); setAbMode(next);
+    window.setTimeout(() => { if (!audioRef.current) return; audioRef.current.currentTime = Math.min(resumeAt, audioRef.current.duration || 16); if (shouldPlay) audioRef.current.play().catch(() => setPlaying(false)); }, 0);
+  };
+  const copy = {
+    navHow: isEs ? 'Cómo funciona' : 'How it works', navFeatures: isEs ? 'Funciones' : 'Features', navPricing: isEs ? 'Precios' : 'Pricing', login: isEs ? 'Ingresar' : 'Log in', start: isEs ? 'Empezar gratis' : 'Start free',
+    eyebrow: isEs ? 'DE TU ARCHIVO AL MASTER FINAL · UN CLIC' : 'FROM YOUR MUSIC FILE TO RELEASE PREP · ONE CLICK', heroA: isEs ? 'Un clic.' : 'One click.', heroB: isEs ? 'Cada canción masterizada.' : 'Every track mastered.',
+    lead: isEs ? 'Sube una canción o todo tu lote. AuraMaster masteriza tus pistas con un clic y las prepara para tu siguiente lanzamiento. Sin cadenas complejas. Sin ajustes interminables.' : 'Upload one song or your entire batch. AuraMaster masters your tracks in one click and helps prepare them for streaming distribution. No complex plugins. No endless settings.',
+    first: isEs ? 'Masteriza tu primera canción gratis' : 'Master your first track free', see: isEs ? 'Descubre cómo funciona' : 'See how it works', listen: isEs ? 'Escucha el A/B' : 'Listen A/B'
   };
 
-  return (
-    <div className="min-h-screen w-full bg-[#030712] text-slate-100 flex flex-col justify-between relative overflow-y-auto font-sans select-none">
-      {/* Ambient background glow effects */}
-      <div className="absolute top-[-20%] left-1/2 -translate-x-1/2 w-[900px] h-[600px] bg-gradient-to-b from-cyan-600/15 via-indigo-600/10 to-transparent blur-3xl pointer-events-none rounded-full" />
-      <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-indigo-900/15 blur-3xl pointer-events-none rounded-full" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-cyan-900/15 blur-3xl pointer-events-none rounded-full" />
-
-      {/* Top Navbar */}
-      <header className="relative z-10 w-full px-6 py-5 flex items-center justify-between max-w-7xl mx-auto border-b border-slate-800/40">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center text-white shadow-xl shadow-cyan-500/20 border border-cyan-400/30">
-            <Sparkles size={22} className="animate-pulse" />
-          </div>
-          <div className="flex flex-col">
-            <span className="text-lg font-black tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
-              AuraMaster <span className="text-cyan-400 font-mono text-sm">AI 4.0</span>
-            </span>
-            <span className="text-[10px] text-slate-500 font-mono tracking-wider">NEURAL AUDIO MASTERING</span>
-          </div>
-        </div>
-
-        {/* Language selector */}
-        <div className="flex items-center gap-2">
-          <Globe size={14} className="text-slate-400" />
-          <select
-            value={lang}
-            onChange={(e) => onLanguageChange(e.target.value as Language)}
-            aria-label="Seleccionar idioma"
-            className="bg-slate-900/80 border border-slate-700/60 text-slate-300 text-xs font-semibold rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-cyan-500 cursor-pointer"
-          >
-            {LANGUAGES.map((l) => (
-              <option key={l.code} value={l.code}>
-                {l.flag} {l.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </header>
-
-      {/* Main Hero & Login Box */}
-      <main className="relative z-10 flex-1 flex flex-col items-center justify-center gap-8 p-4 sm:p-6 my-auto">
-        <div className="w-full max-w-md bg-slate-900/90 border border-slate-700/80 rounded-3xl p-7 sm:p-8 backdrop-blur-2xl shadow-2xl shadow-cyan-950/40 flex flex-col gap-6 relative animate-in fade-in zoom-in-95 duration-300">
-          
-          {/* Hero Header */}
-          <div className="flex flex-col items-center text-center gap-2">
-            <div className="p-3.5 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-indigo-500/10 border border-cyan-500/30 text-cyan-300 shadow-lg shadow-cyan-500/10 mb-1">
-              <Lock size={28} className="text-cyan-400" />
-            </div>
-            <h1 className="text-2xl font-extrabold text-white tracking-tight">
-              {lang === 'es' ? 'Ingreso al Estudio' : 'Studio Access'}
-            </h1>
-            <p className="text-xs text-slate-400 leading-relaxed max-w-[320px]">
-              {lang === 'es'
-                ? 'Autentícate con Google OAuth para acceder a la estación de mastering y proteger tu baúl de API Keys en el VPS.'
-                : 'Authenticate with Google OAuth to access the mastering workstation and protect your API Key vault on the VPS.'}
-            </p>
-          </div>
-
-          {error && (
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs text-center">
-              ⚠️ {error}
-            </div>
-          )}
-
-          {/* Primary Action: Official Google Login Button */}
-          <div className="flex flex-col items-center gap-3">
-            <button
-              onClick={handleLaunchGoogleOAuth}
-              disabled={loading}
-              className="w-full py-3.5 px-4 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-extrabold text-sm flex items-center justify-center gap-3 shadow-xl shadow-cyan-950/30 transition-all cursor-pointer active:scale-95 disabled:opacity-50 group"
-            >
-              {/* Google Icon */}
-              <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-                <path
-                  fill="#EA4335"
-                  d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.4l3.7 2.9C6.5 7.4 9 5 12 5z"
-                />
-                <path
-                  fill="#4285F4"
-                  d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.6 14.7c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.2C.7 9.6 0 12.2 0 15s.7 5.4 1.9 7.8l3.7-2.9z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.3L1.9 16C3.7 19.8 7.5 23 12 23z"
-                />
-              </svg>
-              <span>{loading ? (lang === 'es' ? 'Conectando...' : 'Connecting...') : (lang === 'es' ? 'Iniciar Sesión con Google' : 'Sign in with Google')}</span>
-              <ChevronRight size={16} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
-            </button>
-          </div>
-
-          {/* Security Features Badges */}
-          <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-slate-800/80">
-            <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 flex items-start gap-2">
-              <ShieldCheck size={16} className="text-emerald-400 shrink-0 mt-0.5" />
-              <div className="flex flex-col">
-                <span className="text-[11px] font-bold text-slate-200">AES-256-GCM</span>
-                <span className="text-[9px] text-slate-400">
-                  {lang === 'es' ? 'Baúl Cifrado en VPS' : 'Encrypted VPS Vault'}
-                </span>
-              </div>
-            </div>
-
-            <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 flex items-start gap-2">
-              <Cpu size={16} className="text-cyan-400 shrink-0 mt-0.5" />
-              <div className="flex flex-col">
-                <span className="text-[11px] font-bold text-slate-200">Motor IA 4.0</span>
-                <span className="text-[9px] text-slate-400">
-                  {lang === 'es' ? 'Gemini / OpenAI / Groq' : 'Gemini / OpenAI / Groq'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-        </div>
-
-        <section className="w-full max-w-5xl">
-          <div className="mb-4 text-center">
-            <h2 className="text-xl font-black text-white">{lang === 'es' ? 'Un plan para cada lanzamiento' : 'A plan for every release'}</h2>
-            <p className="mt-1 text-xs text-slate-400">{lang === 'es' ? 'Empieza gratis y paga sólo cuando necesites más.' : 'Start free and pay only when you need more.'}</p>
-          </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            {[
-              { title: 'Gratis (Prueba)', price: '$0 USD', note: '1 Generación Completa', items: ['Master listo para streaming', 'Sin tarjeta'] },
-              { title: 'Pay As You Go', price: '$1 USD / diseño', note: '1 Crédito = $1 USD', items: ['Compra por unidad', 'Créditos sin vencimiento'] },
-              { title: 'Pro Ilimitado', price: '$9.99 / mes', note: '$99.99 / año · 2 meses gratis', items: ['Uso ilimitado', 'Añadir API Key habilitado'] }
-            ].map((plan, index) => (
-              <div key={plan.title} className={`rounded-2xl border p-4 ${index === 2 ? 'border-cyan-400/60 bg-cyan-500/10' : 'border-slate-800 bg-slate-900/75'}`}>
-                <div className="text-sm font-black text-white">{plan.title}</div>
-                <div className="mt-2 text-xl font-black text-cyan-300">{plan.price}</div>
-                <div className="mt-1 text-[11px] text-slate-400">{plan.note}</div>
-                <div className="mt-3 space-y-1.5">
-                  {plan.items.map(item => <div key={item} className="flex items-center gap-2 text-[11px] text-slate-300"><CheckCircle2 size={12} className="text-emerald-400" />{item}</div>)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      </main>
-
-      {/* Footer */}
-      <footer className="relative z-10 w-full px-6 py-4 text-center text-xs text-slate-500 font-mono max-w-7xl mx-auto border-t border-slate-800/30">
-        AuraMaster AI DAW • 64-bit Audio DSP & Neural Mastering • 2026 Production Release
-      </footer>
-    </div>
-  );
+  return <div className="am-landing" id="top">
+    <header className="am-container am-nav"><a className="am-brand" href="#top" aria-label="AuraMaster"><img src="/logo.png" alt=""/><span>AURA<strong>MASTER</strong></span></a><nav><a href="#listen">A/B</a><a href="#how">{copy.navHow}</a><a href="#features">{copy.navFeatures}</a><a href="#pricing">{copy.navPricing}</a></nav><div className="am-nav-actions"><div className="am-language" aria-label="Language"><Globe size={14}/><button className={isEs ? '' : 'active'} onClick={() => onLanguageChange('en')}>EN</button><button className={isEs ? 'active' : ''} onClick={() => onLanguageChange('es')}>ES</button></div><button className="am-login" onClick={() => openAuth('login')}>{copy.login}</button><button className="am-button am-button-primary" onClick={() => openAuth('signup')}>{copy.start}<ArrowUpRight size={15}/></button></div></header>
+    <main>
+      <section className="am-container am-hero"><div className="am-hero-copy"><span className="am-eyebrow">{copy.eyebrow}</span><h1>{copy.heroA}<br/><em>{copy.heroB}</em></h1><p>{copy.lead}</p><div className="am-actions"><button className="am-button am-button-primary" onClick={() => openAuth('signup')}>{copy.first}<ArrowUpRight size={17}/></button><a className="am-button am-button-outline" href="#how">{copy.see} ↓</a><a className="am-button am-button-quiet" href="#listen">{copy.listen}</a></div><div className="am-reassurance"><span>✓ {isEs ? '1 master + exportación gratis' : '1 free master + export'}</span><span>✓ {isEs ? 'Una canción o un lote' : 'Single track or batch'}</span><span>✓ {isEs ? 'Sin configurar un estudio' : 'No studio setup'}</span></div></div><div className="am-studio-card"><div className="am-studio-top"><span>AURAMASTER / STUDIO</span><b>● {isEs ? 'LISTO' : 'READY'}</b></div><div className="am-track"><div><small>{isEs ? 'TU CANCIÓN' : 'YOUR TRACK'}</small><strong>midnight-drive.wav</strong></div><div className="am-wave">{waveBars.map((height,i) => <i key={i} style={{height:`${height}%`}}/>)}</div><div className="am-transport"><span className="am-play"><Play size={15} fill="currentColor"/></span><b>{isEs ? 'MASTERIZACIÓN CON UN CLIC' : 'ONE-CLICK MASTERING'}</b><span>01 / 01</span></div></div><div className="am-studio-tags"><span>✓ {isEs ? 'Canción individual' : 'Single track'}</span><span>✓ {isEs ? 'Carga por lotes' : 'Batch uploads'}</span></div><div className="am-floating">ONE CLICK. BIG SOUND. ✦</div></div></section>
+      <div className="am-trust"><div className="am-container"><b>{isEs ? 'HECHO PARA CREADORES DE MÚSICA' : 'MADE FOR MUSIC MAKERS'}</b><span>{isEs ? 'Artistas independientes' : 'Independent artists'}</span><span>{isEs ? 'Productores' : 'Producers'}</span><span>{isEs ? 'Sellos y catálogos' : 'Labels & catalogs'}</span><span>{isEs ? 'Creadores con IA' : 'AI music creators'}</span></div></div>
+      <section className="am-section am-oneclick" id="features"><div className="am-container"><div className="am-section-intro"><div><span className="am-eyebrow">{isEs ? 'EL ÚLTIMO PASO ANTES DE PUBLICAR' : 'THE LAST STEP BEFORE YOU RELEASE'}</span><h2>{isEs ? 'Tú hiciste la canción.' : 'You made the track.'}<br/><em>{isEs ? 'Termínala en un clic.' : 'Finish it in one click.'}</em></h2></div><p>{isEs ? 'Tus ideas merecen un acabado seguro. Sube tu pista, masteriza con un clic y descarga el resultado para el siguiente paso de tu lanzamiento.' : 'Great ideas deserve a confident finish. Upload your track, master with one click, then download your result for the next step in your release workflow.'}</p></div><div className="am-benefits"><Benefit number="01" icon={<UploadCloud/>} title={isEs?'Súbela.':'Upload it.'} text={isEs?'Usa el MP3 o WAV que ya tienes. Una canción o múltiples archivos.':'Take the MP3 or WAV you already have. One song or multiple files.'}/><Benefit number="02" icon={<WandSparkles/>} title={isEs?'Un clic hace el trabajo.':'One click does the work.'} text={isEs?'Masteriza una canción o ejecuta todo un lote sin procesar cada pista manualmente.':'Master one song or launch a full batch without processing tracks one by one.'}/><Benefit number="03" icon={<Download/>} title={isEs?'Descarga. Prepárate para publicar.':'Download. Prepare to release.'} text={isEs?'Exporta el master y entrégalo en el formato compatible que solicite tu distribuidora.':'Export your master, then deliver the compatible format requested by your distributor.'}/></div></div></section>
+      <section className="am-section am-listen" id="listen"><div className="am-container"><div className="am-section-intro"><div><span className="am-eyebrow">AUDIO REAL · COMPARACIÓN A/B</span><h2>{isEs?'No tienes que creernos.':"Don’t just take our word for it."}<br/><em>{isEs?'Escucha la diferencia.':'Hear the difference.'}</em></h2></div><p>{isEs?'Cambia entre el original y el master de AuraMaster en el mismo instante.':'Switch between the original and the AuraMaster master at the exact same moment.'}</p></div><div className="am-compare"><div className="am-compare-head"><div><small>NOW PLAYING</small><strong>Cold Silence — v6</strong><span>{isEs?'Fragmento real de comparación':'Real comparison excerpt'}</span></div><b>↔ {isEs?'Mismo instante':'Same timestamp'}</b></div><div className="am-ab-tabs"><button className={abMode==='original'?'active':''} onClick={()=>switchAudio('original')}>○ Original</button><button className={abMode==='master'?'active':''} onClick={()=>switchAudio('master')}>✦ AuraMaster master</button></div><div className="am-audio-wave">{waveBars.slice(0,56).map((height,i)=><i key={i} style={{height:`${abMode==='master'?Math.min(94,height+17):height}%`}}/>)}</div><audio ref={audioRef} src={abMode==='original'?'/demo/cold-silence-original.mp3':'/demo/cold-silence-master.mp3'} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onTimeUpdate={e=>setAudioTime(e.currentTarget.currentTime)} onLoadedMetadata={e=>setAudioDuration(e.currentTarget.duration||16)} onEnded={()=>setPlaying(false)}/><div className="am-audio-controls"><button onClick={()=>playing?audioRef.current?.pause():audioRef.current?.play()}>{playing?<Pause fill="currentColor"/>:<Play fill="currentColor"/>}</button><span>{formatTime(audioTime)}</span><input type="range" min="0" max={audioDuration||16} step=".01" value={audioTime} onChange={e=>{if(audioRef.current)audioRef.current.currentTime=Number(e.target.value);setAudioTime(Number(e.target.value));}}/><span>{formatTime(audioDuration)}</span><button className="restart" onClick={()=>{if(audioRef.current)audioRef.current.currentTime=0;}}><RotateCcw/>{isEs?'Reiniciar':'Restart'}</button></div></div></div></section>
+      <section className="am-container am-section" id="how"><span className="am-eyebrow">{isEs?'UNA FORMA MÁS SIMPLE DE TERMINAR TU MÚSICA':'A SIMPLER WAY TO FINISH YOUR MUSIC'}</span><h2>{isEs?'Un clic para una canción.':'One click for one track.'}<br/>{isEs?'Un clic para todo el lote.':'One click for the whole batch.'}</h2><div className="am-steps"><Step n="01 / UPLOAD" title={isEs?'Sube tu canción.':'Drop your track.'} text={isEs?'Carga una canción o agrega varias a tu cola.':'Upload one song or add multiple tracks to your queue.'}/><Step n="02 / MASTER" title={isEs?'Un clic. Listo.':'One click. Done.'} text={isEs?'Masteriza sin una cadena de producción complicada.':'Start mastering without a complicated production workflow.'}/><Step n="03 / EXPORT" title={isEs?'Lleva tu sonido más lejos.':'Take your sound further.'} text={isEs?'Exporta en alta resolución para producción o distribución.':'Export in high resolution for production or distribution.'}/></div></section>
+      <section className="am-section am-ai"><div className="am-container am-ai-layout"><div><span className="am-eyebrow">{isEs?'HECHO PARA FLUJOS MUSICALES MODERNOS':'MADE FOR MODERN MUSIC WORKFLOWS'}</span><h2>{isEs?'¿Creada con IA?':'Created with AI?'}<br/><em>{isEs?'Acércala un paso más al lanzamiento.':'Take it one step closer to release.'}</em></h2><p>{isEs?'¿Creas música con Suno, Udio, Mozart AI, Google Lyria o tu DAW? AuraMaster ofrece un paso de masterización simple después de generar y exportar una canción.':'Make music with Suno, Udio, Mozart AI, Google Lyria or your DAW? AuraMaster gives you a simple mastering step after generating and exporting a song.'}</p><small>{isEs?'Las plataformas mencionadas son servicios independientes. AuraMaster no está afiliado a ellas. Tú eres responsable de los derechos de tu música y de los requisitos de tu distribuidora.':'Mentioned platforms are independent services. AuraMaster is not affiliated with them. You are responsible for your music rights and distributor requirements.'}</small></div><div className="am-ai-card"><b>{isEs?'TU FLUJO CREATIVO':'YOUR CREATIVE FLOW'}</b><Flow n="01" title={isEs?'Crea tu música':'Create your music'} text="Suno · Udio · Mozart AI · Lyria · DAW"/><Flow n="02" title={isEs?'Trae tu MP3 o WAV a AuraMaster':'Bring your MP3 or WAV to AuraMaster'} text={isEs?'Una canción o todo un lote':'One track or a whole batch'}/><Flow active n="✦" title={isEs?'Haz clic en Masterizar':'Click Master'} text={isEs?'Procesa toda la cola con una acción':'Process the full queue in one action'}/><Flow n="04" title={isEs?'Descarga tu master':'Download your master'} text={isEs?'Revisa formato, metadatos y derechos':'Check format, metadata and rights'}/></div></div></section>
+      <section className="am-section am-pricing" id="pricing"><div className="am-container"><div className="am-price-head"><span className="am-eyebrow">{isEs?'PRECIOS CLAROS. SIN SORPRESAS.':'SIMPLE PRICING, NO GUESSWORK'}</span><h2>{isEs?'Empieza gratis. Crece cuando lo necesites.':'Start free. Scale when you need it.'}</h2><p>{isEs?'Tu primera masterización es gratis. Después paga $1 por canción o elige acceso ilimitado.':'Your first master is free. Then pay $1 per track or choose unlimited access.'}</p></div><div className="am-price-grid"><Price title={isEs?'Gratis':'Free'} price="$0" period={isEs?'una vez':'one-time'} description={isEs?'Escucha lo que AuraMaster puede hacer con tu música.':'Hear what AuraMaster can do with your music.'} perks={[isEs?'1 masterización gratis':'1 free master',isEs?'1 exportación incluida':'1 export included']} action={isEs?'Empezar gratis':'Start free'} onClick={()=>openAuth('signup','free')}/><Price title="Pay As You Go" price="$1" period={isEs?'por canción':'per track'} description={isEs?'Paga sólo cuando lo necesites. Sin suscripción.':'Pay only when you need it. No subscription.'} perks={[isEs?'Créditos sin vencimiento':'Credits do not expire',isEs?'Sin cuota mensual':'No monthly commitment']} action={isEs?'Pagar por canción':'Pay per track'} onClick={()=>openAuth('signup','payg')}/><Price featured title={isEs?'Ilimitado mensual':'Unlimited Monthly'} price="$9.99" period={isEs?'al mes':'per month'} description={isEs?'Masteriza tantas veces como necesites.':'Master as often as you need.'} perks={[isEs?'Masterización ilimitada':'Unlimited mastering',isEs?'Individual y por lotes':'Single + bulk workflows']} action={isEs?'Elegir mensual':'Go unlimited'} onClick={()=>openAuth('signup','pro_monthly')}/><Price title={isEs?'Ilimitado anual':'Unlimited Yearly'} price="$99.99" period={isEs?'al año':'per year'} description={isEs?'Toda la libertad del plan ilimitado por menos.':'All the freedom of unlimited mastering, for less.'} perks={[isEs?'Masterización ilimitada':'Unlimited mastering',isEs?'Ahorra frente al mensual':'Save vs monthly']} action={isEs?'Elegir anual':'Choose annual'} onClick={()=>openAuth('signup','pro_annual')}/></div></div></section>
+      <section className="am-container am-section am-faq"><span className="am-eyebrow">{isEs?'RESPUESTAS SIN VUELTAS':'ANSWERS, NOT OBSTACLES'}</span><h2>{isEs?'¿Tienes preguntas?':'Questions? Good.'}</h2><details><summary>{isEs?'¿Mi primera masterización es realmente gratis?':'Is my first master really free?'}</summary><p>{isEs?'Sí. Al registrarte obtienes una masterización y una exportación gratis. No necesitas un plan pago para empezar.':'Yes. Create an account for one free master and export. No paid plan is required to start.'}</p></details><details><summary>{isEs?'¿Qué significa pago por uso?':'What does Pay As You Go mean?'}</summary><p>{isEs?'Pagas $1 por cada masterización adicional, sin suscripción recurrente.':'You pay $1 for each additional master, without a recurring subscription.'}</p></details><details><summary>{isEs?'¿Puedo masterizar varias canciones a la vez?':'Can I master several songs at once?'}</summary><p>{isEs?'Sí. AuraMaster admite masterización por lotes y analiza cada canción de forma independiente.':'Yes. AuraMaster supports batch mastering and analyzes each track independently.'}</p></details><details><summary>{isEs?'¿Todas las plataformas aceptan archivos de 32 bits?':'Does every platform accept 32-bit files?'}</summary><p>{isEs?'No. Los requisitos cambian según distribuidora y plataforma. Usa el formato de entrega solicitado.':'No. Requirements vary by distributor and platform. Use the requested delivery format.'}</p></details></section>
+      <section className="am-container am-final"><span className="am-eyebrow">{isEs?'TÚ HACES LA MÚSICA. NOSOTROS TE AYUDAMOS A TERMINARLA.':"MAKE THE MUSIC. WE’LL HELP YOU FINISH IT."}</span><h2>{isEs?'A un clic de tu próximo lanzamiento.':'One click closer to your next release.'}</h2><p>{isEs?'Una masterización gratis. Tu música. Empieza hoy.':'One free master. Your music. No reason to wait.'}</p><button className="am-button am-button-primary" onClick={()=>openAuth('signup')}>{isEs?'Consigue tu master gratis':'Get your free master'}<ArrowUpRight/></button></section>
+    </main>
+    <footer className="am-container am-footer"><a className="am-brand" href="#top"><img src="/logo.png" alt=""/><span>AURA<strong>MASTER</strong></span></a><span>{isEs?'Parte del ecosistema':'Part of the'} <a href="https://melodia.top" target="_blank" rel="noreferrer">Melodía</a>.</span><span>Powered by <a href="https://oneforall.ocloud.click" target="_blank" rel="noreferrer">Oneforall</a></span></footer>
+    {authOpen&&<div className="am-modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&setAuthOpen(false)}><div className="am-auth-modal" role="dialog" aria-modal="true"><button className="am-modal-close" aria-label="Close" onClick={()=>setAuthOpen(false)}><X/></button><img className="am-modal-logo" src="/logo.png" alt="AuraMaster"/><span className="am-eyebrow">GOOGLE OAUTH · SECURE ACCESS</span><h2>{authMode==='signup'?(isEs?'Crea tu cuenta':'Create your account'):(isEs?'Bienvenido de nuevo':'Welcome back')}</h2><p>{authMode==='signup'?(selectedPlan==='free'?(isEs?'Tu primera masterización y exportación son gratis.':'Your first master and export are free.'):(isEs?'Continúa con Google para elegir el plan seleccionado.':'Continue with Google to choose your selected plan.')):(isEs?'Ingresa para abrir tu estudio de masterización.':'Sign in to open your mastering studio.')}</p>{error&&<div className="am-auth-error">{error}</div>}<button className="am-google-button" onClick={launchGoogleOAuth} disabled={loading}><GoogleMark/>{loading?(isEs?'Conectando…':'Connecting…'):(isEs?'Continuar con Google':'Continue with Google')}{loading?<Loader2 className="spin"/>:<ArrowUpRight/>}</button><div className="am-security"><ShieldCheck/><span>{isEs?'OAuth real · sesión segura · nunca recibimos tu contraseña':'Real OAuth · secure session · we never receive your password'}</span></div><button className="am-mode-switch" onClick={()=>setAuthMode(authMode==='signup'?'login':'signup')}>{authMode==='signup'?(isEs?'¿Ya tienes cuenta? Ingresar':'Already have an account? Log in'):(isEs?'¿Eres nuevo? Crear cuenta':'New to AuraMaster? Create account')}</button></div></div>}
+  </div>;
 };
+
+const Benefit=({number,icon,title,text}:any)=><article className="am-benefit"><span>{number}</span><div className="am-benefit-icon">{icon}</div><h3>{title}</h3><p>{text}</p></article>;
+const Step=({n,title,text}:any)=><article className="am-step"><span>{n}</span><h3>{title}</h3><p>{text}</p></article>;
+const Flow=({n,title,text,active}:any)=><div className={`am-flow ${active?'active':''}`}><span>{n}</span><div><strong>{title}</strong><small>{text}</small></div></div>;
+const Price=({title,price,period,description,perks,action,onClick,featured}:any)=><article className={`am-price-card ${featured?'featured':''}`}>{featured&&<b className="am-popular">POPULAR</b>}<h3>{title}</h3><strong className="am-price">{price}</strong><small>{period}</small><p>{description}</p><ul>{perks.map((perk:string)=><li key={perk}><Check/>{perk}</li>)}</ul><button className={`am-button ${featured?'am-button-primary':'am-button-outline'}`} onClick={onClick}>{action}<ArrowUpRight/></button></article>;
+const formatTime=(seconds:number)=>`${Math.floor(seconds/60)}:${Math.floor(seconds%60).toString().padStart(2,'0')}`;
+const GoogleMark=()=> <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.4l3.7 2.9C6.5 7.4 9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"/><path fill="#FBBC05" d="M5.6 14.7c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.2C.7 9.6 0 12.2 0 15s.7 5.4 1.9 7.8l3.7-2.9z"/><path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.3L1.9 16C3.7 19.8 7.5 23 12 23z"/></svg>;

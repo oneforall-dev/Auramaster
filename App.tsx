@@ -27,7 +27,7 @@ const DEFAULT_COMP = { threshold: -18, ratio: 3.5, attack: 0.03, release: 0.15 }
 
 // Commercial Standard Mastering Polish Defaults (Universal Preset)
 const DEFAULT_PARAMS: MasteringChainParams = {
-  eq: { 
+  eq: {
       enabled: true,
       low: { frequency: 100, gain: 0.5, q: 0.7 },
       lowMid: { frequency: 320, gain: -0.4, q: 1 },
@@ -41,10 +41,10 @@ const DEFAULT_PARAMS: MasteringChainParams = {
      mid: { ...DEFAULT_COMP, threshold: -18, ratio: 1.3, attack: 0.025, release: 0.15 },
      high: { ...DEFAULT_COMP, threshold: -20, ratio: 1.2, attack: 0.015, release: 0.10 }
   },
-  gate: { 
-      enabled: false, 
-      threshold: -80, 
-      ratio: 0 
+  gate: {
+      enabled: false,
+      threshold: -80,
+      ratio: 0
   },
   deEsser: {
       enabled: false,
@@ -137,6 +137,16 @@ export default function App() {
     }
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const pendingPlan = localStorage.getItem('auramaster_pending_plan');
+    if (pendingPlan === 'payg' || pendingPlan === 'pro_monthly' || pendingPlan === 'pro_annual') {
+      localStorage.removeItem('auramaster_pending_plan');
+      setBillingNotice('Seleccionaste este plan en la página de inicio. Elige la opción correspondiente para continuar al pago seguro.');
+      setIsBillingOpen(true);
+    }
+  }, [currentUser]);
 
   const t = getT(lang);
 
@@ -262,14 +272,14 @@ export default function App() {
   const [isBulkSummaryOpen, setIsBulkSummaryOpen] = useState(false);
 
   const [currentSessionId, setCurrentSessionId] = useState<string>(
-    typeof audioEngine?.getCurrentSessionId === 'function' 
-      ? audioEngine.getCurrentSessionId() 
+    typeof audioEngine?.getCurrentSessionId === 'function'
+      ? audioEngine.getCurrentSessionId()
       : (audioEngine?.currentSessionId || `sess_${Date.now().toString(36)}`)
   );
 
   const currentSessionIdRef = useRef<string>(
-    typeof audioEngine?.getCurrentSessionId === 'function' 
-      ? audioEngine.getCurrentSessionId() 
+    typeof audioEngine?.getCurrentSessionId === 'function'
+      ? audioEngine.getCurrentSessionId()
       : (audioEngine?.currentSessionId || `sess_${Date.now().toString(36)}`)
   );
 
@@ -305,9 +315,9 @@ export default function App() {
   useEffect(() => { audioEngine.setMasterParams(params); }, [params]);
   useEffect(() => { if (!audioEngine.setBypass(isBypassed)) setIsBypassed(true); }, [isBypassed]);
   useEffect(() => { audioEngine.setLoudnessMatchMode(loudnessMatchMode); }, [loudnessMatchMode]);
-  
-  useEffect(() => { 
-      tracks.forEach(t => { audioEngine.updateTrackSettings(t, tracks); }); 
+
+  useEffect(() => {
+      tracks.forEach(t => { audioEngine.updateTrackSettings(t, tracks); });
       if (processingMode === 'bulk' && activeTrackId) {
         setDuration(audioEngine.getTrackDuration(activeTrackId));
       } else {
@@ -382,10 +392,10 @@ export default function App() {
     return () => clearInterval(interval);
   }, [playbackState]);
 
-  const handleAddTrack = async (e: React.ChangeEvent<HTMLInputElement>) => { 
-    if (e.target.files && e.target.files.length > 0) { 
-      setLoadingAudio(true); 
-      try { 
+  const handleAddTrack = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setLoadingAudio(true);
+      try {
         const newFiles = Array.from(e.target.files) as File[];
         const shouldUseBulk = processingMode === 'stems' && looksLikeSongBatch(newFiles);
         const effectiveMode: ProcessingMode = shouldUseBulk ? 'bulk' : processingMode;
@@ -408,7 +418,7 @@ export default function App() {
 
         let allTracks = isStemsAdding ? [...tracks, ...added] : added;
         let newParams = getNeutralMasteringParams();
-        
+
         // Stems auto-balance logic if in stems mode
         if (effectiveMode === 'stems' && allTracks.length > 1) {
             allTracks = audioEngine.autoBalanceTracks(allTracks);
@@ -419,7 +429,7 @@ export default function App() {
         newParams.limiter.enabled = true;
         newParams.limiter.threshold = -1.0;
         newParams.limiter.breathe = 0;
-        
+
         // Initialize tracks in trackMasterMap if in bulk mode
         if (effectiveMode === 'bulk') {
           setTrackMasterMap(prev => {
@@ -444,7 +454,7 @@ export default function App() {
         setMasteringReport(null); // Clear old report
         if (added.length > 0) {
           const newActiveId = (effectiveMode === 'bulk' || !activeTrackId || !allTracks.some(t => t.id === activeTrackId))
-            ? added[0].id 
+            ? added[0].id
             : activeTrackId;
           setActiveTrackId(newActiveId);
           const activeBuf = audioEngine.getTrackBuffer(newActiveId);
@@ -460,14 +470,14 @@ export default function App() {
             });
           }
         }
-      } catch (err) { 
+      } catch (err) {
         console.error(err);
-        alert("Error loading files."); 
-      } finally { 
-        setLoadingAudio(false); 
-        if (fileInputRef.current) fileInputRef.current.value = ''; 
-      } 
-    } 
+        alert("Error loading files.");
+      } finally {
+        setLoadingAudio(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    }
   };
 
   const handleRemoveTrack = (id: string) => {
@@ -616,7 +626,7 @@ export default function App() {
     }
     setActiveTrackId(id);
     setProcessedBuffer(null);
-    
+
     // Always reset timeline and playhead to 00:00 when selecting another song
     setCurrentTime(0);
     audioEngine.stop();
@@ -662,7 +672,7 @@ export default function App() {
       setMasteringReport(null);
       setIsBypassed(true);
     }
-    
+
     // If audio is currently playing in bulk mode, start the newly selected song immediately from 00:00
     if (playbackState === PlaybackState.PLAYING && processingMode === 'bulk') {
       audioEngine.play(id);
@@ -680,11 +690,11 @@ export default function App() {
     }
     setTrackMasterMap(prev => ({
       ...prev,
-      [track.id]: { 
-        trackId: track.id, 
+      [track.id]: {
+        trackId: track.id,
         sourceId: track.sourceId,
         trackSessionId: targetSessionId,
-        isProcessing: true, 
+        isProcessing: true,
         isMastered: false,
         currentPhase: 'reset'
       }
@@ -760,10 +770,10 @@ export default function App() {
       console.error("Error mastering single track:", err);
       setTrackMasterMap(prev => ({
         ...prev,
-        [track.id]: { 
-          trackId: track.id, 
+        [track.id]: {
+          trackId: track.id,
           sourceId: track.sourceId,
-          isProcessing: false, 
+          isProcessing: false,
           isMastered: false,
           currentPhase: 'error',
           errorMessage: err?.message || 'Error durante masterización'
@@ -876,10 +886,10 @@ export default function App() {
       } catch (err: any) {
         console.error(`Error mastering ${track.name}:`, err);
         failedCount++;
-        updatedMap[track.id] = { 
-          trackId: track.id, 
+        updatedMap[track.id] = {
+          trackId: track.id,
           sourceId: track.sourceId,
-          isProcessing: false, 
+          isProcessing: false,
           isMastered: false,
           currentPhase: 'error',
           errorMessage: err?.message || 'Error'
@@ -1087,7 +1097,7 @@ export default function App() {
     }
     setIsSmartAdjusting(true);
     setSmartMasterPhase('analyze');
-    
+
     setTimeout(async () => {
       try {
         let newParams = { ...params };
@@ -1129,10 +1139,10 @@ export default function App() {
                 break;
             case 'clean_noise':
                 const noiseFloor = audioEngine.detectNoiseFloor(tracks);
-                const thresh = Math.min(-20, noiseFloor + 8); 
+                const thresh = Math.min(-20, noiseFloor + 8);
                 newParams.gate.enabled = true;
                 newParams.gate.threshold = parseFloat(thresh.toFixed(1));
-                newParams.gate.ratio = 5.0; 
+                newParams.gate.ratio = 5.0;
                 break;
             case 'super_mix': {
                 if (processingMode === 'bulk' && activeTrackId) {
@@ -1186,7 +1196,7 @@ export default function App() {
                 break;
             }
         }
-        
+
         if (type !== 'super_mix' || !(processingMode === 'bulk' && activeTrackId)) {
           newParams.gain = Math.max(0.1, Math.min(30.0, newParams.gain));
           setParams(newParams);
@@ -1241,9 +1251,9 @@ export default function App() {
     }
   };
 
-  const applyPreset = (id: string) => { 
-    const p = PRESETS.find(pr => pr.id === id); 
-    if (p) { setParams(p.params); setActivePreset(id); setIsBypassed(false); } 
+  const applyPreset = (id: string) => {
+    const p = PRESETS.find(pr => pr.id === id);
+    if (p) { setParams(p.params); setActivePreset(id); setIsBypassed(false); }
   };
 
   const handleApplySelectionEdit = async (action: 'gain' | 'fadeIn' | 'fadeOut' | 'mute', valueDb: number = 0) => {
@@ -1471,22 +1481,22 @@ export default function App() {
   }
 
   return (
-    <div className="h-full w-full overflow-hidden relative flex flex-col bg-[#030712] text-slate-100 selection:bg-cyan-500/30">
+    <div className="h-full w-full overflow-hidden relative flex flex-col bg-[#060a0f] text-slate-100 selection:bg-lime-500/30">
       <header className="shrink-0 z-50 px-4 sm:px-6 pt-3.5 pb-2">
         <div className={`max-w-7xl mx-auto flex items-center justify-between px-4 py-2.5 ${glassClass}`}>
-          
+
           {/* Brand Logo & Title */}
           <div className="flex items-center gap-3">
-            <img 
-              src="/logo.png" 
-              alt="AURAMASTER" 
-              className="h-8 sm:h-9 w-auto object-contain rounded-lg shadow-sm" 
+            <img
+              src="/logo.png"
+              alt="AURAMASTER"
+              className="h-8 sm:h-9 w-auto object-contain rounded-lg shadow-sm"
             />
             <div className="flex flex-col">
               <span className="text-sm font-black tracking-wider text-white leading-tight font-sans">
                 AURAMASTER
               </span>
-              <span className="text-[9px] font-bold tracking-widest text-cyan-400">
+              <span className="text-[9px] font-bold tracking-widest text-lime-400">
                 MASTERING DAW
               </span>
             </div>
@@ -1497,11 +1507,11 @@ export default function App() {
             {currentUser && <div className="flex items-center gap-1 rounded-xl border border-slate-700/80 bg-slate-950/80 p-1 shadow-inner">
               <div className="px-2 py-1 text-right leading-none">
                 <span className="hidden text-[8px] font-black uppercase tracking-[0.16em] text-slate-500 sm:block">Plan actual</span>
-                <strong className="text-[10px] font-black text-cyan-200 sm:text-[11px]">{planLabel}</strong>
+                <strong className="text-[10px] font-black text-lime-200 sm:text-[11px]">{planLabel}</strong>
               </div>
               {canUpgradePlan && <button
                 onClick={() => { setBillingNotice(''); setIsBillingOpen(true); }}
-                className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider text-cyan-200 transition hover:border-cyan-300 hover:bg-cyan-300 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-cyan-300/60 sm:text-[10px]"
+                className="rounded-lg border border-lime-400/30 bg-lime-400/10 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider text-lime-200 transition hover:border-lime-300 hover:bg-lime-300 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-lime-300/60 sm:text-[10px]"
               >
                 Upgrade
               </button>}
@@ -1514,7 +1524,7 @@ export default function App() {
             />
 
             <div className="flex items-center gap-1 p-1 bg-slate-950/90 border border-slate-800/80 rounded-xl shadow-inner">
-              <Globe size={13} className="text-cyan-400 ml-1.5 mr-0.5 hidden sm:inline" />
+              <Globe size={13} className="text-lime-400 ml-1.5 mr-0.5 hidden sm:inline" />
               {LANGUAGES.map(l => (
                 <button
                   key={l.code}
@@ -1524,7 +1534,7 @@ export default function App() {
                   }}
                   className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
                     lang === l.code
-                      ? 'bg-gradient-to-r from-cyan-600 to-cyan-500 text-white shadow-md'
+                      ? 'bg-gradient-to-r from-lime-600 to-lime-500 text-white shadow-md'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
                   }`}
                   title={l.label}
@@ -1540,8 +1550,8 @@ export default function App() {
       </header>
 
       <main className="flex-1 flex flex-col p-4 sm:p-6 gap-5 overflow-y-auto no-scrollbar relative z-10">
-         <Assistant 
-           onApplyPreset={(newParams) => setParams(newParams)} 
+         <Assistant
+           onApplyPreset={(newParams) => setParams(newParams)}
            currentParams={params}
            lang={lang}
            canManageApiKeys={isProUser(currentUser)}
@@ -1553,17 +1563,17 @@ export default function App() {
                 <div className={`flex-1 overflow-hidden relative min-h-0 flex flex-col ${glassClass}`}>
                     <div className="h-10 flex items-center justify-between px-4 border-b border-slate-800/80">
                         <div className="flex items-center gap-4 text-[10px] font-mono">
-                            <span className="text-cyan-400 font-bold">PK: {Number.isFinite(fileStats.peak) ? fileStats.peak.toFixed(1) : '--'} dB</span>
+                            <span className="text-lime-400 font-bold">PK: {Number.isFinite(fileStats.peak) ? fileStats.peak.toFixed(1) : '--'} dB</span>
                             <span className="text-slate-400">LUFS: {fileStats.integrated > -100 ? fileStats.integrated.toFixed(1) : '--'}</span>
                             {processingMode === 'bulk' && activeTrackId && (
-                              <span className="text-cyan-300 font-bold hidden sm:inline">
+                              <span className="text-lime-300 font-bold hidden sm:inline">
                                 Track: {tracks.find(t => t.id === activeTrackId)?.name}
                               </span>
                             )}
                         </div>
                         <div className="flex items-center gap-2">
                             {editHistory.length > 0 && (
-                                <button 
+                                <button
                                     onClick={handleUndoEdit}
                                     className="px-3 py-1 rounded-full text-[10px] font-bold border transition-all flex items-center gap-1.5 bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25 shadow-sm active:scale-95 animate-in fade-in"
                                     title="Deshacer última edición sobre selección (Ctrl+Z)"
@@ -1573,12 +1583,12 @@ export default function App() {
                                 </button>
                             )}
                             {masteringReport && (
-                                <button 
+                                <button
                                     onClick={() => setIsReportOpen(true)}
-                                    className="px-3 py-1 rounded-full text-[10px] font-bold border transition-all flex items-center gap-1.5 bg-cyan-500/10 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/20"
+                                    className="px-3 py-1 rounded-full text-[10px] font-bold border transition-all flex items-center gap-1.5 bg-lime-500/10 text-lime-300 border-lime-500/30 hover:bg-lime-500/20"
                                     title="Ver Reporte DSP"
                                 >
-                                    <Sparkles size={11} className="text-cyan-400" />
+                                    <Sparkles size={11} className="text-lime-400" />
                                     <span>DSP Report</span>
                                 </button>
                             )}
@@ -1616,28 +1626,28 @@ export default function App() {
                                   )}
 
                                   {/* Synchronized Transparent A/B Switch */}
-                                  <button 
+                                  <button
                                       onClick={() => {
                                         if (!hasActiveMaster) {
                                           setIsBypassed(true);
                                           return;
                                         }
                                         setIsBypassed(!isBypassed);
-                                      }} 
+                                      }}
                                       disabled={!hasActiveMaster}
                                       className={`px-3.5 py-1 rounded-full text-[10px] font-bold transition-all flex items-center gap-1.5 shadow-sm ${
                                         !hasActiveMaster
                                           ? "bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-80"
-                                          : isBypassed 
-                                            ? "bg-amber-500 hover:bg-amber-400 text-black" 
-                                            : "bg-gradient-to-r from-cyan-500 to-cyan-400 text-black font-extrabold"
+                                          : isBypassed
+                                            ? "bg-amber-500 hover:bg-amber-400 text-black"
+                                            : "bg-gradient-to-r from-lime-500 to-lime-400 text-black font-extrabold"
                                       }`}
                                       title={!hasActiveMaster ? (lang === 'es' ? 'Audio Original (sin masterizar)' : 'Original Audio (unmastered)') : isBypassed ? "Escuchar WAV masterizado" : "Escuchar original"}
                                   >
                                       {isBypassed || !hasActiveMaster ? <VolumeX size={12}/> : <CheckCircle2 size={12}/>}
                                       <span>
-                                        {!hasActiveMaster 
-                                          ? (lang === 'es' ? 'ORIGINAL (Sin Master)' : 'ORIGINAL (Raw)') 
+                                        {!hasActiveMaster
+                                          ? (lang === 'es' ? 'ORIGINAL (Sin Master)' : 'ORIGINAL (Raw)')
                                           : isBypassed ? t.originalRaw : t.masteredDsp}
                                       </span>
                                   </button>
@@ -1652,26 +1662,26 @@ export default function App() {
                       const visBuffer = isBypassed
                         ? (processingMode === 'stems' ? (processedBuffer || activeTrackBuf) : (activeTrackBuf || processedBuffer))
                         : (processedBuffer || activeTrackBuf);
-                      const visDuration = duration > 0 
-                        ? duration 
+                      const visDuration = duration > 0
+                        ? duration
                         : (visBuffer ? visBuffer.duration : (activeTrackBuf ? activeTrackBuf.duration : 0));
 
                       return (
                         <div className="flex-1 min-h-0 relative flex flex-col w-full h-full">
-                            <Visualizer 
-                              audioBuffer={visBuffer} 
-                              currentTime={currentTime} 
-                              duration={visDuration} 
-                              isPlaying={playbackState === PlaybackState.PLAYING} 
-                              isRendering={isPreviewRendering || loadingAudio || isBulkMastering || isSmartAdjusting} 
-                              mode={visualizerMode} 
-                              skin="modern" 
+                            <Visualizer
+                              audioBuffer={visBuffer}
+                              currentTime={currentTime}
+                              duration={visDuration}
+                              isPlaying={playbackState === PlaybackState.PLAYING}
+                              isRendering={isPreviewRendering || loadingAudio || isBulkMastering || isSmartAdjusting}
+                              mode={visualizerMode}
+                              skin="modern"
                               selection={selection}
                               onSelectionChange={setSelection}
                               onApplySelectionEdit={handleApplySelectionEdit}
                               canUndo={editHistory.length > 0}
                               onUndo={handleUndoEdit}
-                              onSeek={handleSeek} 
+                              onSeek={handleSeek}
                               lang={lang}
                             />
                         </div>
@@ -1679,7 +1689,7 @@ export default function App() {
                     })()}
                 </div>
                 {/* Dedicated Timeline adapted to real track duration */}
-                <TimelineBar 
+                <TimelineBar
                   currentTime={currentTime}
                   duration={duration}
                   isPlaying={playbackState === PlaybackState.PLAYING}
@@ -1691,7 +1701,7 @@ export default function App() {
 
             {/* Files Box Component with Stems / Bulk Toggle */}
             <div className="w-full md:w-80 flex flex-col h-full min-h-0 shrink-0">
-                <FilesBox 
+                <FilesBox
                   tracks={tracks}
                   activeTrackId={activeTrackId}
                   onSelectTrack={handleSelectTrack}
@@ -1722,20 +1732,20 @@ export default function App() {
          <div className="flex-1 flex flex-col gap-4">
              <div className={`p-2.5 flex items-center justify-between gap-4 overflow-x-auto no-scrollbar ${glassClass}`}>
                 <div className="flex items-center gap-3">
-                  <button 
-                    onClick={handlePlayPause} 
-                    className="w-10 h-10 bg-gradient-to-tr from-cyan-600 to-cyan-400 rounded-full flex items-center justify-center text-black font-bold shrink-0 hover:scale-105 active:scale-95 transition-all shadow-lg shadow-cyan-500/20"
+                  <button
+                    onClick={handlePlayPause}
+                    className="w-10 h-10 bg-gradient-to-tr from-lime-600 to-lime-400 rounded-full flex items-center justify-center text-black font-bold shrink-0 hover:scale-105 active:scale-95 transition-all shadow-lg shadow-lime-500/20"
                   >
                       {playbackState === PlaybackState.PLAYING ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
                   </button>
                   <div className="flex gap-1.5">
                       {PRESETS.map(p => (
-                        <button 
-                          key={p.id} 
-                          onClick={() => applyPreset(p.id)} 
+                        <button
+                          key={p.id}
+                          onClick={() => applyPreset(p.id)}
                           className={`px-3 py-1.5 rounded-xl text-[11px] font-semibold border transition-all ${
-                            activePreset === p.id 
-                              ? "bg-cyan-500/20 border-cyan-500/60 text-cyan-300 shadow-sm" 
+                            activePreset === p.id
+                              ? "bg-lime-500/20 border-lime-500/60 text-lime-300 shadow-sm"
                               : "border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-white/5"
                           }`}
                         >
@@ -1746,13 +1756,13 @@ export default function App() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button 
+                  <button
                     onClick={() => setIsReferenceModalOpen(true)}
                     disabled={tracks.length === 0}
-                    className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all border border-indigo-500/40 bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-200 shadow-md shadow-indigo-950/30 active:scale-95"
+                    className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-200 shadow-md shadow-cyan-950/30 active:scale-95"
                     title="Mastering inteligente por canciones de referencia"
                   >
-                    <Disc size={15} className="text-indigo-400" />
+                    <Disc size={15} className="text-cyan-400" />
                     <span>Referencia {references.length > 0 ? `(${references.length})` : ''}</span>
                   </button>
 
@@ -1762,17 +1772,17 @@ export default function App() {
                       disabled={isExportingZip || isBulkMastering || tracks.length === 0}
                       className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all border border-slate-700/80 bg-slate-800/80 hover:bg-slate-700 text-slate-200"
                     >
-                      {isExportingZip ? <Loader2 size={14} className="animate-spin" /> : <Archive size={14} className="text-cyan-400" />}
+                      {isExportingZip ? <Loader2 size={14} className="animate-spin" /> : <Archive size={14} className="text-lime-400" />}
                       <span>{t.exportAllZip}</span>
                     </button>
                   )}
 
-                  <button 
+                  <button
                     onClick={handleExport}
                     disabled={isExporting || tracks.length === 0}
                     className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg ${
-                      isExporting 
-                        ? "bg-slate-800 text-slate-400 cursor-wait" 
+                      isExporting
+                        ? "bg-slate-800 text-slate-400 cursor-wait"
                         : "bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-emerald-500/20 active:scale-95"
                     }`}
                   >
@@ -1782,15 +1792,15 @@ export default function App() {
                 </div>
              </div>
               <div className="flex-1 min-h-[400px]">
-                 <EffectRack 
-                  params={params} 
-                  onChange={setParams} 
-                  tracks={tracks} 
-                  onTrackChange={(id, u) => setTracks(prev => prev.map(t => t.id === id ? {...t, ...u} : t))} 
-                  onRemove={handleRemoveTrack} 
-                  skin="modern" 
+                 <EffectRack
+                  params={params}
+                  onChange={setParams}
+                  tracks={tracks}
+                  onTrackChange={(id, u) => setTracks(prev => prev.map(t => t.id === id ? {...t, ...u} : t))}
+                  onRemove={handleRemoveTrack}
+                  skin="modern"
                   lang={lang}
-                  analysisStats={fileStats} 
+                  analysisStats={fileStats}
                   onSmartMaster={handleSmartMaster}
                   isSmartAdjusting={isSmartAdjusting}
                   smartMasterPhase={smartMasterPhase}
@@ -1804,7 +1814,7 @@ export default function App() {
          </div>
       </main>
 
-      <ReferenceMasteringModal 
+      <ReferenceMasteringModal
         isOpen={isReferenceModalOpen}
         onClose={() => setIsReferenceModalOpen(false)}
         references={references}
@@ -1817,7 +1827,7 @@ export default function App() {
         isProcessing={isReferenceProcessing}
       />
 
-      <AIMasteringReportModal 
+      <AIMasteringReportModal
         isOpen={isReportOpen}
         onClose={() => setIsReportOpen(false)}
         result={masteringReport}
@@ -1852,10 +1862,10 @@ export default function App() {
       />
 
       {/* Secure VPS AES-256-GCM AI Vault Modal */}
-      <AISettingsModal 
+      <AISettingsModal
         isOpen={isAiSettingsOpen && isProUser(currentUser)}
-        onClose={() => setIsAiSettingsOpen(false)} 
-        onConfigSaved={() => {}} 
+        onClose={() => setIsAiSettingsOpen(false)}
+        onConfigSaved={() => {}}
       />
 
       <BillingModal
@@ -1885,15 +1895,15 @@ export default function App() {
       {(loadingAudio || isBulkMastering) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
           <div className="flex flex-col items-center gap-4 p-6 rounded-3xl bg-slate-900/95 border border-slate-800 shadow-2xl">
-            <div className="p-4 bg-cyan-500/10 border border-cyan-500/30 rounded-2xl text-cyan-400 shadow-xl shadow-cyan-500/20">
-              <Loader2 size={36} className="animate-spin text-cyan-400" />
+            <div className="p-4 bg-lime-500/10 border border-lime-500/30 rounded-2xl text-lime-400 shadow-xl shadow-lime-500/20">
+              <Loader2 size={36} className="animate-spin text-lime-400" />
             </div>
             <div className="flex flex-col items-center text-center gap-1">
               <span className="text-sm font-bold tracking-wide text-white">
                 {loadingAudio ? (lang === 'es' ? 'Cargando y decodificando audio...' : 'Loading & decoding audio...') : (lang === 'es' ? 'Masterizando pistas por lote...' : 'Batch mastering tracks...')}
               </span>
               {isBulkMastering && bulkProgress && (
-                <span className="max-w-[420px] truncate text-xs font-semibold text-cyan-300">
+                <span className="max-w-[420px] truncate text-xs font-semibold text-lime-300">
                   {bulkProgress.current}/{bulkProgress.total} · {bulkProgress.trackName}
                 </span>
               )}

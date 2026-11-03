@@ -1,14 +1,14 @@
 import React from 'react';
-import { 
-  CheckCircle2, 
-  AlertTriangle, 
-  XCircle, 
-  Sparkles, 
-  Download, 
-  Activity, 
-  ShieldCheck, 
-  Mic, 
-  FileArchive, 
+import {
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  Sparkles,
+  Download,
+  Activity,
+  ShieldCheck,
+  Mic,
+  FileArchive,
   X,
   Layers
 } from 'lucide-react';
@@ -59,8 +59,8 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
   const vocalApproved = Number((summary.vocalApprovedCount ?? (summary as any).vocalProtectedCount ?? 0) + (summary.vocalPartialCount ?? 0));
   const instCount = Number(summary.instrumentalCount ?? 0);
 
-  const rawTracks = Array.isArray(summary.tracks) 
-    ? summary.tracks 
+  const rawTracks = Array.isArray(summary.tracks)
+    ? summary.tracks
     : (Array.isArray((summary as any).items) ? (summary as any).items : []);
 
   const handleOpenReport = (trackId: string) => {
@@ -82,10 +82,10 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div 
+      <div
         className={`w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-2xl flex flex-col border overflow-hidden ${
-          isClear 
-            ? 'bg-white border-slate-200 text-slate-900 shadow-slate-300/50' 
+          isClear
+            ? 'bg-white border-slate-200 text-slate-900 shadow-slate-300/50'
             : 'bg-slate-900/95 border-slate-800 text-slate-100 shadow-black/80'
         }`}
       >
@@ -94,13 +94,13 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
           isClear ? 'bg-slate-50/80 border-slate-200' : 'bg-slate-950/60 border-slate-800'
         }`}>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-tr from-cyan-600 to-indigo-600 text-white shadow-md shadow-cyan-500/20">
+            <div className="p-2.5 rounded-xl bg-gradient-to-tr from-lime-600 to-cyan-600 text-white shadow-md shadow-lime-500/20">
               <Layers size={22} />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base sm:text-lg font-bold">Resumen Global de Bulk Mixer Fixer</h3>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-lime-500/10 text-lime-400 border border-lime-500/20">
                   {completedCount} / {totalCount} Procesadas
                 </span>
               </div>
@@ -109,7 +109,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
               </p>
             </div>
           </div>
-          <button 
+          <button
             onClick={onClose}
             className={`p-2 rounded-xl transition-colors ${
               isClear ? 'hover:bg-slate-200 text-slate-400 hover:text-slate-700' : 'hover:bg-slate-800 text-slate-400 hover:text-white'
@@ -121,7 +121,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 custom-scrollbar">
-          
+
           {/* Top Aggregated Stats Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {/* 1. Loudness Range */}
@@ -146,7 +146,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
             }`}>
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">True Peak Máximo</span>
               <div className="my-1.5 flex items-baseline gap-1.5">
-                <span className="text-base sm:text-lg font-mono font-bold text-cyan-400">
+                <span className="text-base sm:text-lg font-mono font-bold text-lime-400">
                   {completedCount > 0 && Number.isFinite(maxTP) ? maxTP.toFixed(1) : '—'}
                 </span>
                 <span className="text-xs font-mono text-slate-400">dBTP</span>
@@ -164,7 +164,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
             }`}>
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Rango Dinámico (LRA)</span>
               <div className="my-1.5 flex items-baseline gap-1.5">
-                <span className="text-base sm:text-lg font-mono font-bold text-indigo-300">
+                <span className="text-base sm:text-lg font-mono font-bold text-cyan-300">
                   {completedCount > 0 && Number.isFinite(avgLRA) ? avgLRA.toFixed(1) : '—'}
                 </span>
                 <span className="text-xs font-mono text-slate-400">LU</span>
@@ -196,10 +196,10 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
           {/* Individual Tracks Table */}
           <div className="space-y-2">
             <h4 className="text-xs font-bold uppercase tracking-wider opacity-80 flex items-center gap-1.5">
-              <Activity size={14} className="text-cyan-400" />
+              <Activity size={14} className="text-lime-400" />
               Detalle y Reporte Individual por Canción
             </h4>
-            
+
             <div className={`rounded-xl border overflow-hidden ${
               isClear ? 'border-slate-200 bg-white' : 'border-slate-800 bg-slate-950/40'
             }`}>
@@ -252,7 +252,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
                           <td className="p-3 text-center text-slate-300">
                             {hasResult && Number.isFinite(tpNum) ? `${tpNum.toFixed(1)} dBTP` : '—'}
                           </td>
-                          <td className="p-3 text-center text-indigo-300">
+                          <td className="p-3 text-center text-cyan-300">
                             {lraNum !== 0 ? `${lraNum.toFixed(1)} LU` : '—'}
                           </td>
                           <td className="p-3 text-center">
@@ -273,7 +273,7 @@ export const BulkMasteringSummaryModal: React.FC<BulkMasteringSummaryModalProps>
                               {hasResult && (
                                 <button
                                   onClick={() => handleOpenReport(trackId)}
-                                  className="p-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 transition-all text-[10px] font-bold flex items-center gap-1"
+                                  className="p-1.5 rounded-lg bg-lime-500/10 hover:bg-lime-500/20 text-lime-400 border border-lime-500/30 transition-all text-[10px] font-bold flex items-center gap-1"
                                   title="Ver informe individual detallado"
                                 >
                                   <Sparkles size={12} />

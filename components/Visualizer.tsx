@@ -22,28 +22,28 @@ interface VisualizerProps {
   lang?: Language;
 }
 
-export const Visualizer: React.FC<VisualizerProps> = React.memo(({ 
-  audioBuffer, 
-  currentTime, 
-  duration, 
-  isPlaying, 
-  isRendering, 
-  mode, 
-  onPeakCalculated, 
-  onSeek, 
-  selection, 
-  onSelectionChange, 
+export const Visualizer: React.FC<VisualizerProps> = React.memo(({
+  audioBuffer,
+  currentTime,
+  duration,
+  isPlaying,
+  isRendering,
+  mode,
+  onPeakCalculated,
+  onSeek,
+  selection,
+  onSelectionChange,
   onApplySelectionEdit,
   canUndo = false,
   onUndo,
   skin = 'modern',
-  lang = 'es' 
+  lang = 'es'
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollbarTrackRef = useRef<HTMLDivElement>(null);
   const sizeRef = useRef<{ width: number; height: number; dpr: number }>({ width: 800, height: 200, dpr: 1 });
-  
+
   // Interaction Mode: 'scrub' (default: drag to seek) or 'select' (drag to highlight & edit)
   const [interactMode, setInteractMode] = useState<'scrub' | 'select'>('scrub');
   const [isScrubbing, setIsScrubbing] = useState<boolean>(false);
@@ -134,7 +134,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
   // 1. High-precision vector peak extraction
   const peaksData = useMemo(() => {
     if (!audioBuffer) return null;
-    
+
     const numPoints = 2048;
     const numChannels = audioBuffer.numberOfChannels;
     const channels: Float32Array[] = [];
@@ -152,7 +152,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
       const startIdx = Math.floor((i / numPoints) * length);
       const endIdx = Math.floor(((i + 1) / numPoints) * length);
       const limit = Math.max(startIdx + 1, Math.min(endIdx, length));
-      
+
       for (let c = 0; c < numChannels; c++) {
         const data = channels[c];
         let j = startIdx;
@@ -246,7 +246,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       // Dark Pro Background Fill
-      ctx.fillStyle = "#020617";
+      ctx.fillStyle = "#060a0f";
       ctx.fillRect(0, 0, drawWidth, drawHeight);
 
       const centerY = drawHeight / 2;
@@ -385,7 +385,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
         const x = ((liveTime - startTime) / visibleDuration) * drawWidth;
         if (x >= 0 && x <= drawWidth) {
           ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-          ctx.shadowColor = '#22d3ee';
+          ctx.shadowColor = '#c8ff2e';
           ctx.shadowBlur = 8;
           ctx.fillRect(x, 0, 2, drawHeight);
           ctx.shadowBlur = 0;
@@ -403,8 +403,8 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
         if (width > 0) {
           ctx.fillStyle = "rgba(34, 211, 238, 0.22)";
           ctx.fillRect(leftX, 0, width, drawHeight);
-          
-          ctx.strokeStyle = "#22d3ee";
+
+          ctx.strokeStyle = "#c8ff2e";
           ctx.lineWidth = 1.5;
           ctx.strokeRect(leftX, 0, width, drawHeight);
         }
@@ -484,7 +484,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
   // Main Waveform Mouse Down
   const handleMouseDown = (e: React.MouseEvent) => {
     if (effectiveDuration <= 0) return;
-    
+
     const t = getTimelineTime(e);
     setDragStart(t);
 
@@ -539,12 +539,12 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
   const handleScrollbarMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
     if (!scrollbarTrackRef.current || effectiveDuration <= 0 || zoom <= 1.0) return;
-    
+
     const rect = scrollbarTrackRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const trackWidth = rect.width;
     const fraction = Math.max(0, Math.min(1, clickX / trackWidth));
-    
+
     // Jump viewport to clicked region
     const targetOffset = Math.max(0, Math.min(fraction * effectiveDuration - visibleDuration / 2, maxScroll));
     setScrollOffset(targetOffset);
@@ -584,7 +584,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
   // Mouse wheel pan & pinch-to-zoom
   const handleWheel = (e: React.WheelEvent) => {
     if (effectiveDuration <= 0) return;
-    
+
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       const zoomDelta = e.deltaY < 0 ? 1.2 : 0.833;
@@ -597,12 +597,12 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
   };
 
   return (
-    <div 
+    <div
       className="w-full h-full flex flex-col relative select-none overflow-hidden bg-slate-950 rounded-xl"
       onWheel={handleWheel}
     >
       {/* Canvas Waveform Area */}
-      <div 
+      <div
         ref={containerRef}
         className="flex-1 min-h-0 w-full relative cursor-crosshair overflow-hidden min-h-[220px]"
         onMouseDown={handleMouseDown}
@@ -613,7 +613,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
         <canvas ref={canvasRef} className="w-full h-full relative z-10 block" />
 
         {/* Floating Horizontal Zoom & Navigation Toolbar (Top Left) */}
-        <div 
+        <div
           className="absolute top-2.5 left-3 z-30 flex items-center gap-1.5 p-1 bg-slate-900/95 border border-slate-800 backdrop-blur-xl rounded-xl shadow-2xl text-slate-200"
           onMouseDown={(e) => e.stopPropagation()}
         >
@@ -622,7 +622,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
             <button
               onClick={() => { setInteractMode('scrub'); setLocalSelection(null); onSelectionChange?.(null); }}
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
-                interactMode === 'scrub' ? 'bg-cyan-500 text-black font-extrabold shadow-sm' : 'text-slate-400 hover:text-white'
+                interactMode === 'scrub' ? 'bg-lime-500 text-black font-extrabold shadow-sm' : 'text-slate-400 hover:text-white'
               }`}
               title="Modo Scrubbing: Arrastra sobre la onda para avanzar/retroceder en tiempo real"
             >
@@ -632,7 +632,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
             <button
               onClick={() => setInteractMode('select')}
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
-                interactMode === 'select' ? 'bg-cyan-500 text-black font-extrabold shadow-sm' : 'text-slate-400 hover:text-white'
+                interactMode === 'select' ? 'bg-lime-500 text-black font-extrabold shadow-sm' : 'text-slate-400 hover:text-white'
               }`}
               title="Modo Selección: Arrastra para seleccionar y editar (Fades, Ganancia, Mute)"
             >
@@ -655,7 +655,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
           )}
 
           {/* Zoom Out */}
-          <button 
+          <button
             onClick={handleZoomOut}
             disabled={zoom <= 1.0}
             className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all cursor-pointer"
@@ -667,14 +667,14 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
           {/* Zoom % Badge */}
           <button
             onClick={handleResetZoom}
-            className="px-2 py-0.5 rounded-md font-mono text-[10px] font-bold text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 transition-all cursor-pointer"
+            className="px-2 py-0.5 rounded-md font-mono text-[10px] font-bold text-lime-400 bg-lime-500/10 hover:bg-lime-500/20 border border-lime-500/20 transition-all cursor-pointer"
             title="Restablecer escala (Fit 100%)"
           >
             {Math.round(zoom * 100)}%
           </button>
 
           {/* Zoom In */}
-          <button 
+          <button
             onClick={handleZoomIn}
             disabled={zoom >= 8.0}
             className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-all cursor-pointer"
@@ -694,9 +694,9 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
           )}
 
           {zoom > 1.0 && (
-            <button 
+            <button
               onClick={handleResetZoom}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30 transition-all cursor-pointer ml-0.5"
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider bg-lime-500/20 text-lime-300 border border-lime-500/30 hover:bg-lime-500/30 transition-all cursor-pointer ml-0.5"
               title="Ajustar a 100%"
             >
               <Maximize2 size={9} />
@@ -719,7 +719,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
 
         {/* Floating Selection Tool Bar */}
         {activeSelection && duration > 0 && Math.abs(activeSelection.end - activeSelection.start) > 0.05 && (
-          <div 
+          <div
             className="absolute top-2.5 z-40 transform -translate-x-1/2 flex items-center gap-1.5 p-1.5 bg-slate-900/95 border border-slate-700/90 backdrop-blur-2xl rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-slate-100"
             style={{
               left: `${Math.min(90, Math.max(10, ((((activeSelection.start + activeSelection.end) / 2 - startTime) / visibleDuration)) * 100))}%`
@@ -727,50 +727,50 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
             onMouseDown={(e) => e.stopPropagation()}
           >
             {/* Duration Badge */}
-            <div className="flex items-center gap-1 px-2 text-[10px] font-mono font-bold text-cyan-400 border-r border-slate-800 shrink-0">
+            <div className="flex items-center gap-1 px-2 text-[10px] font-mono font-bold text-lime-400 border-r border-slate-800 shrink-0">
               <span>{(activeSelection.end - activeSelection.start).toFixed(2)}s</span>
             </div>
 
             {/* Gain Down */}
-            <button 
+            <button
               onClick={() => onApplySelectionEdit?.('gain', -2)}
-              className="px-2.5 py-1 bg-slate-800/90 hover:bg-slate-700 hover:text-cyan-300 active:scale-95 text-slate-200 rounded-xl text-[11px] font-bold transition-all border border-slate-700/50 cursor-pointer"
+              className="px-2.5 py-1 bg-slate-800/90 hover:bg-slate-700 hover:text-lime-300 active:scale-95 text-slate-200 rounded-xl text-[11px] font-bold transition-all border border-slate-700/50 cursor-pointer"
               title="Bajar volumen -2 dB"
             >
               -2 dB
             </button>
 
             {/* Gain Up */}
-            <button 
+            <button
               onClick={() => onApplySelectionEdit?.('gain', +2)}
-              className="px-2.5 py-1 bg-slate-800/90 hover:bg-slate-700 hover:text-cyan-300 active:scale-95 text-slate-200 rounded-xl text-[11px] font-bold transition-all border border-slate-700/50 cursor-pointer"
+              className="px-2.5 py-1 bg-slate-800/90 hover:bg-slate-700 hover:text-lime-300 active:scale-95 text-slate-200 rounded-xl text-[11px] font-bold transition-all border border-slate-700/50 cursor-pointer"
               title="Subir volumen +2 dB"
             >
               +2 dB
             </button>
 
             {/* Fade In */}
-            <button 
+            <button
               onClick={() => onApplySelectionEdit?.('fadeIn')}
-              className="flex items-center gap-1 px-2.5 py-1 bg-slate-800/90 hover:bg-cyan-500/20 hover:text-cyan-300 hover:border-cyan-500/40 border border-slate-700/50 active:scale-95 text-slate-200 rounded-xl text-[11px] font-bold transition-all cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1 bg-slate-800/90 hover:bg-lime-500/20 hover:text-lime-300 hover:border-lime-500/40 border border-slate-700/50 active:scale-95 text-slate-200 rounded-xl text-[11px] font-bold transition-all cursor-pointer"
               title="Fade In (Entrada suave)"
             >
-              <TrendingUp size={12} className="text-cyan-400" />
+              <TrendingUp size={12} className="text-lime-400" />
               <span>Fade In</span>
             </button>
 
             {/* Fade Out */}
-            <button 
+            <button
               onClick={() => onApplySelectionEdit?.('fadeOut')}
-              className="flex items-center gap-1 px-2.5 py-1 bg-slate-800/90 hover:bg-cyan-500/20 hover:text-cyan-300 hover:border-cyan-500/40 border border-slate-700/50 active:scale-95 text-slate-200 rounded-xl text-[11px] font-bold transition-all cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1 bg-slate-800/90 hover:bg-lime-500/20 hover:text-lime-300 hover:border-lime-500/40 border border-slate-700/50 active:scale-95 text-slate-200 rounded-xl text-[11px] font-bold transition-all cursor-pointer"
               title="Fade Out (Salida suave)"
             >
-              <TrendingDown size={12} className="text-cyan-400" />
+              <TrendingDown size={12} className="text-lime-400" />
               <span>Fade Out</span>
             </button>
 
             {/* Mute */}
-            <button 
+            <button
               onClick={() => onApplySelectionEdit?.('mute')}
               className="flex items-center gap-1 px-2.5 py-1 bg-slate-800/90 hover:bg-rose-500/20 hover:text-rose-300 hover:border-rose-500/40 border border-slate-700/50 active:scale-95 text-slate-200 rounded-xl text-[11px] font-bold transition-all cursor-pointer"
               title="Silenciar selección"
@@ -781,7 +781,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
 
             {/* Undo if available */}
             {canUndo && (
-              <button 
+              <button
                 onClick={onUndo}
                 className="flex items-center gap-1 px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 active:scale-95 rounded-xl text-[11px] font-bold transition-all cursor-pointer"
                 title="Deshacer última edición (Ctrl+Z)"
@@ -792,7 +792,7 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
             )}
 
             {/* Deselect / Close */}
-            <button 
+            <button
               onClick={() => {
                 setLocalSelection(null);
                 onSelectionChange?.(null);
@@ -819,21 +819,21 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
           </button>
 
           {/* Draggable Scroll Track Container */}
-          <div 
+          <div
             ref={scrollbarTrackRef}
             onMouseDown={handleScrollbarMouseDown}
             className="flex-1 h-6 bg-slate-950 rounded-lg relative overflow-hidden border border-slate-800 cursor-pointer shadow-inner flex items-center"
           >
             {/* Viewport Window Slider Thumb */}
-            <div 
-              className="absolute top-0.5 bottom-0.5 bg-cyan-500/25 border-2 border-cyan-400 rounded-md shadow-[0_0_12px_rgba(6,182,212,0.5)] cursor-grab active:cursor-grabbing flex items-center justify-center transition-shadow hover:shadow-[0_0_16px_rgba(6,182,212,0.8)]"
+            <div
+              className="absolute top-0.5 bottom-0.5 bg-lime-500/25 border-2 border-lime-400 rounded-md shadow-[0_0_12px_rgba(6,182,212,0.5)] cursor-grab active:cursor-grabbing flex items-center justify-center transition-shadow hover:shadow-[0_0_16px_rgba(6,182,212,0.8)]"
               style={{
                 left: `${(startTime / duration) * 100}%`,
                 width: `${Math.max(6, (visibleDuration / duration) * 100)}%`
               }}
             >
-              <div className="flex items-center gap-1 text-[9px] font-mono font-black text-cyan-200 drop-shadow select-none">
-                <GripVertical size={11} className="text-cyan-300" />
+              <div className="flex items-center gap-1 text-[9px] font-mono font-black text-lime-200 drop-shadow select-none">
+                <GripVertical size={11} className="text-lime-300" />
                 <span className="hidden sm:inline-block">
                   {formatTime(startTime)} - {formatTime(endTime)}
                 </span>
@@ -856,8 +856,8 @@ export const Visualizer: React.FC<VisualizerProps> = React.memo(({
       {isRendering && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
           <div className="flex flex-col items-center gap-3 p-5 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-2xl">
-            <div className="p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-2xl text-cyan-400 shadow-lg shadow-cyan-500/20">
-              <Loader2 size={28} className="animate-spin text-cyan-400" />
+            <div className="p-3 bg-lime-500/10 border border-lime-500/30 rounded-2xl text-lime-400 shadow-lg shadow-lime-500/20">
+              <Loader2 size={28} className="animate-spin text-lime-400" />
             </div>
             <div className="flex flex-col items-center">
               <span className="text-xs font-bold tracking-wide text-white">

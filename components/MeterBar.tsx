@@ -21,7 +21,7 @@ export const MeterBar: React.FC<MeterBarProps> = React.memo(({ skin = 'modern' }
         let frameCount = 0;
         const update = () => {
             const data = audioEngine.getLoudnessData();
-            
+
             // Update Dynamic Range text at 2Hz directly on DOM without triggering React re-renders
             if (frameCount % 30 === 0 && dynTextRef.current) {
                  const metrics = audioEngine.getAnalysisMetrics();
@@ -36,18 +36,18 @@ export const MeterBar: React.FC<MeterBarProps> = React.memo(({ skin = 'modern' }
             if (shortTermRef.current) {
                 const pct = Math.max(0, Math.min(100, (data.shortTerm - MIN_DB) / (MAX_DB - MIN_DB) * 100));
                 shortTermRef.current.style.width = `${pct}%`;
-                
+
                 const val = data.shortTerm;
                 let cls = "absolute top-0 bottom-0 left-0 transition-colors duration-100 ease-out shadow-[0_0_15px_currentColor] ";
-                
+
                 if (val > -9) {
                     cls += "bg-rose-500 text-rose-500";
                 } else if (val > -14) {
-                    cls += "bg-cyan-400 text-cyan-400";
+                    cls += "bg-lime-400 text-lime-400";
                 } else {
                     cls += "bg-emerald-500 text-emerald-500";
                 }
-                
+
                 if (shortTermRef.current.className !== cls) {
                     shortTermRef.current.className = cls;
                 }
@@ -78,33 +78,33 @@ export const MeterBar: React.FC<MeterBarProps> = React.memo(({ skin = 'modern' }
                     ADAPTIVE TARGET | TP ≤ -1.2 / -1.5 dBTP
                 </span>
             </div>
-            
+
             <div className="flex-1 h-2.5 rounded-full relative overflow-visible my-1 sm:my-0 bg-slate-800/50">
                 {/* Short Term Bar (Animated via ref) */}
                 <div className="absolute inset-0 rounded-full overflow-hidden">
-                     <div ref={shortTermRef} className="absolute top-0 bottom-0 left-0 bg-cyan-500" style={{ width: '0%' }}></div>
+                     <div ref={shortTermRef} className="absolute top-0 bottom-0 left-0 bg-lime-500" style={{ width: '0%' }}></div>
                 </div>
-                
+
                 {/* Markers Overlay */}
                 <div className="absolute inset-0 pointer-events-none">
                     {/* -14 Target Line */}
-                    <div 
-                        className="absolute top-[-4px] bottom-[-4px] w-0.5 z-20 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" 
-                        style={{ left: getPosition(-14) }} 
+                    <div
+                        className="absolute top-[-4px] bottom-[-4px] w-0.5 z-20 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"
+                        style={{ left: getPosition(-14) }}
                     />
                     <div className="absolute -top-4 text-[8px] font-mono -translate-x-1/2 font-bold text-emerald-400" style={{ left: getPosition(-14) }}>-14</div>
 
                     {/* -6 dB Marker */}
-                    <div 
-                        className="absolute top-[-2px] bottom-[-2px] w-px z-10 bg-slate-600" 
-                        style={{ left: getPosition(-6) }} 
+                    <div
+                        className="absolute top-[-2px] bottom-[-2px] w-px z-10 bg-slate-600"
+                        style={{ left: getPosition(-6) }}
                     />
                     <div className="absolute -bottom-4 text-[8px] font-mono -translate-x-1/2 text-slate-500" style={{ left: getPosition(-6) }}>-6</div>
 
                     {/* -3 dB Marker */}
-                     <div 
-                        className="absolute top-[-2px] bottom-[-2px] w-px z-10 bg-slate-600" 
-                        style={{ left: getPosition(-3) }} 
+                     <div
+                        className="absolute top-[-2px] bottom-[-2px] w-px z-10 bg-slate-600"
+                        style={{ left: getPosition(-3) }}
                     />
                     <div className="absolute -bottom-4 text-[8px] font-mono -translate-x-1/2 text-slate-500" style={{ left: getPosition(-3) }}>-3</div>
                 </div>
@@ -114,7 +114,7 @@ export const MeterBar: React.FC<MeterBarProps> = React.memo(({ skin = 'modern' }
                     <div className="absolute -top-1.5 -left-1 w-2.5 h-2.5 rotate-45 transform shadow-sm bg-white"></div>
                 </div>
             </div>
-            
+
             {/* Dynamic Range Readout */}
             <div className="flex items-center justify-end gap-3 pl-2 border-t sm:border-t-0 sm:border-l border-white/5 pt-1 sm:pt-0">
                 <div className="flex items-center gap-1.5">
