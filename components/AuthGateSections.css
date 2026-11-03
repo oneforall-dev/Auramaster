@@ -100,6 +100,27 @@
 .am-faq details[open] summary::after { content: '−'; }
 .am-faq details p { color: var(--am-muted); font-size: 13px; max-width: 700px; margin: 13px 0 0; }
 
+.am-ai-plan-benefit {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 2px 0 18px;
+  padding: 12px;
+  border: 1px solid rgba(200, 255, 46, 0.28);
+  border-radius: 12px;
+  background: linear-gradient(120deg, rgba(200, 255, 46, 0.1), rgba(18, 231, 228, 0.05));
+}
+
+.am-ai-plan-benefit > svg {
+  width: 18px;
+  flex: 0 0 18px;
+  color: var(--am-acid);
+}
+
+.am-ai-plan-benefit span { display: flex; flex-direction: column; gap: 3px; }
+.am-ai-plan-benefit b { color: #e9f5ed; font: 700 11px 'Space Grotesk'; }
+.am-ai-plan-benefit small { color: #94a49f; font-size: 9px; line-height: 1.45; }
+
 @media (max-width: 720px) {
   .am-ai-layout { grid-template-columns: 1fr; gap: 36px; }
   .am-ai-card { padding: 16px; }
