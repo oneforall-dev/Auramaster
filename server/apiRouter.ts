@@ -243,7 +243,8 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       const commercial = storage.getCommercialConfig();
       const publicPlan = (key: keyof typeof commercial.plans) => ({
         enabled: commercial.plans[key].enabled,
-        priceUsd: commercial.plans[key].displayPriceUsd,
+        originalPriceUsd: commercial.plans[key].displayPriceUsd,
+        priceUsd: effectiveAmount(commercial.plans[key].displayPriceUsd, commercial.plans[key].discountPercent),
         discountPercent: commercial.plans[key].discountPercent,
         amount: effectiveAmount(commercial.plans[key].baseAmount, commercial.plans[key].discountPercent),
         currency: commercial.currency

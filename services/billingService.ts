@@ -5,6 +5,7 @@ export type PurchasablePlan = 'payg' | 'pro_monthly' | 'pro_annual';
 export interface BillingTier {
   enabled?: boolean;
   priceUsd: number;
+  originalPriceUsd?: number;
   discountPercent?: number;
   amount?: number;
   currency?: 'COP' | 'USD';

@@ -61,9 +61,9 @@ export const AdminDashboardModal: React.FC<Props> = ({ isOpen, onClose }) => {
               <div className="mb-4 flex items-start justify-between gap-3"><div><h3 className="font-black">{labels[key].title}</h3><p className="text-[11px] text-slate-400">{labels[key].help}</p></div><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={plan.enabled} onChange={e => updatePlan(key, { enabled: e.target.checked })} /> Activo</label></div>
               <div className="space-y-3">
                 <Field label={`Precio base (${config.currency})`}><input type="number" min="1" step="0.01" value={plan.baseAmount} onChange={e => updatePlan(key, { baseAmount: Number(e.target.value) })} className="input-admin" /></Field>
-                <Field label="Precio visible (USD)"><input type="number" min="0" step="0.01" value={plan.displayPriceUsd} onChange={e => updatePlan(key, { displayPriceUsd: Number(e.target.value) })} className="input-admin" /></Field>
+                <Field label="Precio visible antes del descuento (USD)"><input type="number" min="0" step="0.01" value={plan.displayPriceUsd} onChange={e => updatePlan(key, { displayPriceUsd: Number(e.target.value) })} className="input-admin" /></Field>
                 <Field label="Descuento (%)"><input type="number" min="0" max="100" step="0.01" value={plan.discountPercent} onChange={e => updatePlan(key, { discountPercent: Number(e.target.value) })} className="input-admin" /></Field>
-                <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs text-cyan-100">Bold cobrará <strong>{effective.toLocaleString('es-CO', { maximumFractionDigits: 2 })} {config.currency}</strong></div>
+                <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs text-cyan-100">Bold cobrará <strong>{effective.toLocaleString('es-CO', { maximumFractionDigits: 2 })} {config.currency}</strong><br />El cliente verá <strong>${(plan.displayPriceUsd * (1 - plan.discountPercent / 100)).toFixed(2)} USD</strong></div>
               </div>
             </section>;
           })}</div>
