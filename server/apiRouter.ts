@@ -66,6 +66,21 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
   const session = verifySessionToken(token);
+  if (session && !storage.getUser(session.userId)) {
+    storage.upsertUser({
+      id: session.userId,
+      email: session.email,
+      name: session.name,
+      picture: session.picture,
+      role: 'user',
+      createdAt: Date.now(),
+      lastLogin: Date.now(),
+      provider: 'Recovered signed session'
+    }, {
+      ip: String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim(),
+      userAgent: req.headers['user-agent'] || 'Unknown'
+    });
+  }
 
   const pathname = url.split('?')[0];
   const query = new URL(url, 'http://localhost:3000').searchParams;
