@@ -1,13 +1,16 @@
 import crypto from 'crypto';
 
-// Master Server Key for Envelope Encryption (read from process.env or fallback to deterministic secret)
-const MASTER_KEY = process.env.ENCRYPTION_MASTER_KEY || 'auramaster_vps_master_encryption_key_2026_aes256gcm_secret_9982';
+const getMasterKey = (): string => {
+  const key = process.env.ENCRYPTION_MASTER_KEY || '';
+  if (key.length < 32) throw new Error('ENCRYPTION_MASTER_KEY debe tener al menos 32 caracteres');
+  return key;
+};
 
 /**
  * Derives a unique 256-bit encryption key per user using PBKDF2 with SHA-512.
  * Ensures strict cryptographic separation between user vaults.
  */
-function deriveUserKey(userId: string, masterKey: string = MASTER_KEY): Buffer {
+function deriveUserKey(userId: string, masterKey: string = getMasterKey()): Buffer {
   const salt = `auramaster_salt_${userId}_google_oauth_v1`;
   return crypto.pbkdf2Sync(masterKey, salt, 100000, 32, 'sha512');
 }

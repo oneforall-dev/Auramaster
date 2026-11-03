@@ -1,8 +1,22 @@
 import { IncomingMessage, ServerResponse } from 'http';
+import crypto from 'crypto';
 import { encryptApiKey, decryptApiKey } from './crypto';
-import { storage, StoredUserCredential } from './storage';
-import { verifyGoogleIdToken, exchangeGoogleAuthCode, createDevUser, createSessionToken, verifySessionToken } from './googleAuth';
+import { storage, StoredUserCredential, PaymentTransaction } from './storage';
+import { verifyGoogleIdToken, exchangeGoogleAuthCode, createDevUser, createSessionToken, verifySessionToken, createGoogleOAuthState, verifyGoogleOAuthState } from './googleAuth';
 import { executeAiMasteringSuggestion } from './aiProxy';
+
+const getPublicOrigin = (req: IncomingMessage): string => {
+  const protoHeader = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000').split(',')[0].trim();
+  const protocol = protoHeader || (host.includes('localhost') || host.includes('127.0.0.1') ? 'http' : 'https');
+  return `${protocol}://${host}`;
+};
+
+const getBoldPricing = () => ({
+  payg: { unitAmount: Number(process.env.BOLD_PRICE_PAYG || 4000), description: 'AuraMaster - 1 master completo' },
+  pro_monthly: { unitAmount: Number(process.env.BOLD_PRICE_PRO_MONTHLY || 42000), description: 'AuraMaster Pro Ilimitado - Mensual' },
+  pro_annual: { unitAmount: Number(process.env.BOLD_PRICE_PRO_ANNUAL || 420000), description: 'AuraMaster Pro Ilimitado - Anual' }
+});
 
 export async function handleApiRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = req.url || '';
@@ -21,26 +35,31 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     return true;
   };
 
-  // Body parser helper
-  const getBody = async (): Promise<any> => {
-    return new Promise((resolve, reject) => {
-      let body = '';
+  let rawBodyPromise: Promise<Buffer> | null = null;
+  const getRawBody = async (): Promise<Buffer> => {
+    if (rawBodyPromise) return rawBodyPromise;
+    rawBodyPromise = new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      let total = 0;
       req.on('data', chunk => {
-        body += chunk;
-        if (body.length > 1e6) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        total += buffer.length;
+        if (total > 1e6) {
           req.destroy();
           reject(new Error('Request payload too large'));
+          return;
         }
+        chunks.push(buffer);
       });
-      req.on('end', () => {
-        try {
-          resolve(body ? JSON.parse(body) : {});
-        } catch (e) {
-          reject(e);
-        }
-      });
+      req.on('end', () => resolve(Buffer.concat(chunks)));
       req.on('error', reject);
     });
+    return rawBodyPromise;
+  };
+
+  const getBody = async (): Promise<any> => {
+    const raw = await getRawBody();
+    return raw.length ? JSON.parse(raw.toString('utf8')) : {};
   };
 
   // Extract auth session
@@ -56,6 +75,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     if (pathname === '/auth/google/callback') {
       const code = query.get('code');
       const errorParam = query.get('error');
+      const state = query.get('state') || '';
 
       if (errorParam) {
         res.statusCode = 200;
@@ -74,19 +94,19 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         return true;
       }
 
-      const protoHeader = (req.headers['x-forwarded-proto'] as string) || '';
-      const isHttps = protoHeader === 'https' || (req.headers.host && !req.headers.host.includes('localhost') && !req.headers.host.includes('127.0.0.1'));
-      const protocol = isHttps ? 'https' : 'http';
-      const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'localhost:3000';
-      const redirectUri = `${protocol}://${host}/auth/google/callback`;
+      const origin = getPublicOrigin(req);
+      const redirectUri = `${origin}/auth/google/callback`;
 
       const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1';
       const userAgent = req.headers['user-agent'] || 'Unknown';
 
-      if (code) {
+      if (code && verifyGoogleOAuthState(state, redirectUri)) {
         const user = await exchangeGoogleAuthCode(code, redirectUri, { ip, userAgent });
         if (user) {
           const sessionToken = createSessionToken(user);
+          const safeUserJson = JSON.stringify(user).replace(/</g, '\\u003c');
+          const safeTokenJson = JSON.stringify(sessionToken);
+          const safeOriginJson = JSON.stringify(origin);
           res.statusCode = 200;
           res.setHeader('Content-Type', 'text/html; charset=utf-8');
           res.end(`
@@ -101,13 +121,12 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
                 </div>
                 <script>
                   try {
-                    localStorage.setItem('auramaster_session_token', '${sessionToken}');
-                    localStorage.setItem('auramaster_user_profile', JSON.stringify(${JSON.stringify(user)}));
+                    localStorage.setItem('auramaster_session_token', ${safeTokenJson});
+                    localStorage.setItem('auramaster_user_profile', JSON.stringify(${safeUserJson}));
                     if (window.opener) {
                       try {
-                        window.opener.postMessage({ type: 'AURAMASTER_AUTH_SUCCESS', user: ${JSON.stringify(user)} }, '*');
+                        window.opener.postMessage({ type: 'AURAMASTER_AUTH_SUCCESS', user: ${safeUserJson}, sessionToken: ${safeTokenJson} }, ${safeOriginJson});
                       } catch (e) {}
-                      window.opener.location.reload();
                     }
                   } catch (e) {
                     console.error(e);
@@ -143,6 +162,23 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       return true;
     }
 
+    // 0.05 Server-generated OAuth URL with signed state and proxy-safe redirect URI.
+    if (pathname === '/api/auth/google/start' && req.method === 'GET') {
+      const clientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
+      if (!clientId) return sendJson(503, { error: 'Google OAuth no está configurado' });
+      const redirectUri = `${getPublicOrigin(req)}/auth/google/callback`;
+      const state = createGoogleOAuthState(redirectUri);
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: 'openid email profile',
+        prompt: 'select_account',
+        state
+      });
+      return sendJson(200, { authorizationUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` });
+    }
+
     // 0.1 Public Google OAuth Client ID endpoint
     if (pathname === '/api/auth/google-client-id' && req.method === 'GET') {
       const clientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
@@ -158,7 +194,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         user = await verifyGoogleIdToken(body.idToken);
       } else if (body.code) {
         user = await exchangeGoogleAuthCode(body.code, body.redirectUri || `http://${req.headers.host || 'localhost:3000'}/auth/google/callback`);
-      } else if (body.isDevLogin) {
+      } else if (body.isDevLogin && process.env.ALLOW_DEV_LOGIN === 'true') {
         user = createDevUser(body.email || 'studio.engineer@auramaster.ai', body.name || 'Google Audio Engineer');
       }
 
@@ -179,7 +215,107 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       if (!session) {
         return sendJson(401, { error: 'No autenticado' });
       }
-      return sendJson(200, { success: true, user: session });
+      return sendJson(200, { success: true, user: storage.getUser(session.userId) || session });
+    }
+
+    // Billing status and current commercial tiers.
+    if (pathname === '/api/billing/status' && req.method === 'GET') {
+      if (!session) return sendJson(401, { error: 'No autenticado' });
+      const user = storage.getUser(session.userId);
+      return sendJson(200, {
+        user,
+        tiers: {
+          free: { priceUsd: 0, generations: 1 },
+          payg: { priceUsd: 1, credits: 1 },
+          pro_monthly: { priceUsd: 9.99, unlimited: true, apiKeyVault: true },
+          pro_annual: { priceUsd: 99.99, unlimited: true, apiKeyVault: true }
+        }
+      });
+    }
+
+    // Create a Bold payment link. The secret credentials remain server-side.
+    if (pathname === '/api/billing/bold/checkout' && req.method === 'POST') {
+      if (!session) return sendJson(401, { error: 'Debes iniciar sesión con Google' });
+      const body = await getBody();
+      const plan = body.plan as 'payg' | 'pro_monthly' | 'pro_annual';
+      const pricing = getBoldPricing();
+      if (!pricing[plan]) return sendJson(400, { error: 'Plan no válido' });
+      const quantity = plan === 'payg' ? Math.max(1, Math.min(100, Number.parseInt(body.quantity || '1', 10))) : 1;
+      const expectedAmount = Number((pricing[plan].unitAmount * quantity).toFixed(2));
+      const currency = (process.env.BOLD_CURRENCY || 'COP').toUpperCase();
+      const apiKey = process.env.BOLD_API_KEY || '';
+      if (!apiKey) return sendJson(503, { error: 'Bold aún no está configurado en el servidor' });
+
+      const reference = `AM-${crypto.randomBytes(10).toString('hex')}-${Date.now().toString(36)}`;
+      const user = storage.getUser(session.userId);
+      const boldPayload = {
+        amount_type: 'CLOSE',
+        amount: { currency, total_amount: expectedAmount, tip_amount: 0 },
+        reference,
+        description: quantity > 1 ? `${pricing[plan].description} x${quantity}` : pricing[plan].description,
+        callback_url: process.env.BOLD_REDIRECT_URL || `${getPublicOrigin(req)}/?payment=completed`,
+        payer_email: user?.email || session.email
+      };
+      const boldRes = await fetch('https://integrations.api.bold.co/online/link/v1', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `x-api-key ${apiKey}` },
+        body: JSON.stringify(boldPayload)
+      });
+      const boldData: any = await boldRes.json().catch(() => ({}));
+      const checkoutUrl = boldData?.payload?.url;
+      const paymentLink = boldData?.payload?.payment_link;
+      if (!boldRes.ok || !checkoutUrl || !paymentLink) {
+        console.error('[Bold] Checkout creation failed', boldRes.status, boldData?.errors || 'Unknown response');
+        return sendJson(502, { error: 'Bold no pudo crear el enlace de pago. Intenta nuevamente.' });
+      }
+      const now = Date.now();
+      const transaction: PaymentTransaction = {
+        reference, userId: session.userId, plan, quantity, expectedAmount, currency,
+        status: 'PENDING', paymentLink, checkoutUrl, notificationIds: [], createdAt: now, updatedAt: now
+      };
+      storage.createPaymentTransaction(transaction);
+      return sendJson(200, { checkoutUrl, reference });
+    }
+
+    // Signed Bold webhook. Bold signs Base64(raw body) with HMAC-SHA256.
+    if (pathname === '/api/webhooks/bold' && req.method === 'POST') {
+      const secret = process.env.BOLD_SECRET_KEY || '';
+      if (!secret) return sendJson(503, { error: 'Webhook Bold no configurado' });
+      const raw = await getRawBody();
+      const receivedSignature = String(req.headers['x-bold-signature'] || '').trim().toLowerCase();
+      const calculated = crypto.createHmac('sha256', secret).update(raw.toString('base64')).digest('hex');
+      const received = Buffer.from(receivedSignature, 'hex');
+      const expected = Buffer.from(calculated, 'hex');
+      if (!receivedSignature || received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) {
+        return sendJson(400, { error: 'Firma Bold inválida' });
+      }
+      const event = raw.length ? JSON.parse(raw.toString('utf8')) : {};
+      const data = event.data || {};
+      const referenceOrLink = data?.metadata?.reference || data.reference || data.payment_link || '';
+      if (!event.id || !event.type || !referenceOrLink) return sendJson(400, { error: 'Evento Bold incompleto' });
+      try {
+        const result = storage.recordPaymentEvent(referenceOrLink, {
+          notificationId: String(event.id),
+          type: String(event.type),
+          paymentId: data.payment_id ? String(data.payment_id) : undefined,
+          amount: data.amount?.total === undefined ? undefined : Number(data.amount.total),
+          currency: data.amount?.currency ? String(data.amount.currency) : undefined
+        });
+        return sendJson(200, { received: true, duplicate: result.duplicate });
+      } catch (e: any) {
+        console.error('[Bold] Rejected verified webhook:', e.message);
+        return sendJson(400, { error: e.message || 'No se pudo asociar la transacción' });
+      }
+    }
+
+    if (pathname === '/api/usage/consume' && req.method === 'POST') {
+      if (!session) return sendJson(401, { error: 'No autenticado' });
+      const body = await getBody();
+      const count = Number(body.count || 1);
+      const operationId = String(body.operationId || '');
+      if (!operationId) return sendJson(400, { error: 'Falta operationId' });
+      const user = storage.consumeGenerations(session.userId, count, operationId);
+      return sendJson(200, { success: true, user });
     }
 
     // 3. Logout
@@ -191,6 +327,9 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     if (pathname === '/api/ai/config' && req.method === 'GET') {
       if (!session) {
         return sendJson(401, { error: 'Debes iniciar sesión con Google para acceder al baúl de IA' });
+      }
+      if (!storage.isProUser(session.userId)) {
+        return sendJson(403, { code: 'PRO_REQUIRED', error: 'El baúl de API Keys está disponible únicamente en Pro Ilimitado.' });
       }
 
       const cred = storage.getCredential(session.userId);
@@ -217,6 +356,9 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     if (pathname === '/api/ai/config' && req.method === 'POST') {
       if (!session) {
         return sendJson(401, { error: 'Debes iniciar sesión con Google' });
+      }
+      if (!storage.isProUser(session.userId)) {
+        return sendJson(403, { code: 'PRO_REQUIRED', error: 'Necesitas Pro Ilimitado para añadir una API Key.' });
       }
 
       const body = await getBody();
@@ -263,6 +405,9 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       if (!session) {
         return sendJson(401, { error: 'Debes iniciar sesión con Google' });
       }
+      if (!storage.isProUser(session.userId)) {
+        return sendJson(403, { code: 'PRO_REQUIRED', error: 'Necesitas Pro Ilimitado para gestionar el baúl de API Keys.' });
+      }
 
       const deleted = storage.deleteCredential(session.userId);
       return sendJson(200, {
@@ -275,6 +420,9 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     if (pathname === '/api/ai/test' && req.method === 'POST') {
       if (!session) {
         return sendJson(401, { error: 'Debes iniciar sesión con Google' });
+      }
+      if (!storage.isProUser(session.userId)) {
+        return sendJson(403, { code: 'PRO_REQUIRED', error: 'Necesitas Pro Ilimitado para usar una API Key propia.' });
       }
 
       try {
@@ -294,6 +442,9 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       if (!session) {
         return sendJson(401, { error: 'Debes iniciar sesión con Google para usar el Asistente IA' });
       }
+      if (!storage.isProUser(session.userId)) {
+        return sendJson(403, { code: 'PRO_REQUIRED', error: 'El Asistente con API Key propia está disponible únicamente en Pro Ilimitado.' });
+      }
 
       const body = await getBody();
       const { prompt, currentParams } = body;
@@ -308,6 +459,8 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
 
     // 9. Admin Registered Users List & Email Audit
     if (pathname === '/api/admin/users' && req.method === 'GET') {
+      const admin = session ? storage.getUser(session.userId) : null;
+      if (!admin || admin.role !== 'admin') return sendJson(403, { error: 'Acceso de administrador requerido' });
       const users = storage.getAllUsers();
       return sendJson(200, {
         success: true,
@@ -318,6 +471,8 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
 
     // 10. Admin Export All Users as CSV
     if (pathname === '/api/admin/emails.csv' && req.method === 'GET') {
+      const admin = session ? storage.getUser(session.userId) : null;
+      if (!admin || admin.role !== 'admin') return sendJson(403, { error: 'Acceso de administrador requerido' });
       const fs = await import('fs');
       const csvPath = storage.getCsvFilePath();
       if (fs.existsSync(csvPath)) {

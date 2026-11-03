@@ -1,7 +1,11 @@
 import crypto from 'crypto';
 import { storage, UserProfile } from './storage';
 
-const SESSION_SECRET = process.env.SESSION_SECRET || 'auramaster_vps_session_secret_jwt_2026_secure';
+const getSessionSecret = (): string => {
+  const secret = process.env.SESSION_SECRET || '';
+  if (secret.length < 32) throw new Error('SESSION_SECRET debe tener al menos 32 caracteres');
+  return secret;
+};
 
 export interface AuthSession {
   userId: string;
@@ -9,6 +13,26 @@ export interface AuthSession {
   name: string;
   picture?: string;
   expiresAt: number;
+}
+
+export function createGoogleOAuthState(redirectUri: string): string {
+  const payload = Buffer.from(JSON.stringify({ redirectUri, createdAt: Date.now() })).toString('base64url');
+  const signature = crypto.createHmac('sha256', getSessionSecret()).update(`oauth:${payload}`).digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+export function verifyGoogleOAuthState(state: string, redirectUri: string): boolean {
+  try {
+    const [payload, signature] = state.split('.');
+    if (!payload || !signature) return false;
+    const expected = crypto.createHmac('sha256', getSessionSecret()).update(`oauth:${payload}`).digest();
+    const received = Buffer.from(signature, 'base64url');
+    if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) return false;
+    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return decoded.redirectUri === redirectUri && Date.now() - decoded.createdAt < 10 * 60 * 1000;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -26,7 +50,7 @@ export function createSessionToken(user: UserProfile, expiresInHours = 24 * 7): 
 
   const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
   const signature = crypto
-    .createHmac('sha256', SESSION_SECRET)
+    .createHmac('sha256', getSessionSecret())
     .update(payloadBase64)
     .digest('base64url');
 
@@ -42,11 +66,13 @@ export function verifySessionToken(token: string): AuthSession | null {
     const [payloadBase64, signature] = token.split('.');
     
     const expectedSig = crypto
-      .createHmac('sha256', SESSION_SECRET)
+      .createHmac('sha256', getSessionSecret())
       .update(payloadBase64)
       .digest('base64url');
 
-    if (signature !== expectedSig) {
+    const received = Buffer.from(signature, 'base64url');
+    const expected = Buffer.from(expectedSig, 'base64url');
+    if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) {
       return null;
     }
 
@@ -73,7 +99,8 @@ export async function verifyGoogleIdToken(idToken: string, meta?: { ip?: string;
     }
 
     const data: any = await res.json();
-    if (!data.sub || !data.email) {
+    const expectedAudience = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
+    if (!data.sub || !data.email || data.email_verified !== 'true' || (expectedAudience && data.aud !== expectedAudience)) {
       return null;
     }
 
@@ -82,7 +109,7 @@ export async function verifyGoogleIdToken(idToken: string, meta?: { ip?: string;
       email: data.email,
       name: data.name || data.email.split('@')[0],
       picture: data.picture,
-      role: 'user',
+      role: storage.getUser(`google_${data.sub}`)?.role || ((process.env.ADMIN_EMAILS || '').split(',').map(v => v.trim().toLowerCase()).includes(String(data.email).toLowerCase()) ? 'admin' : 'user'),
       createdAt: Date.now(),
       lastLogin: Date.now(),
       provider: 'Google OAuth'

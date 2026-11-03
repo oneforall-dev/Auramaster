@@ -46,8 +46,9 @@ export const AuthGate: React.FC<AuthGateProps> = ({ lang, onLanguageChange, onLo
     };
 
     const handleMessage = (e: MessageEvent) => {
-      if (e.data?.type === 'AURAMASTER_AUTH_SUCCESS' && e.data?.user) {
-        if (onLoginSuccess) onLoginSuccess(e.data.user);
+      if (e.origin === window.location.origin && e.data?.type === 'AURAMASTER_AUTH_SUCCESS' && e.data?.user && e.data?.sessionToken) {
+        const user = authService.completeOAuthSession(e.data.sessionToken, e.data.user);
+        if (onLoginSuccess) onLoginSuccess(user);
       }
     };
 
@@ -99,31 +100,33 @@ export const AuthGate: React.FC<AuthGateProps> = ({ lang, onLanguageChange, onLo
   }, [googleClientId, onLoginSuccess]);
 
   // Launch Direct Google OAuth 2.0 Flow
-  const handleLaunchGoogleOAuth = () => {
-    const effectiveClientId = googleClientId.trim();
-    if (!effectiveClientId) {
-      setError(
-        lang === 'es'
-          ? '⚠️ Falta configurar GOOGLE_CLIENT_ID en el archivo .env de tu servidor VPS.'
-          : '⚠️ GOOGLE_CLIENT_ID is missing in your VPS .env file.'
-      );
-      return;
-    }
-
+  const handleLaunchGoogleOAuth = async () => {
     setLoading(true);
     setError('');
-    const redirectUri = `${window.location.origin}/auth/google/callback`;
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(effectiveClientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20email%20profile&prompt=select_account`;
-
     const width = 520;
     const height = 640;
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
     const popup = window.open(
-      googleAuthUrl,
+      'about:blank',
       'GoogleOAuthPopup',
       `width=${width},height=${height},left=${left},top=${top},status=no,toolbar=no,menubar=no,location=no`
     );
+
+    if (!popup) {
+      setLoading(false);
+      setError(lang === 'es' ? 'El navegador bloqueó la ventana de Google. Habilita ventanas emergentes para AuraMaster.' : 'The browser blocked the Google popup.');
+      return;
+    }
+
+    try {
+      popup.location.href = await authService.getGoogleAuthorizationUrl();
+    } catch (err: any) {
+      popup.close();
+      setLoading(false);
+      setError(err.message || 'No se pudo iniciar Google OAuth');
+      return;
+    }
 
     const timer = setInterval(() => {
       if (popup && popup.closed) {
@@ -138,7 +141,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ lang, onLanguageChange, onLo
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#030712] text-slate-100 flex flex-col justify-between relative overflow-hidden font-sans select-none">
+    <div className="min-h-screen w-full bg-[#030712] text-slate-100 flex flex-col justify-between relative overflow-y-auto font-sans select-none">
       {/* Ambient background glow effects */}
       <div className="absolute top-[-20%] left-1/2 -translate-x-1/2 w-[900px] h-[600px] bg-gradient-to-b from-cyan-600/15 via-indigo-600/10 to-transparent blur-3xl pointer-events-none rounded-full" />
       <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-indigo-900/15 blur-3xl pointer-events-none rounded-full" />
@@ -177,7 +180,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ lang, onLanguageChange, onLo
       </header>
 
       {/* Main Hero & Login Box */}
-      <main className="relative z-10 flex-1 flex items-center justify-center p-4 sm:p-6 my-auto">
+      <main className="relative z-10 flex-1 flex flex-col items-center justify-center gap-8 p-4 sm:p-6 my-auto">
         <div className="w-full max-w-md bg-slate-900/90 border border-slate-700/80 rounded-3xl p-7 sm:p-8 backdrop-blur-2xl shadow-2xl shadow-cyan-950/40 flex flex-col gap-6 relative animate-in fade-in zoom-in-95 duration-300">
           
           {/* Hero Header */}
@@ -256,6 +259,29 @@ export const AuthGate: React.FC<AuthGateProps> = ({ lang, onLanguageChange, onLo
           </div>
 
         </div>
+
+        <section className="w-full max-w-5xl">
+          <div className="mb-4 text-center">
+            <h2 className="text-xl font-black text-white">{lang === 'es' ? 'Un plan para cada lanzamiento' : 'A plan for every release'}</h2>
+            <p className="mt-1 text-xs text-slate-400">{lang === 'es' ? 'Empieza gratis y paga sólo cuando necesites más.' : 'Start free and pay only when you need more.'}</p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            {[
+              { title: 'Gratis (Prueba)', price: '$0 USD', note: '1 Generación Completa', items: ['Master listo para streaming', 'Sin tarjeta'] },
+              { title: 'Pay As You Go', price: '$1 USD / diseño', note: '1 Crédito = $1 USD', items: ['Compra por unidad', 'Créditos sin vencimiento'] },
+              { title: 'Pro Ilimitado', price: '$9.99 / mes', note: '$99.99 / año · 2 meses gratis', items: ['Uso ilimitado', 'Añadir API Key habilitado'] }
+            ].map((plan, index) => (
+              <div key={plan.title} className={`rounded-2xl border p-4 ${index === 2 ? 'border-cyan-400/60 bg-cyan-500/10' : 'border-slate-800 bg-slate-900/75'}`}>
+                <div className="text-sm font-black text-white">{plan.title}</div>
+                <div className="mt-2 text-xl font-black text-cyan-300">{plan.price}</div>
+                <div className="mt-1 text-[11px] text-slate-400">{plan.note}</div>
+                <div className="mt-3 space-y-1.5">
+                  {plan.items.map(item => <div key={item} className="flex items-center gap-2 text-[11px] text-slate-300"><CheckCircle2 size={12} className="text-emerald-400" />{item}</div>)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       </main>
 
       {/* Footer */}

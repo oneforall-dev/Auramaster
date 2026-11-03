@@ -4,6 +4,11 @@ export interface UserProfile {
   name: string;
   picture?: string;
   role: 'user' | 'admin';
+  plan?: 'free' | 'payg' | 'pro_monthly' | 'pro_annual';
+  credits?: number;
+  freeGenerationsRemaining?: number;
+  subscriptionStatus?: 'inactive' | 'active' | 'expired';
+  subscriptionExpiresAt?: number;
 }
 
 const TOKEN_KEY = 'auramaster_session_token';
@@ -14,6 +19,12 @@ const listeners: Set<AuthListener> = new Set();
 
 function notifyListeners(user: UserProfile | null) {
   listeners.forEach(l => l(user));
+}
+
+function storeSession(sessionToken: string, user: UserProfile) {
+  localStorage.setItem(TOKEN_KEY, sessionToken);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+  notifyListeners(user);
 }
 
 export const authService = {
@@ -47,9 +58,7 @@ export const authService = {
     }
 
     const data = await res.json();
-    localStorage.setItem(TOKEN_KEY, data.sessionToken);
-    localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-    notifyListeners(data.user);
+    storeSession(data.sessionToken, data.user);
     return data.user;
   },
 
@@ -66,10 +75,35 @@ export const authService = {
     }
 
     const data = await res.json();
-    localStorage.setItem(TOKEN_KEY, data.sessionToken);
-    localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-    notifyListeners(data.user);
+    storeSession(data.sessionToken, data.user);
     return data.user;
+  },
+
+  completeOAuthSession(sessionToken: string, user: UserProfile): UserProfile {
+    storeSession(sessionToken, user);
+    return user;
+  },
+
+  updateStoredUser(user: UserProfile): UserProfile {
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+    notifyListeners(user);
+    return user;
+  },
+
+  async refreshProfile(): Promise<UserProfile | null> {
+    const token = this.getToken();
+    if (!token) return null;
+    const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.user ? this.updateStoredUser(data.user) : null;
+  },
+
+  async getGoogleAuthorizationUrl(): Promise<string> {
+    const res = await fetch('/api/auth/google/start', { cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.authorizationUrl) throw new Error(data.error || 'No se pudo iniciar Google OAuth');
+    return data.authorizationUrl;
   },
 
   async logout(): Promise<void> {

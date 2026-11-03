@@ -14,7 +14,7 @@
 
 **Estación de Trabajo de Audio Digital (DAW) y Masterización Neuronal en el Navegador con Cifrado de Grado Militar y Asistente Multi-IA.**
 
-[Demostración en Vivo](#-instalaci%C3%B3n-y-ejecuci%C3%B3n) • [Características](#-caracter%C3%ADsticas-principales) • [Arquitectura de Seguridad](#-arquitectura-de-seguridad-y-cifrado-vps) • [Despliegue en VPS](#-despliegue-en-producci%C3%B3n-vps)
+[AuraMaster en Vivo](https://auramaster.melodia.top/) • [Características](#-caracter%C3%ADsticas-principales) • [Arquitectura de Seguridad](#-arquitectura-de-seguridad-y-cifrado-vps) • [Despliegue en VPS](#-despliegue-en-producci%C3%B3n-vps)
 
 </div>
 
@@ -169,7 +169,30 @@ ENCRYPTION_MASTER_KEY=clave_maestra_vps_auramaster_super_secreta_2026
 
 # Secreto JWT para Sesiones
 SESSION_SECRET=secreto_de_sesion_vps_jwt_2026_seguro
+
+# Bold: pagos y webhook (no publiques estas credenciales)
+BOLD_API_KEY=tu_llave_de_identidad
+BOLD_SECRET_KEY=tu_llave_secreta
+BOLD_CURRENCY=COP
+BOLD_PRICE_PAYG=4000
+BOLD_PRICE_PRO_MONTHLY=42000
+BOLD_PRICE_PRO_ANNUAL=420000
+BOLD_REDIRECT_URL=https://auramaster.melodia.top/?payment=completed
 ```
+
+En Bold registra este webhook de producción:
+
+```text
+https://auramaster.melodia.top/api/webhooks/bold
+```
+
+## 💳 Planes y consumo
+
+* **Free — $0:** una masterización completa por cuenta.
+* **Pay as you go — $1 por masterización:** un crédito equivale a una masterización.
+* **Pro Unlimited — $9.99/mes o $99.99/año:** masterizaciones ilimitadas y acceso al baúl de API Keys.
+
+La moneda y los valores cobrados por Bold se controlan mediante variables de entorno. El servidor asigna créditos o activa Pro únicamente después de validar la firma del webhook y el valor esperado de la transacción.
 
 ### 4. Iniciar el Servidor de Desarrollo
 ```bash
@@ -225,8 +248,13 @@ server {
 | Método | Endpoint | Descripción |
 | :--- | :--- | :--- |
 | `POST` | `/api/auth/google` | Verificación de ID Token e inicio de sesión OAuth |
+| `GET` | `/api/auth/google/start` | Genera el inicio OAuth con estado firmado |
 | `GET` | `/api/auth/me` | Obtiene el perfil del usuario autenticado |
 | `POST` | `/api/auth/logout` | Cierre seguro de sesión |
+| `GET` | `/api/billing/status` | Plan, créditos y estado de suscripción |
+| `POST` | `/api/billing/bold/checkout` | Crea un enlace de pago asociado al usuario |
+| `POST` | `/api/webhooks/bold` | Valida y procesa eventos firmados de Bold |
+| `POST` | `/api/usage/consume` | Autoriza y registra el consumo de masterizaciones |
 | `GET` | `/api/ai/config` | Obtiene el estado del baúl IA (clave enmascarada) |
 | `POST` | `/api/ai/config` | Guarda y cifra la API Key con AES-256-GCM |
 | `DELETE` | `/api/ai/config` | Elimina la API Key del baúl del VPS |

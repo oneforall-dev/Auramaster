@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { authService, UserProfile } from '../services/authService';
 import { LogIn, LogOut, ShieldCheck, User, Sparkles, KeyRound, CheckCircle2, ChevronDown, Lock, Settings2, ExternalLink } from 'lucide-react';
 import { Language, getT } from '../services/i18n';
+import { isProUser } from '../services/billingService';
 
 declare global {
   interface Window {
@@ -20,10 +21,11 @@ declare global {
 
 interface GoogleAuthButtonProps {
   onOpenAISettings?: () => void;
+  onOpenBilling?: () => void;
   lang?: Language;
 }
 
-export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({ onOpenAISettings, lang = 'es' }) => {
+export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({ onOpenAISettings, onOpenBilling, lang = 'es' }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -68,7 +70,18 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({ onOpenAISett
       }
     };
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    const handleMessage = (e: MessageEvent) => {
+      if (e.origin === window.location.origin && e.data?.type === 'AURAMASTER_AUTH_SUCCESS' && e.data?.user && e.data?.sessionToken) {
+        const loggedUser = authService.completeOAuthSession(e.data.sessionToken, e.data.user);
+        setUser(loggedUser);
+        setIsLoginModalOpen(false);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('message', handleMessage);
+    };
   }, []);
 
   // Check if Google SDK script is ready
@@ -128,31 +141,32 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({ onOpenAISett
   }, [isLoginModalOpen, googleClientId, isGsiLoaded]);
 
   // Direct OAuth 2.0 Flow (matches user's /auth/google/callback redirect URI in Google Cloud Console)
-  const handleLaunchDirectOAuth = () => {
-    const clientId = googleClientId.trim();
-    if (!clientId) {
-      setError(
-        lang === 'es'
-          ? '⚠️ Falta configurar GOOGLE_CLIENT_ID en el archivo .env de tu servidor VPS.'
-          : '⚠️ GOOGLE_CLIENT_ID is missing in your VPS .env file.'
-      );
-      return;
-    }
-
+  const handleLaunchDirectOAuth = async () => {
     setLoading(true);
     setError('');
-    const redirectUri = `${window.location.origin}/auth/google/callback`;
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid%20email%20profile&prompt=select_account`;
-
     const width = 520;
     const height = 640;
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
     const popup = window.open(
-      googleAuthUrl,
+      'about:blank',
       'GoogleOAuthPopup',
       `width=${width},height=${height},left=${left},top=${top},status=no,toolbar=no,menubar=no,location=no`
     );
+
+    if (!popup) {
+      setLoading(false);
+      setError(lang === 'es' ? 'El navegador bloqueó la ventana de Google.' : 'The browser blocked the Google popup.');
+      return;
+    }
+    try {
+      popup.location.href = await authService.getGoogleAuthorizationUrl();
+    } catch (err: any) {
+      popup.close();
+      setLoading(false);
+      setError(err.message || 'No se pudo iniciar Google OAuth');
+      return;
+    }
 
     const timer = setInterval(() => {
       if (popup && popup.closed) {
@@ -239,7 +253,7 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({ onOpenAISett
 
                 {/* Actions */}
                 <div className="flex flex-col gap-1 mt-1">
-                  {onOpenAISettings && (
+                  {onOpenAISettings && isProUser(user) && (
                     <button
                       onClick={() => {
                         setIsDropdownOpen(false);
@@ -249,6 +263,19 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({ onOpenAISett
                     >
                       <KeyRound size={14} className="text-cyan-400" />
                       <span>{lang === 'es' ? 'Gestionar API Key en Baúl' : 'Manage API Key in Vault'}</span>
+                    </button>
+                  )}
+
+                  {onOpenBilling && (
+                    <button
+                      onClick={() => {
+                        setIsDropdownOpen(false);
+                        onOpenBilling();
+                      }}
+                      className="w-full p-2 rounded-xl flex items-center gap-2 text-slate-300 hover:text-white hover:bg-white/10 text-xs font-medium transition-all text-left cursor-pointer"
+                    >
+                      <Sparkles size={14} className="text-amber-400" />
+                      <span>{isProUser(user) ? (lang === 'es' ? 'Plan y facturación' : 'Plan and billing') : (lang === 'es' ? 'Mejorar plan' : 'Upgrade plan')}</span>
                     </button>
                   )}
 

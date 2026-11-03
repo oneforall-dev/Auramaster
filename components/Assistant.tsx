@@ -10,9 +10,11 @@ interface AssistantProps {
   onApplyPreset: (params: MasteringChainParams) => void;
   currentParams?: MasteringChainParams;
   lang?: Language;
+  canManageApiKeys?: boolean;
+  onUpgrade?: () => void;
 }
 
-export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentParams, lang = 'es' }) => {
+export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentParams, lang = 'es', canManageApiKeys = false, onUpgrade }) => {
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -33,6 +35,10 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
   ];
 
   const refreshVault = () => {
+    if (!canManageApiKeys) {
+      setVaultStatus(null);
+      return;
+    }
     getSecureVaultConfig().then(status => {
       setVaultStatus(status);
     });
@@ -44,7 +50,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
       setUser(u);
       refreshVault();
     });
-  }, []);
+  }, [canManageApiKeys]);
 
   const handleConfigSaved = () => {
     refreshVault();
@@ -57,6 +63,12 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
 
     if (!user) {
       setError('Por favor inicia sesión con Google en la esquina superior derecha.');
+      return;
+    }
+
+    if (!canManageApiKeys) {
+      setError('El Asistente con API Key propia está disponible únicamente en Pro Ilimitado.');
+      onUpgrade?.();
       return;
     }
 
@@ -144,11 +156,11 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
 
         <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => canManageApiKeys ? setIsModalOpen(true) : onUpgrade?.()}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-700/80 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-all shadow-sm cursor-pointer"
           >
             <Settings size={14} className="text-cyan-400" />
-            <span className="hidden sm:inline">{t.aiSettings}</span>
+            <span className="hidden sm:inline">{canManageApiKeys ? t.aiSettings : 'Pro'}</span>
           </button>
 
           {/* Collapse / Expand Toggle Button */}
@@ -278,7 +290,7 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
 
       {/* Settings Modal */}
       <AISettingsModal
-        isOpen={isModalOpen}
+        isOpen={isModalOpen && canManageApiKeys}
         onClose={() => setIsModalOpen(false)}
         onConfigSaved={handleConfigSaved}
       />

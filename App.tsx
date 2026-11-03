@@ -11,6 +11,7 @@ import { Assistant } from './components/Assistant';
 import { GoogleAuthButton } from './components/GoogleAuthButton';
 import { AuthGate } from './components/AuthGate';
 import { AISettingsModal } from './components/AISettingsModal';
+import { BillingModal } from './components/BillingModal';
 import { AIMasteringReportModal } from './components/AIMasteringReportModal';
 import { ReferenceMasteringModal } from './components/ReferenceMasteringModal';
 import { BulkMasteringSummaryModal } from './components/BulkMasteringSummaryModal';
@@ -18,6 +19,7 @@ import { ExportSuccessModal } from './components/ExportSuccessModal';
 import { FilesBox } from './components/FilesBox';
 import { createMasteredZip } from './services/exportZip';
 import { authService, UserProfile } from './services/authService';
+import { billingService, isProUser } from './services/billingService';
 import { Language, LANGUAGES, detectBrowserLanguage, getT } from './services/i18n';
 
 const DEFAULT_COMP = { threshold: -18, ratio: 3.5, attack: 0.03, release: 0.15 };
@@ -106,6 +108,7 @@ export default function App() {
   const [masteringReport, setMasteringReport] = useState<AIMasteringResult | null>(null);
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
+  const [isBillingOpen, setIsBillingOpen] = useState(false);
   const [isExportSuccessOpen, setIsExportSuccessOpen] = useState(false);
   const [exportedFileName, setExportedFileName] = useState('');
   const [exportedQC, setExportedQC] = useState<AIMasteringResult['qcVerification'] | null>(null);
@@ -123,7 +126,13 @@ export default function App() {
   const [isReferenceProcessing, setIsReferenceProcessing] = useState(false);
 
   useEffect(() => {
-    return authService.subscribe((u) => setCurrentUser(u));
+    const unsubscribe = authService.subscribe((u) => setCurrentUser(u));
+    authService.refreshProfile().catch(() => null);
+    if (new URLSearchParams(window.location.search).get('payment') === 'completed') {
+      setIsBillingOpen(true);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    return unsubscribe;
   }, []);
 
   const t = getT(lang);
@@ -634,6 +643,13 @@ export default function App() {
   // 1. Single Track Mastering (Bulk Mode) - with isolated track session and phase tracking
   const handleMasterSingleTrack = async (track: Track) => {
     const targetSessionId = `track_${Date.now()}_${track.id}`;
+    try {
+      await billingService.consumeGenerations(1, targetSessionId);
+    } catch (err: any) {
+      alert(err?.message || 'No fue posible autorizar esta masterización.');
+      setIsBillingOpen(true);
+      return;
+    }
     setTrackMasterMap(prev => ({
       ...prev,
       [track.id]: { 
@@ -732,6 +748,14 @@ export default function App() {
   // 2. Bulk Master All Tracks - 100% Isolated Sessions per Track
   const handleMasterAllTracks = async () => {
     if (tracks.length === 0) return;
+    const billingOperationId = `bulk_${Date.now().toString(36)}_${tracks.length}`;
+    try {
+      await billingService.consumeGenerations(tracks.length, billingOperationId);
+    } catch (err: any) {
+      alert(err?.message || 'No fue posible autorizar la masterización por lote.');
+      setIsBillingOpen(true);
+      return;
+    }
     let bulkOutputDirectory: any = null;
     const showDirectoryPicker = (window as any).showDirectoryPicker as undefined | ((options?: any) => Promise<any>);
     if (tracks.length > 20 && showDirectoryPicker) {
@@ -1026,6 +1050,15 @@ export default function App() {
   };
 
   const handleSmartMaster = async (type: string) => {
+    if (type === 'super_mix' && processingMode !== 'bulk') {
+      try {
+        await billingService.consumeGenerations(1, `stems_${Date.now().toString(36)}`);
+      } catch (err: any) {
+        alert(err?.message || 'No fue posible autorizar esta masterización.');
+        setIsBillingOpen(true);
+        return;
+      }
+    }
     setIsSmartAdjusting(true);
     setSmartMasterPhase('analyze');
     
@@ -1156,6 +1189,13 @@ export default function App() {
 
   const handleRunReferenceMastering = async (config: ReferenceMasteringConfig) => {
     if (references.length === 0 || tracks.length === 0) return;
+    try {
+      await billingService.consumeGenerations(1, `reference_${Date.now().toString(36)}`);
+    } catch (err: any) {
+      alert(err?.message || 'No fue posible autorizar esta masterización.');
+      setIsBillingOpen(true);
+      return;
+    }
     setIsReferenceProcessing(true);
 
     try {
@@ -1429,7 +1469,11 @@ export default function App() {
 
           {/* Header Right Actions: Google OAuth & Multi-Language Selector */}
           <div className="flex items-center gap-2.5 sm:gap-3">
-            <GoogleAuthButton onOpenAISettings={() => setIsAiSettingsOpen(true)} lang={lang} />
+            <GoogleAuthButton
+              onOpenAISettings={() => isProUser(currentUser) ? setIsAiSettingsOpen(true) : setIsBillingOpen(true)}
+              onOpenBilling={() => setIsBillingOpen(true)}
+              lang={lang}
+            />
 
             <div className="flex items-center gap-1 p-1 bg-slate-950/90 border border-slate-800/80 rounded-xl shadow-inner">
               <Globe size={13} className="text-cyan-400 ml-1.5 mr-0.5 hidden sm:inline" />
@@ -1462,6 +1506,8 @@ export default function App() {
            onApplyPreset={(newParams) => setParams(newParams)} 
            currentParams={params}
            lang={lang}
+           canManageApiKeys={isProUser(currentUser)}
+           onUpgrade={() => setIsBillingOpen(true)}
          />
 
          <div className="flex flex-col md:flex-row gap-5 shrink-0 min-h-[440px] md:h-[440px]">
@@ -1769,9 +1815,15 @@ export default function App() {
 
       {/* Secure VPS AES-256-GCM AI Vault Modal */}
       <AISettingsModal 
-        isOpen={isAiSettingsOpen} 
+        isOpen={isAiSettingsOpen && isProUser(currentUser)}
         onClose={() => setIsAiSettingsOpen(false)} 
         onConfigSaved={() => {}} 
+      />
+
+      <BillingModal
+        isOpen={isBillingOpen}
+        onClose={() => setIsBillingOpen(false)}
+        user={currentUser}
       />
 
       {/* Export Success & Chart Melodia Community Modal */}

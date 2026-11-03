@@ -26,12 +26,46 @@ export interface UserProfile {
   provider?: string;
   ip?: string;
   userAgent?: string;
+  plan?: AccountPlan;
+  credits?: number;
+  freeGenerationsRemaining?: number;
+  subscriptionStatus?: 'inactive' | 'active' | 'expired';
+  subscriptionExpiresAt?: number;
+}
+
+export type AccountPlan = 'free' | 'payg' | 'pro_monthly' | 'pro_annual';
+
+export interface PaymentTransaction {
+  reference: string;
+  userId: string;
+  plan: Exclude<AccountPlan, 'free'>;
+  quantity: number;
+  expectedAmount: number;
+  currency: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'VOIDED';
+  paymentLink?: string;
+  checkoutUrl?: string;
+  paymentId?: string;
+  notificationIds: string[];
+  createdAt: number;
+  updatedAt: number;
+  appliedAt?: number;
+  reversedAt?: number;
+}
+
+export interface UsageTransaction {
+  operationId: string;
+  userId: string;
+  count: number;
+  createdAt: number;
 }
 
 const DATA_DIR = path.resolve(process.cwd(), '.data');
 const VAULT_FILE = path.join(DATA_DIR, 'user_vault.enc.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const CSV_FILE = path.join(DATA_DIR, 'users_registry.csv');
+const PAYMENTS_FILE = path.join(DATA_DIR, 'payment_transactions.json');
+const USAGE_FILE = path.join(DATA_DIR, 'usage_transactions.json');
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -42,6 +76,8 @@ function ensureDataDir() {
 // In-Memory Cache synced to persistent files
 let vaultCache: Record<string, StoredUserCredential> = {};
 let usersCache: Record<string, UserProfile> = {};
+let paymentsCache: Record<string, PaymentTransaction> = {};
+let usageCache: Record<string, UsageTransaction> = {};
 
 function loadVault() {
   ensureDataDir();
@@ -87,6 +123,34 @@ function saveUsers() {
   }
 }
 
+function loadJsonRecord<T>(filePath: string): Record<string, T> {
+  ensureDataDir();
+  try {
+    if (fs.existsSync(filePath)) return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (e) {
+    console.error(`[Storage] Error reading ${path.basename(filePath)}:`, e);
+  }
+  return {};
+}
+
+function saveJsonRecord<T>(filePath: string, value: Record<string, T>) {
+  ensureDataDir();
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2), { mode: 0o600 });
+}
+
+function normalizeAccount(user: UserProfile): UserProfile {
+  const now = Date.now();
+  const expired = Boolean(user.subscriptionExpiresAt && user.subscriptionExpiresAt <= now);
+  const proPlan = user.plan === 'pro_monthly' || user.plan === 'pro_annual';
+  return {
+    ...user,
+    plan: expired && proPlan ? 'free' : (user.plan || 'free'),
+    credits: Math.max(0, user.credits || 0),
+    freeGenerationsRemaining: Math.max(0, user.freeGenerationsRemaining ?? 1),
+    subscriptionStatus: expired && proPlan ? 'expired' : (user.subscriptionStatus || 'inactive')
+  };
+}
+
 /**
  * Generates and synchronizes a clean CSV file with all registered user emails
  */
@@ -115,6 +179,8 @@ function updateCsvRegistry() {
 
 loadVault();
 loadUsers();
+paymentsCache = loadJsonRecord<PaymentTransaction>(PAYMENTS_FILE);
+usageCache = loadJsonRecord<UsageTransaction>(USAGE_FILE);
 updateCsvRegistry();
 
 export const storage = {
@@ -123,7 +189,8 @@ export const storage = {
     const existing = usersCache[user.id];
     const now = Date.now();
 
-    const updatedUser: UserProfile = {
+    const updatedUser: UserProfile = normalizeAccount({
+      ...existing,
       ...user,
       createdAt: existing ? existing.createdAt : (user.createdAt || now),
       lastLogin: now,
@@ -131,7 +198,7 @@ export const storage = {
       provider: user.provider || (user.id.startsWith('google_') ? 'Google OAuth' : 'Studio Demo'),
       ip: meta?.ip || user.ip || existing?.ip,
       userAgent: meta?.userAgent || user.userAgent || existing?.userAgent
-    };
+    });
 
     usersCache[user.id] = updatedUser;
     saveUsers();
@@ -139,7 +206,14 @@ export const storage = {
   },
 
   getUser(userId: string): UserProfile | null {
-    return usersCache[userId] || null;
+    const user = usersCache[userId];
+    if (!user) return null;
+    const normalized = normalizeAccount(user);
+    if (JSON.stringify(normalized) !== JSON.stringify(user)) {
+      usersCache[userId] = normalized;
+      saveUsers();
+    }
+    return normalized;
   },
 
   getAllUsers(): UserProfile[] {
@@ -171,5 +245,119 @@ export const storage = {
       return true;
     }
     return false;
+  },
+
+  isProUser(userId: string): boolean {
+    const user = this.getUser(userId);
+    return Boolean(user && (user.plan === 'pro_monthly' || user.plan === 'pro_annual') && user.subscriptionStatus === 'active');
+  },
+
+  createPaymentTransaction(tx: PaymentTransaction): void {
+    paymentsCache[tx.reference] = tx;
+    saveJsonRecord(PAYMENTS_FILE, paymentsCache);
+  },
+
+  findPayment(referenceOrLink: string): PaymentTransaction | null {
+    return paymentsCache[referenceOrLink] || Object.values(paymentsCache).find(tx => tx.paymentLink === referenceOrLink) || null;
+  },
+
+  recordPaymentEvent(referenceOrLink: string, event: {
+    notificationId: string;
+    type: string;
+    paymentId?: string;
+    amount?: number;
+    currency?: string;
+  }): { duplicate: boolean; transaction: PaymentTransaction; user: UserProfile | null } {
+    const tx = this.findPayment(referenceOrLink);
+    if (!tx) throw new Error('Transacción de AuraMaster no encontrada');
+    if (tx.notificationIds.includes(event.notificationId)) {
+      return { duplicate: true, transaction: tx, user: this.getUser(tx.userId) };
+    }
+
+    if (event.amount !== undefined && Math.abs(event.amount - tx.expectedAmount) > 0.001) {
+      throw new Error('El monto del webhook no coincide con la orden');
+    }
+    if (event.currency && event.currency.toUpperCase() !== tx.currency.toUpperCase()) {
+      throw new Error('La moneda del webhook no coincide con la orden');
+    }
+
+    tx.notificationIds.push(event.notificationId);
+    tx.paymentId = event.paymentId || tx.paymentId;
+    tx.updatedAt = Date.now();
+
+    let user = this.getUser(tx.userId);
+    if (event.type === 'SALE_APPROVED' && !tx.appliedAt) {
+      if (!user) throw new Error('Usuario de la orden no encontrado');
+      const now = Date.now();
+      if (tx.plan === 'payg') {
+        user = normalizeAccount({ ...user, plan: user.plan?.startsWith('pro_') ? user.plan : 'payg', credits: (user.credits || 0) + tx.quantity });
+      } else {
+        const durationDays = tx.plan === 'pro_annual' ? 365 : 30;
+        const base = Math.max(now, user.subscriptionExpiresAt || 0);
+        user = normalizeAccount({
+          ...user,
+          plan: tx.plan,
+          subscriptionStatus: 'active',
+          subscriptionExpiresAt: base + durationDays * 24 * 60 * 60 * 1000
+        });
+      }
+      usersCache[user.id] = user;
+      saveUsers();
+      tx.status = 'APPROVED';
+      tx.appliedAt = now;
+    } else if (event.type === 'SALE_REJECTED') {
+      tx.status = 'REJECTED';
+    } else if (event.type === 'VOID_APPROVED' && tx.appliedAt && !tx.reversedAt) {
+      if (!user) throw new Error('Usuario de la orden no encontrado');
+      const now = Date.now();
+      if (tx.plan === 'payg') {
+        user = normalizeAccount({ ...user, credits: Math.max(0, (user.credits || 0) - tx.quantity) });
+      } else {
+        const durationDays = tx.plan === 'pro_annual' ? 365 : 30;
+        const remainingExpiry = Math.max(0, (user.subscriptionExpiresAt || 0) - durationDays * 24 * 60 * 60 * 1000);
+        user = normalizeAccount({
+          ...user,
+          plan: remainingExpiry > now ? user.plan : 'free',
+          subscriptionStatus: remainingExpiry > now ? 'active' : 'inactive',
+          subscriptionExpiresAt: remainingExpiry || undefined
+        });
+      }
+      usersCache[user.id] = user;
+      saveUsers();
+      tx.status = 'VOIDED';
+      tx.reversedAt = now;
+    }
+
+    paymentsCache[tx.reference] = tx;
+    saveJsonRecord(PAYMENTS_FILE, paymentsCache);
+    return { duplicate: false, transaction: tx, user };
+  },
+
+  consumeGenerations(userId: string, count: number, operationId: string): UserProfile {
+    if (usageCache[operationId]) {
+      const existing = this.getUser(userId);
+      if (!existing) throw new Error('Usuario no encontrado');
+      return existing;
+    }
+    const user = this.getUser(userId);
+    if (!user) throw new Error('Usuario no encontrado');
+    if (!Number.isInteger(count) || count < 1 || count > 200) throw new Error('Cantidad de generaciones inválida');
+
+    let updated = user;
+    if (this.isProUser(userId)) {
+      updated = user;
+    } else if ((user.credits || 0) >= count) {
+      updated = { ...user, credits: (user.credits || 0) - count };
+    } else if ((user.freeGenerationsRemaining || 0) >= count) {
+      updated = { ...user, freeGenerationsRemaining: (user.freeGenerationsRemaining || 0) - count };
+    } else {
+      throw new Error('No tienes suficientes generaciones. Elige Pay As You Go o Pro.');
+    }
+
+    usersCache[userId] = normalizeAccount(updated);
+    usageCache[operationId] = { operationId, userId, count, createdAt: Date.now() };
+    saveUsers();
+    saveJsonRecord(USAGE_FILE, usageCache);
+    return usersCache[userId];
   }
 };
