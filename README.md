@@ -192,7 +192,7 @@ https://auramaster.melodia.top/api/webhooks/bold
 * **Pay as you go — $1 por masterización:** un crédito equivale a una masterización.
 * **Pro Unlimited — $9.99/mes o $99.99/año:** masterizaciones ilimitadas y acceso al baúl de API Keys.
 
-La moneda y los valores cobrados por Bold se controlan mediante variables de entorno. El servidor asigna créditos o activa Pro únicamente después de validar la firma del webhook y el valor esperado de la transacción.
+La moneda y los valores iniciales de Bold se toman de las variables de entorno. Después pueden administrarse desde **Panel Admin · Precios** (precio base, precio visible, descuento, activación de oferta y cupo gratuito). La configuración se guarda en el volumen persistente y el checkout vuelve a calcular el cobro en el servidor. El servidor asigna créditos o activa Pro únicamente después de validar la firma del webhook y el valor esperado de la transacción.
 
 ### 4. Iniciar el Servidor de Desarrollo
 ```bash
@@ -261,6 +261,8 @@ server {
 | `POST` | `/api/ai/mastering-suggestion` | Ejecuta la sugerencia IA en el proxy seguro |
 | `GET` | `/api/admin/users` | Listado JSON de usuarios registrados y accesos |
 | `GET` | `/api/admin/emails.csv` | Descarga el archivo CSV con los correos de usuarios |
+| `GET` | `/api/admin/commercial-config` | Consulta precios y descuentos (admin/owner) |
+| `PUT` | `/api/admin/commercial-config` | Guarda precios, descuentos y ofertas (admin/owner) |
 
 ---
 

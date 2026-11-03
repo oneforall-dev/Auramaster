@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Check, Crown, Sparkles, X, Zap, KeyRound, Loader2, RefreshCw } from 'lucide-react';
 import { authService, UserProfile } from '../services/authService';
-import { billingService, PurchasablePlan, isProUser } from '../services/billingService';
+import { billingService, BillingStatus, PurchasablePlan, isProUser } from '../services/billingService';
 
 interface BillingModalProps {
   isOpen: boolean;
@@ -11,13 +11,15 @@ interface BillingModalProps {
 
 export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, user }) => {
   const [account, setAccount] = useState<UserProfile | null>(user);
+  const [tiers, setTiers] = useState<BillingStatus['tiers'] | null>(null);
   const [loadingPlan, setLoadingPlan] = useState<PurchasablePlan | null>(null);
   const [error, setError] = useState('');
 
   const refresh = async () => {
     try {
       const updated = await billingService.refreshStatus();
-      setAccount(updated);
+      setAccount(updated.user);
+      setTiers(updated.tiers);
     } catch (e: any) {
       setError(e.message || 'No se pudo actualizar el plan.');
     }
@@ -49,6 +51,8 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, use
   if (!isOpen) return null;
   const pro = isProUser(account);
   const owner = account?.role === 'owner';
+  const usd = (value: number | undefined) => `$${Number(value || 0).toFixed(2).replace(/\.00$/, '')} USD`;
+  const discount = (value: number | undefined) => value ? ` · ${value}% de descuento` : '';
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
@@ -65,7 +69,7 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, use
         </div>
 
         <div className="px-6 pt-5 text-xs text-slate-300">
-          Plan actual: <strong className="text-cyan-300">{owner ? 'Owner · Acceso total' : pro ? 'Pro Ilimitado' : account?.plan === 'payg' ? `Pay As You Go · ${account.credits || 0} créditos` : `Gratis · ${account?.freeGenerationsRemaining ?? 1} generación disponible`}</strong>
+          Plan actual: <strong className="text-cyan-300">{owner ? 'Owner · Acceso total' : pro ? 'Pro Ilimitado' : account?.plan === 'payg' ? `Pay As You Go · ${account.credits || 0} créditos` : `Gratis · ${account?.freeGenerationsRemaining ?? tiers?.free.generations ?? 1} generación disponible`}</strong>
         </div>
         {error && <div className="mx-6 mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">{error}</div>}
 
@@ -75,11 +79,11 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, use
             <p className="mt-3 text-sm text-slate-300">Masterizaciones ilimitadas, acceso completo al baúl de API Keys y funciones administrativas. Esta cuenta nunca consume créditos ni entra al checkout de Bold.</p>
           </div>
         ) : <div className="grid gap-4 p-6 md:grid-cols-3">
-          <PlanCard icon={<Sparkles size={20} />} title="Gratis (Prueba)" price="$0 USD" subtitle="1 generación completa" features={["Master completo listo para streaming", "Sin tarjeta", "Una sola generación"]} active={account?.plan === 'free' || !account?.plan} />
+          <PlanCard icon={<Sparkles size={20} />} title="Gratis (Prueba)" price="$0 USD" subtitle={`${tiers?.free.generations ?? 1} generación(es) completa(s)`} features={["Master completo listo para streaming", "Sin tarjeta", "Cupo inicial configurable"]} active={account?.plan === 'free' || !account?.plan} />
 
-          <PlanCard icon={<Zap size={20} />} title="Pay As You Go" price="$1 USD" subtitle="por diseño · 1 crédito" features={["Compra sólo lo que uses", "1 crédito = 1 master completo", "Créditos sin vencimiento"]} active={account?.plan === 'payg'} actionLabel="Comprar 1 crédito" loading={loadingPlan === 'payg'} onAction={() => checkout('payg')} />
+          <PlanCard icon={<Zap size={20} />} title="Pay As You Go" price={usd(tiers?.payg.priceUsd ?? 1)} subtitle={`por diseño · 1 crédito${discount(tiers?.payg.discountPercent)}`} features={["Compra sólo lo que uses", "1 crédito = 1 master completo", "Créditos sin vencimiento"]} active={account?.plan === 'payg'} actionLabel={tiers?.payg.enabled === false ? 'Oferta no disponible' : 'Comprar 1 crédito'} disabled={tiers?.payg.enabled === false} loading={loadingPlan === 'payg'} onAction={() => checkout('payg')} />
 
-          <PlanCard icon={<Crown size={20} />} title="Pro Ilimitado" price="$9.99 USD" subtitle="al mes · o $99.99 al año" features={["Masterizaciones ilimitadas", "Baúl de API Keys habilitado", "Plan anual: 2 meses gratis"]} active={pro} highlighted actionLabel="Elegir mensual" secondaryLabel="Elegir anual · $99.99" loading={loadingPlan === 'pro_monthly' || loadingPlan === 'pro_annual'} onAction={() => checkout('pro_monthly')} onSecondary={() => checkout('pro_annual')} />
+          <PlanCard icon={<Crown size={20} />} title="Pro Ilimitado" price={usd(tiers?.pro_monthly.priceUsd ?? 9.99)} subtitle={`al mes${discount(tiers?.pro_monthly.discountPercent)} · anual ${usd(tiers?.pro_annual.priceUsd ?? 99.99)}${discount(tiers?.pro_annual.discountPercent)}`} features={["Masterizaciones ilimitadas", "Baúl de API Keys habilitado", "Precio anual configurable"]} active={pro} highlighted actionLabel={tiers?.pro_monthly.enabled === false ? 'Mensual no disponible' : 'Elegir mensual'} secondaryLabel={tiers?.pro_annual.enabled === false ? 'Anual no disponible' : `Elegir anual · ${usd(tiers?.pro_annual.priceUsd ?? 99.99)}`} loading={loadingPlan === 'pro_monthly' || loadingPlan === 'pro_annual'} disabled={tiers?.pro_monthly.enabled === false} secondaryDisabled={tiers?.pro_annual.enabled === false} onAction={() => checkout('pro_monthly')} onSecondary={() => checkout('pro_annual')} />
         </div>}
 
         <div className="mx-6 mb-6 flex items-center gap-2 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-xs text-cyan-100">
@@ -91,7 +95,7 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, use
   );
 };
 
-const PlanCard = ({ icon, title, price, subtitle, features, active, highlighted, actionLabel, secondaryLabel, loading, onAction, onSecondary }: any) => (
+const PlanCard = ({ icon, title, price, subtitle, features, active, highlighted, actionLabel, secondaryLabel, loading, disabled, secondaryDisabled, onAction, onSecondary }: any) => (
   <div className={`relative flex flex-col rounded-3xl border p-5 ${highlighted ? 'border-cyan-400/60 bg-gradient-to-b from-cyan-500/15 to-slate-900' : 'border-slate-800 bg-slate-900/80'}`}>
     {active && <span className="absolute right-4 top-4 rounded-full bg-emerald-500/15 px-2 py-1 text-[9px] font-black uppercase text-emerald-300">Plan actual</span>}
     <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-300">{icon}</div>
@@ -101,7 +105,7 @@ const PlanCard = ({ icon, title, price, subtitle, features, active, highlighted,
     <ul className="my-5 flex-1 space-y-2 text-xs text-slate-300">
       {features.map((feature: string) => <li key={feature} className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0 text-emerald-400" />{feature}</li>)}
     </ul>
-    {onAction && <button onClick={onAction} disabled={loading} className="flex items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-cyan-300 disabled:opacity-50">{loading && <Loader2 size={14} className="animate-spin" />}{actionLabel}</button>}
-    {onSecondary && <button onClick={onSecondary} disabled={loading} className="mt-2 rounded-xl border border-slate-700 px-4 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-800 disabled:opacity-50">{secondaryLabel}</button>}
+    {onAction && <button onClick={onAction} disabled={loading || disabled} className="flex items-center justify-center gap-2 rounded-xl bg-cyan-400 px-4 py-2.5 text-xs font-black text-slate-950 hover:bg-cyan-300 disabled:opacity-50">{loading && <Loader2 size={14} className="animate-spin" />}{actionLabel}</button>}
+    {onSecondary && <button onClick={onSecondary} disabled={loading || secondaryDisabled} className="mt-2 rounded-xl border border-slate-700 px-4 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-800 disabled:opacity-50">{secondaryLabel}</button>}
   </div>
 );

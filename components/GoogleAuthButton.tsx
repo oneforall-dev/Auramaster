@@ -22,10 +22,11 @@ declare global {
 interface GoogleAuthButtonProps {
   onOpenAISettings?: () => void;
   onOpenBilling?: () => void;
+  onOpenAdmin?: () => void;
   lang?: Language;
 }
 
-export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({ onOpenAISettings, onOpenBilling, lang = 'es' }) => {
+export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({ onOpenAISettings, onOpenBilling, onOpenAdmin, lang = 'es' }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -276,6 +277,19 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({ onOpenAISett
                     >
                       <Sparkles size={14} className="text-amber-400" />
                       <span>{isProUser(user) ? (lang === 'es' ? 'Plan y facturación' : 'Plan and billing') : (lang === 'es' ? 'Mejorar plan' : 'Upgrade plan')}</span>
+                    </button>
+                  )}
+
+                  {onOpenAdmin && (user.role === 'admin' || user.role === 'owner') && (
+                    <button
+                      onClick={() => {
+                        setIsDropdownOpen(false);
+                        onOpenAdmin();
+                      }}
+                      className="w-full p-2 rounded-xl flex items-center gap-2 text-slate-300 hover:text-white hover:bg-white/10 text-xs font-medium transition-all text-left cursor-pointer"
+                    >
+                      <Settings2 size={14} className="text-cyan-400" />
+                      <span>{lang === 'es' ? 'Panel Admin · Precios' : 'Admin · Pricing'}</span>
                     </button>
                   )}
 

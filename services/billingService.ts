@@ -2,6 +2,23 @@ import { authService, UserProfile } from './authService';
 
 export type PurchasablePlan = 'payg' | 'pro_monthly' | 'pro_annual';
 
+export interface BillingTier {
+  enabled?: boolean;
+  priceUsd: number;
+  discountPercent?: number;
+  amount?: number;
+  currency?: 'COP' | 'USD';
+  generations?: number;
+  credits?: number;
+  unlimited?: boolean;
+  apiKeyVault?: boolean;
+}
+
+export interface BillingStatus {
+  user: UserProfile | null;
+  tiers: Record<'free' | PurchasablePlan, BillingTier>;
+}
+
 const authorizedFetch = async (url: string, init: RequestInit = {}) => {
   const token = authService.getToken();
   if (!token) throw new Error('Debes iniciar sesión con Google.');
@@ -15,11 +32,14 @@ export const isProUser = (user: UserProfile | null | undefined): boolean =>
   Boolean(user && (user.role === 'owner' || ((user.plan === 'pro_monthly' || user.plan === 'pro_annual') && user.subscriptionStatus === 'active')));
 
 export const billingService = {
-  async refreshStatus(): Promise<UserProfile | null> {
+  async refreshStatus(): Promise<BillingStatus> {
     const res = await authorizedFetch('/api/billing/status');
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'No se pudo consultar el plan.');
-    return data.user ? authService.updateStoredUser(data.user) : null;
+    return {
+      user: data.user ? authService.updateStoredUser(data.user) : null,
+      tiers: data.tiers
+    };
   },
 
   async createCheckout(plan: PurchasablePlan, quantity = 1): Promise<string> {

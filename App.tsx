@@ -12,6 +12,7 @@ import { GoogleAuthButton } from './components/GoogleAuthButton';
 import { AuthGate } from './components/AuthGate';
 import { AISettingsModal } from './components/AISettingsModal';
 import { BillingModal } from './components/BillingModal';
+import { AdminDashboardModal } from './components/AdminDashboardModal';
 import { AIMasteringReportModal } from './components/AIMasteringReportModal';
 import { ReferenceMasteringModal } from './components/ReferenceMasteringModal';
 import { BulkMasteringSummaryModal } from './components/BulkMasteringSummaryModal';
@@ -109,6 +110,7 @@ export default function App() {
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
   const [isBillingOpen, setIsBillingOpen] = useState(false);
+  const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState(false);
   const [isExportSuccessOpen, setIsExportSuccessOpen] = useState(false);
   const [exportedFileName, setExportedFileName] = useState('');
   const [exportedQC, setExportedQC] = useState<AIMasteringResult['qcVerification'] | null>(null);
@@ -1472,6 +1474,7 @@ export default function App() {
             <GoogleAuthButton
               onOpenAISettings={() => isProUser(currentUser) ? setIsAiSettingsOpen(true) : setIsBillingOpen(true)}
               onOpenBilling={() => setIsBillingOpen(true)}
+              onOpenAdmin={() => setIsAdminDashboardOpen(true)}
               lang={lang}
             />
 
@@ -1824,6 +1827,11 @@ export default function App() {
         isOpen={isBillingOpen}
         onClose={() => setIsBillingOpen(false)}
         user={currentUser}
+      />
+
+      <AdminDashboardModal
+        isOpen={isAdminDashboardOpen && (currentUser?.role === 'admin' || currentUser?.role === 'owner')}
+        onClose={() => setIsAdminDashboardOpen(false)}
       />
 
       {/* Export Success & Chart Melodia Community Modal */}

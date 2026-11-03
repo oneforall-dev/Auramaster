@@ -12,11 +12,14 @@ const getPublicOrigin = (req: IncomingMessage): string => {
   return `${protocol}://${host}`;
 };
 
-const getBoldPricing = () => ({
-  payg: { unitAmount: Number(process.env.BOLD_PRICE_PAYG || 4000), description: 'AuraMaster - 1 master completo' },
-  pro_monthly: { unitAmount: Number(process.env.BOLD_PRICE_PRO_MONTHLY || 42000), description: 'AuraMaster Pro Ilimitado - Mensual' },
-  pro_annual: { unitAmount: Number(process.env.BOLD_PRICE_PRO_ANNUAL || 420000), description: 'AuraMaster Pro Ilimitado - Anual' }
-});
+const planDescriptions = {
+  payg: 'AuraMaster - 1 master completo',
+  pro_monthly: 'AuraMaster Pro Ilimitado - Mensual',
+  pro_annual: 'AuraMaster Pro Ilimitado - Anual'
+};
+
+const effectiveAmount = (baseAmount: number, discountPercent: number) =>
+  Number((baseAmount * (1 - discountPercent / 100)).toFixed(2));
 
 export async function handleApiRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = req.url || '';
@@ -237,13 +240,21 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     if (pathname === '/api/billing/status' && req.method === 'GET') {
       if (!session) return sendJson(401, { error: 'No autenticado' });
       const user = storage.getUser(session.userId);
+      const commercial = storage.getCommercialConfig();
+      const publicPlan = (key: keyof typeof commercial.plans) => ({
+        enabled: commercial.plans[key].enabled,
+        priceUsd: commercial.plans[key].displayPriceUsd,
+        discountPercent: commercial.plans[key].discountPercent,
+        amount: effectiveAmount(commercial.plans[key].baseAmount, commercial.plans[key].discountPercent),
+        currency: commercial.currency
+      });
       return sendJson(200, {
         user,
         tiers: {
-          free: { priceUsd: 0, generations: 1 },
-          payg: { priceUsd: 1, credits: 1 },
-          pro_monthly: { priceUsd: 9.99, unlimited: true, apiKeyVault: true },
-          pro_annual: { priceUsd: 99.99, unlimited: true, apiKeyVault: true }
+          free: { priceUsd: 0, generations: commercial.freeGenerations },
+          payg: { ...publicPlan('payg'), credits: 1 },
+          pro_monthly: { ...publicPlan('pro_monthly'), unlimited: true, apiKeyVault: true },
+          pro_annual: { ...publicPlan('pro_annual'), unlimited: true, apiKeyVault: true }
         }
       });
     }
@@ -256,11 +267,14 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       }
       const body = await getBody();
       const plan = body.plan as 'payg' | 'pro_monthly' | 'pro_annual';
-      const pricing = getBoldPricing();
-      if (!pricing[plan]) return sendJson(400, { error: 'Plan no válido' });
+      const commercial = storage.getCommercialConfig();
+      const planConfig = commercial.plans[plan];
+      if (!planConfig) return sendJson(400, { error: 'Plan no válido' });
+      if (!planConfig.enabled) return sendJson(409, { error: 'Esta oferta no está disponible actualmente.' });
       const quantity = plan === 'payg' ? Math.max(1, Math.min(100, Number.parseInt(body.quantity || '1', 10))) : 1;
-      const expectedAmount = Number((pricing[plan].unitAmount * quantity).toFixed(2));
-      const currency = (process.env.BOLD_CURRENCY || 'COP').toUpperCase();
+      const unitAmount = effectiveAmount(planConfig.baseAmount, planConfig.discountPercent);
+      const expectedAmount = Number((unitAmount * quantity).toFixed(2));
+      const currency = commercial.currency;
       const apiKey = process.env.BOLD_API_KEY || '';
       if (!apiKey) return sendJson(503, { error: 'Bold aún no está configurado en el servidor' });
 
@@ -270,7 +284,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         amount_type: 'CLOSE',
         amount: { currency, total_amount: expectedAmount, tip_amount: 0 },
         reference,
-        description: quantity > 1 ? `${pricing[plan].description} x${quantity}` : pricing[plan].description,
+        description: quantity > 1 ? `${planDescriptions[plan]} x${quantity}` : planDescriptions[plan],
         callback_url: process.env.BOLD_REDIRECT_URL || `${getPublicOrigin(req)}/?payment=completed`,
         payer_email: user?.email || session.email
       };
@@ -484,6 +498,20 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         totalRegistered: users.length,
         users
       });
+    }
+
+    // Admin-managed prices, discounts and offer availability. Checkout always reads this server-side value.
+    if (pathname === '/api/admin/commercial-config' && req.method === 'GET') {
+      if (!session || !storage.isAdminUser(session.userId)) return sendJson(403, { error: 'Acceso de administrador requerido' });
+      return sendJson(200, { success: true, config: storage.getCommercialConfig() });
+    }
+
+    if (pathname === '/api/admin/commercial-config' && req.method === 'PUT') {
+      if (!session || !storage.isAdminUser(session.userId)) return sendJson(403, { error: 'Acceso de administrador requerido' });
+      const body = await getBody();
+      if (!body?.plans) return sendJson(400, { error: 'Configuración comercial incompleta' });
+      const config = storage.updateCommercialConfig(body);
+      return sendJson(200, { success: true, config });
     }
 
     // 10. Admin Export All Users as CSV
