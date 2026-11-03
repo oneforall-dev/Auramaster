@@ -173,10 +173,10 @@ SESSION_SECRET=secreto_de_sesion_vps_jwt_2026_seguro
 # Bold: pagos y webhook (no publiques estas credenciales)
 BOLD_API_KEY=tu_llave_de_identidad
 BOLD_SECRET_KEY=tu_llave_secreta
-BOLD_CURRENCY=COP
-BOLD_PRICE_PAYG=4000
-BOLD_PRICE_PRO_MONTHLY=42000
-BOLD_PRICE_PRO_ANNUAL=420000
+BOLD_CURRENCY=USD
+BOLD_PRICE_PAYG=1
+BOLD_PRICE_PRO_MONTHLY=9.99
+BOLD_PRICE_PRO_ANNUAL=99.99
 BOLD_REDIRECT_URL=https://auramaster.melodia.top/?payment=completed
 ```
 

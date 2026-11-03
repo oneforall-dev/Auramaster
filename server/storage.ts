@@ -99,12 +99,12 @@ let usersCache: Record<string, UserProfile> = {};
 let paymentsCache: Record<string, PaymentTransaction> = {};
 let usageCache: Record<string, UsageTransaction> = {};
 const defaultCommercialConfig = (): CommercialConfig => ({
-  currency: String(process.env.BOLD_CURRENCY || 'COP').toUpperCase() === 'USD' ? 'USD' : 'COP',
+  currency: String(process.env.BOLD_CURRENCY || 'USD').toUpperCase() === 'USD' ? 'USD' : 'COP',
   freeGenerations: 1,
   plans: {
-    payg: { enabled: true, baseAmount: Number(process.env.BOLD_PRICE_PAYG || 4000), displayPriceUsd: 1, discountPercent: 0 },
-    pro_monthly: { enabled: true, baseAmount: Number(process.env.BOLD_PRICE_PRO_MONTHLY || 42000), displayPriceUsd: 9.99, discountPercent: 0 },
-    pro_annual: { enabled: true, baseAmount: Number(process.env.BOLD_PRICE_PRO_ANNUAL || 420000), displayPriceUsd: 99.99, discountPercent: 0 }
+    payg: { enabled: true, baseAmount: Number(process.env.BOLD_PRICE_PAYG || 1), displayPriceUsd: 1, discountPercent: 0 },
+    pro_monthly: { enabled: true, baseAmount: Number(process.env.BOLD_PRICE_PRO_MONTHLY || 9.99), displayPriceUsd: 9.99, discountPercent: 0 },
+    pro_annual: { enabled: true, baseAmount: Number(process.env.BOLD_PRICE_PRO_ANNUAL || 99.99), displayPriceUsd: 99.99, discountPercent: 0 }
   },
   updatedAt: Date.now()
 });
