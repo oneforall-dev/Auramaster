@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Crown, Sparkles, X, Zap, KeyRound, Loader2, RefreshCw } from 'lucide-react';
+import { Check, Crown, Sparkles, X, Zap, KeyRound, Loader2, RefreshCw, CircleAlert, ExternalLink } from 'lucide-react';
 import { authService, UserProfile } from '../services/authService';
 import { billingService, BillingStatus, PurchasablePlan, isProUser } from '../services/billingService';
 
@@ -7,13 +7,15 @@ interface BillingModalProps {
   isOpen: boolean;
   onClose: () => void;
   user: UserProfile | null;
+  notice?: string;
 }
 
-export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, user }) => {
+export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, user, notice }) => {
   const [account, setAccount] = useState<UserProfile | null>(user);
   const [tiers, setTiers] = useState<BillingStatus['tiers'] | null>(null);
   const [loadingPlan, setLoadingPlan] = useState<PurchasablePlan | null>(null);
   const [error, setError] = useState('');
+  const [checkoutMessage, setCheckoutMessage] = useState('');
 
   const refresh = async () => {
     try {
@@ -29,19 +31,36 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, use
     if (!isOpen) return;
     setAccount(authService.getUser() || user);
     setError('');
+    setCheckoutMessage('');
     refresh();
   }, [isOpen, user]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const refreshAfterPayment = () => refresh();
+    window.addEventListener('focus', refreshAfterPayment);
+    return () => window.removeEventListener('focus', refreshAfterPayment);
+  }, [isOpen]);
+
   const checkout = async (plan: PurchasablePlan) => {
-    const paymentWindow = window.open('about:blank', '_blank', 'noopener,noreferrer');
+    const paymentWindow = window.open('', '_blank');
+    if (!paymentWindow) {
+      setError('El navegador bloqueó la pestaña de pago. Permite ventanas emergentes para AuraMaster y vuelve a intentarlo.');
+      return;
+    }
+    paymentWindow.document.title = 'AuraMaster · Preparando pago';
+    paymentWindow.document.body.innerHTML = `<main style="min-height:100vh;display:grid;place-items:center;margin:0;background:#020617;color:#cffafe;font-family:system-ui,sans-serif"><div style="text-align:center"><div style="width:38px;height:38px;margin:0 auto 18px;border:3px solid #164e63;border-top-color:#22d3ee;border-radius:50%;animation:spin .8s linear infinite"></div><strong>Preparando pago seguro…</strong><p style="color:#64748b;font-size:13px">No cierres esta pestaña.</p></div><style>@keyframes spin{to{transform:rotate(360deg)}}</style></main>`;
     setLoadingPlan(plan);
     setError('');
+    setCheckoutMessage('');
     try {
       const url = await billingService.createCheckout(plan);
-      if (paymentWindow) paymentWindow.location.href = url;
-      else window.location.href = url;
+      paymentWindow.location.replace(url);
+      try { paymentWindow.opener = null; } catch {}
+      paymentWindow.focus();
+      setCheckoutMessage('El pago se abrió en una pestaña nueva. AuraMaster seguirá disponible aquí.');
     } catch (e: any) {
-      paymentWindow?.close();
+      paymentWindow.close();
       setError(e.message || 'No se pudo iniciar el pago.');
     } finally {
       setLoadingPlan(null);
@@ -71,7 +90,9 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, use
         <div className="px-6 pt-5 text-xs text-slate-300">
           Plan actual: <strong className="text-cyan-300">{owner ? 'Owner · Acceso total' : pro ? 'Pro Ilimitado' : account?.plan === 'payg' ? `Pay As You Go · ${account.credits || 0} créditos` : `Gratis · ${account?.freeGenerationsRemaining ?? tiers?.free.generations ?? 1} generación disponible`}</strong>
         </div>
+        {notice && <div className="mx-6 mt-4 flex items-start gap-3 rounded-2xl border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-cyan-500/5 p-4 text-sm text-amber-50"><CircleAlert size={19} className="mt-0.5 shrink-0 text-amber-300" /><div><strong className="block">Necesitas acceso para continuar</strong><span className="mt-1 block text-xs text-slate-300">{notice}</span><span className="mt-2 block text-[11px] text-cyan-200">Elige una opción abajo; el pago se completará en una pestaña segura separada.</span></div></div>}
         {error && <div className="mx-6 mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">{error}</div>}
+        {checkoutMessage && <div className="mx-6 mt-4 flex items-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3 text-xs text-cyan-100"><ExternalLink size={15} />{checkoutMessage}</div>}
 
         {owner ? (
           <div className="m-6 rounded-3xl border border-amber-400/40 bg-gradient-to-br from-amber-500/15 to-slate-900 p-6">

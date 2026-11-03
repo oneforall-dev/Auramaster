@@ -110,6 +110,7 @@ export default function App() {
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
   const [isBillingOpen, setIsBillingOpen] = useState(false);
+  const [billingNotice, setBillingNotice] = useState('');
   const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState(false);
   const [isExportSuccessOpen, setIsExportSuccessOpen] = useState(false);
   const [exportedFileName, setExportedFileName] = useState('');
@@ -138,6 +139,12 @@ export default function App() {
   }, []);
 
   const t = getT(lang);
+
+  const openBillingFromLimit = (error: unknown, fallback: string) => {
+    const message = error instanceof Error ? error.message : fallback;
+    setBillingNotice(message || fallback);
+    setIsBillingOpen(true);
+  };
 
   const getVerifiedMasterBlob = async (
     result: AIMasteringResult | undefined,
@@ -648,8 +655,7 @@ export default function App() {
     try {
       await billingService.consumeGenerations(1, targetSessionId);
     } catch (err: any) {
-      alert(err?.message || 'No fue posible autorizar esta masterización.');
-      setIsBillingOpen(true);
+      openBillingFromLimit(err, 'No fue posible autorizar esta masterización.');
       return;
     }
     setTrackMasterMap(prev => ({
@@ -754,8 +760,7 @@ export default function App() {
     try {
       await billingService.consumeGenerations(tracks.length, billingOperationId);
     } catch (err: any) {
-      alert(err?.message || 'No fue posible autorizar la masterización por lote.');
-      setIsBillingOpen(true);
+      openBillingFromLimit(err, 'No fue posible autorizar la masterización por lote.');
       return;
     }
     let bulkOutputDirectory: any = null;
@@ -1056,8 +1061,7 @@ export default function App() {
       try {
         await billingService.consumeGenerations(1, `stems_${Date.now().toString(36)}`);
       } catch (err: any) {
-        alert(err?.message || 'No fue posible autorizar esta masterización.');
-        setIsBillingOpen(true);
+        openBillingFromLimit(err, 'No fue posible autorizar esta masterización.');
         return;
       }
     }
@@ -1194,8 +1198,7 @@ export default function App() {
     try {
       await billingService.consumeGenerations(1, `reference_${Date.now().toString(36)}`);
     } catch (err: any) {
-      alert(err?.message || 'No fue posible autorizar esta masterización.');
-      setIsBillingOpen(true);
+      openBillingFromLimit(err, 'No fue posible autorizar esta masterización.');
       return;
     }
     setIsReferenceProcessing(true);
@@ -1825,8 +1828,9 @@ export default function App() {
 
       <BillingModal
         isOpen={isBillingOpen}
-        onClose={() => setIsBillingOpen(false)}
+        onClose={() => { setIsBillingOpen(false); setBillingNotice(''); }}
         user={currentUser}
+        notice={billingNotice}
       />
 
       <AdminDashboardModal
