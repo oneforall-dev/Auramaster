@@ -140,6 +140,26 @@ export default function App() {
 
   const t = getT(lang);
 
+  const commercialPlan = currentUser?.role === 'owner'
+    ? 'owner'
+    : currentUser?.plan === 'pro_annual' && currentUser.subscriptionStatus === 'active'
+      ? 'pro_annual'
+      : currentUser?.plan === 'pro_monthly' && currentUser.subscriptionStatus === 'active'
+        ? 'pro_monthly'
+        : currentUser?.plan === 'payg'
+          ? 'payg'
+          : 'free';
+  const planLabel = commercialPlan === 'owner'
+    ? 'Owner'
+    : commercialPlan === 'pro_annual'
+      ? 'Pro anual'
+      : commercialPlan === 'pro_monthly'
+        ? 'Pro mensual'
+        : commercialPlan === 'payg'
+          ? `Pay As You Go · ${currentUser?.credits || 0}`
+          : 'Gratis';
+  const canUpgradePlan = commercialPlan === 'free' || commercialPlan === 'payg' || commercialPlan === 'pro_monthly';
+
   const openBillingFromLimit = (error: unknown, fallback: string) => {
     const message = error instanceof Error ? error.message : fallback;
     setBillingNotice(message || fallback);
@@ -1474,6 +1494,18 @@ export default function App() {
 
           {/* Header Right Actions: Google OAuth & Multi-Language Selector */}
           <div className="flex items-center gap-2.5 sm:gap-3">
+            {currentUser && <div className="flex items-center gap-1 rounded-xl border border-slate-700/80 bg-slate-950/80 p-1 shadow-inner">
+              <div className="px-2 py-1 text-right leading-none">
+                <span className="hidden text-[8px] font-black uppercase tracking-[0.16em] text-slate-500 sm:block">Plan actual</span>
+                <strong className="text-[10px] font-black text-cyan-200 sm:text-[11px]">{planLabel}</strong>
+              </div>
+              {canUpgradePlan && <button
+                onClick={() => { setBillingNotice(''); setIsBillingOpen(true); }}
+                className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider text-cyan-200 transition hover:border-cyan-300 hover:bg-cyan-300 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-cyan-300/60 sm:text-[10px]"
+              >
+                Upgrade
+              </button>}
+            </div>}
             <GoogleAuthButton
               onOpenAISettings={() => isProUser(currentUser) ? setIsAiSettingsOpen(true) : setIsBillingOpen(true)}
               onOpenBilling={() => setIsBillingOpen(true)}

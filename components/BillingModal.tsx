@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Crown, Sparkles, X, Zap, KeyRound, Loader2, RefreshCw, CircleAlert, ExternalLink } from 'lucide-react';
+import { Check, Crown, X, Zap, KeyRound, Loader2, RefreshCw, CircleAlert, ExternalLink } from 'lucide-react';
 import { authService, UserProfile } from '../services/authService';
 import { billingService, BillingStatus, PurchasablePlan, isProUser } from '../services/billingService';
 
@@ -70,6 +70,18 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, use
   if (!isOpen) return null;
   const pro = isProUser(account);
   const owner = account?.role === 'owner';
+  const currentPlan = owner
+    ? 'owner'
+    : account?.plan === 'pro_annual' && account.subscriptionStatus === 'active'
+      ? 'pro_annual'
+      : account?.plan === 'pro_monthly' && account.subscriptionStatus === 'active'
+        ? 'pro_monthly'
+        : account?.plan === 'payg'
+          ? 'payg'
+          : 'free';
+  const showPaygUpgrade = currentPlan === 'free';
+  const showMonthlyUpgrade = currentPlan === 'free' || currentPlan === 'payg';
+  const showAnnualUpgrade = currentPlan === 'free' || currentPlan === 'payg' || currentPlan === 'pro_monthly';
   const usd = (value: number | undefined) => `$${Number(value || 0).toFixed(2).replace(/\.00$/, '')} USD`;
   const discount = (value: number | undefined) => value ? ` · ${value}% de descuento` : '';
 
@@ -87,8 +99,9 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, use
           </div>
         </div>
 
-        <div className="px-6 pt-5 text-xs text-slate-300">
-          Plan actual: <strong className="text-cyan-300">{owner ? 'Owner · Acceso total' : pro ? 'Pro Ilimitado' : account?.plan === 'payg' ? `Pay As You Go · ${account.credits || 0} créditos` : `Gratis · ${account?.freeGenerationsRemaining ?? tiers?.free.generations ?? 1} generación disponible`}</strong>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-6 pt-5 text-xs text-slate-300">
+          <span>Plan actual: <strong className="text-cyan-300">{owner ? 'Owner · Acceso total' : account?.plan === 'pro_annual' && pro ? 'Pro anual' : account?.plan === 'pro_monthly' && pro ? 'Pro mensual' : account?.plan === 'payg' ? `Pay As You Go · ${account.credits || 0} créditos` : `Gratis · ${account?.freeGenerationsRemaining ?? tiers?.free.generations ?? 1} generación disponible`}</strong></span>
+          {currentPlan === 'payg' && <button onClick={() => checkout('payg')} disabled={loadingPlan !== null || tiers?.payg.enabled === false} className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-[10px] font-black text-cyan-200 hover:border-cyan-400/50 hover:bg-cyan-500/10 disabled:opacity-50">Comprar otro crédito</button>}
         </div>
         {notice && <div className="mx-6 mt-4 flex items-start gap-3 rounded-2xl border border-amber-400/30 bg-gradient-to-r from-amber-500/15 to-cyan-500/5 p-4 text-sm text-amber-50"><CircleAlert size={19} className="mt-0.5 shrink-0 text-amber-300" /><div><strong className="block">Necesitas acceso para continuar</strong><span className="mt-1 block text-xs text-slate-300">{notice}</span><span className="mt-2 block text-[11px] text-cyan-200">Elige una opción abajo; el pago se completará en una pestaña segura separada.</span></div></div>}
         {error && <div className="mx-6 mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">{error}</div>}
@@ -99,13 +112,11 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, use
             <div className="flex items-center gap-3 text-amber-200"><Crown size={24} /><h3 className="text-lg font-black">Cuenta Owner de AuraMaster</h3></div>
             <p className="mt-3 text-sm text-slate-300">Masterizaciones ilimitadas, acceso completo al baúl de API Keys y funciones administrativas. Esta cuenta nunca consume créditos ni entra al checkout de Bold.</p>
           </div>
-        ) : <div className="grid gap-4 p-6 md:grid-cols-3">
-          <PlanCard icon={<Sparkles size={20} />} title="Gratis (Prueba)" price="$0 USD" subtitle={`${tiers?.free.generations ?? 1} generación(es) completa(s)`} features={["Master completo listo para streaming", "Sin tarjeta", "Cupo inicial configurable"]} active={account?.plan === 'free' || !account?.plan} />
+        ) : showPaygUpgrade || showMonthlyUpgrade || showAnnualUpgrade ? <div className={`grid gap-4 p-6 ${showPaygUpgrade && showMonthlyUpgrade ? 'md:grid-cols-2' : 'md:grid-cols-1 md:max-w-xl md:mx-auto'}`}>
+          {showPaygUpgrade && <PlanCard icon={<Zap size={20} />} title="Pay As You Go" price={usd(tiers?.payg.priceUsd ?? 1)} subtitle={`1 crédito por master${discount(tiers?.payg.discountPercent)}`} features={["Compra sólo lo que uses", "1 crédito = 1 master completo", "Créditos sin vencimiento"]} actionLabel={tiers?.payg.enabled === false ? 'Oferta no disponible' : 'Elegir Pay As You Go'} disabled={tiers?.payg.enabled === false} loading={loadingPlan === 'payg'} onAction={() => checkout('payg')} />}
 
-          <PlanCard icon={<Zap size={20} />} title="Pay As You Go" price={usd(tiers?.payg.priceUsd ?? 1)} subtitle={`por diseño · 1 crédito${discount(tiers?.payg.discountPercent)}`} features={["Compra sólo lo que uses", "1 crédito = 1 master completo", "Créditos sin vencimiento"]} active={account?.plan === 'payg'} actionLabel={tiers?.payg.enabled === false ? 'Oferta no disponible' : 'Comprar 1 crédito'} disabled={tiers?.payg.enabled === false} loading={loadingPlan === 'payg'} onAction={() => checkout('payg')} />
-
-          <PlanCard icon={<Crown size={20} />} title="Pro Ilimitado" price={usd(tiers?.pro_monthly.priceUsd ?? 9.99)} subtitle={`al mes${discount(tiers?.pro_monthly.discountPercent)} · anual ${usd(tiers?.pro_annual.priceUsd ?? 99.99)}${discount(tiers?.pro_annual.discountPercent)}`} features={["Masterizaciones ilimitadas", "Baúl de API Keys habilitado", "Precio anual configurable"]} active={pro} highlighted actionLabel={tiers?.pro_monthly.enabled === false ? 'Mensual no disponible' : 'Elegir mensual'} secondaryLabel={tiers?.pro_annual.enabled === false ? 'Anual no disponible' : `Elegir anual · ${usd(tiers?.pro_annual.priceUsd ?? 99.99)}`} loading={loadingPlan === 'pro_monthly' || loadingPlan === 'pro_annual'} disabled={tiers?.pro_monthly.enabled === false} secondaryDisabled={tiers?.pro_annual.enabled === false} onAction={() => checkout('pro_monthly')} onSecondary={() => checkout('pro_annual')} />
-        </div>}
+          {(showMonthlyUpgrade || showAnnualUpgrade) && <PlanCard icon={<Crown size={20} />} title={showMonthlyUpgrade ? "Pro Ilimitado" : "Pro anual"} price={showMonthlyUpgrade ? usd(tiers?.pro_monthly.priceUsd ?? 9.99) : usd(tiers?.pro_annual.priceUsd ?? 99.99)} subtitle={showMonthlyUpgrade ? `al mes${discount(tiers?.pro_monthly.discountPercent)} · anual ${usd(tiers?.pro_annual.priceUsd ?? 99.99)}${discount(tiers?.pro_annual.discountPercent)}` : `al año${discount(tiers?.pro_annual.discountPercent)}`} features={["Masterizaciones ilimitadas", "Baúl de API Keys habilitado", "Acceso completo a funciones Pro"]} highlighted actionLabel={showMonthlyUpgrade ? (tiers?.pro_monthly.enabled === false ? 'Mensual no disponible' : 'Elegir mensual') : (tiers?.pro_annual.enabled === false ? 'Anual no disponible' : 'Mejorar a Pro anual')} secondaryLabel={showMonthlyUpgrade && showAnnualUpgrade ? (tiers?.pro_annual.enabled === false ? 'Anual no disponible' : `Elegir anual · ${usd(tiers?.pro_annual.priceUsd ?? 99.99)}`) : undefined} loading={loadingPlan === 'pro_monthly' || loadingPlan === 'pro_annual'} disabled={showMonthlyUpgrade ? tiers?.pro_monthly.enabled === false : tiers?.pro_annual.enabled === false} secondaryDisabled={tiers?.pro_annual.enabled === false} onAction={() => checkout(showMonthlyUpgrade ? 'pro_monthly' : 'pro_annual')} onSecondary={showMonthlyUpgrade && showAnnualUpgrade ? () => checkout('pro_annual') : undefined} />}
+        </div> : <div className="m-6 rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-6 text-center"><Crown size={26} className="mx-auto text-emerald-300" /><h3 className="mt-3 font-black text-emerald-100">Ya tienes el plan más alto</h3><p className="mt-1 text-xs text-slate-300">Pro anual está activo. No hay una mejora adicional disponible.</p></div>}
 
         <div className="mx-6 mb-6 flex items-center gap-2 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-xs text-cyan-100">
           <KeyRound size={17} className="text-cyan-400" />
