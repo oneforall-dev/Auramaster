@@ -3,7 +3,7 @@ export interface UserProfile {
   email: string;
   name: string;
   picture?: string;
-  role: 'user' | 'admin';
+  role: 'user' | 'admin' | 'owner';
   plan?: 'free' | 'payg' | 'pro_monthly' | 'pro_annual';
   credits?: number;
   freeGenerationsRemaining?: number;

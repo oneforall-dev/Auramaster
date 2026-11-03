@@ -48,6 +48,7 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, use
 
   if (!isOpen) return null;
   const pro = isProUser(account);
+  const owner = account?.role === 'owner';
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
@@ -64,21 +65,26 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, use
         </div>
 
         <div className="px-6 pt-5 text-xs text-slate-300">
-          Plan actual: <strong className="text-cyan-300">{pro ? 'Pro Ilimitado' : account?.plan === 'payg' ? `Pay As You Go · ${account.credits || 0} créditos` : `Gratis · ${account?.freeGenerationsRemaining ?? 1} generación disponible`}</strong>
+          Plan actual: <strong className="text-cyan-300">{owner ? 'Owner · Acceso total' : pro ? 'Pro Ilimitado' : account?.plan === 'payg' ? `Pay As You Go · ${account.credits || 0} créditos` : `Gratis · ${account?.freeGenerationsRemaining ?? 1} generación disponible`}</strong>
         </div>
         {error && <div className="mx-6 mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">{error}</div>}
 
-        <div className="grid gap-4 p-6 md:grid-cols-3">
+        {owner ? (
+          <div className="m-6 rounded-3xl border border-amber-400/40 bg-gradient-to-br from-amber-500/15 to-slate-900 p-6">
+            <div className="flex items-center gap-3 text-amber-200"><Crown size={24} /><h3 className="text-lg font-black">Cuenta Owner de AuraMaster</h3></div>
+            <p className="mt-3 text-sm text-slate-300">Masterizaciones ilimitadas, acceso completo al baúl de API Keys y funciones administrativas. Esta cuenta nunca consume créditos ni entra al checkout de Bold.</p>
+          </div>
+        ) : <div className="grid gap-4 p-6 md:grid-cols-3">
           <PlanCard icon={<Sparkles size={20} />} title="Gratis (Prueba)" price="$0 USD" subtitle="1 generación completa" features={["Master completo listo para streaming", "Sin tarjeta", "Una sola generación"]} active={account?.plan === 'free' || !account?.plan} />
 
           <PlanCard icon={<Zap size={20} />} title="Pay As You Go" price="$1 USD" subtitle="por diseño · 1 crédito" features={["Compra sólo lo que uses", "1 crédito = 1 master completo", "Créditos sin vencimiento"]} active={account?.plan === 'payg'} actionLabel="Comprar 1 crédito" loading={loadingPlan === 'payg'} onAction={() => checkout('payg')} />
 
           <PlanCard icon={<Crown size={20} />} title="Pro Ilimitado" price="$9.99 USD" subtitle="al mes · o $99.99 al año" features={["Masterizaciones ilimitadas", "Baúl de API Keys habilitado", "Plan anual: 2 meses gratis"]} active={pro} highlighted actionLabel="Elegir mensual" secondaryLabel="Elegir anual · $99.99" loading={loadingPlan === 'pro_monthly' || loadingPlan === 'pro_annual'} onAction={() => checkout('pro_monthly')} onSecondary={() => checkout('pro_annual')} />
-        </div>
+        </div>}
 
         <div className="mx-6 mb-6 flex items-center gap-2 rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-xs text-cyan-100">
           <KeyRound size={17} className="text-cyan-400" />
-          El botón para añadir una API Key y el baúl cifrado aparecen únicamente con Pro Ilimitado activo.
+          {owner ? 'El owner tiene acceso permanente al baúl cifrado y a todas las funciones sin límites de pago.' : 'El botón para añadir una API Key y el baúl cifrado aparecen únicamente con Pro Ilimitado activo.'}
         </div>
       </div>
     </div>

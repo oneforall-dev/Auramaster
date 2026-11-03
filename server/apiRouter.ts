@@ -236,6 +236,9 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     // Create a Bold payment link. The secret credentials remain server-side.
     if (pathname === '/api/billing/bold/checkout' && req.method === 'POST') {
       if (!session) return sendJson(401, { error: 'Debes iniciar sesión con Google' });
+      if (storage.isOwnerUser(session.userId)) {
+        return sendJson(409, { code: 'OWNER_BYPASS', error: 'La cuenta owner tiene acceso ilimitado y no necesita realizar pagos.' });
+      }
       const body = await getBody();
       const plan = body.plan as 'payg' | 'pro_monthly' | 'pro_annual';
       const pricing = getBoldPricing();
@@ -459,8 +462,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
 
     // 9. Admin Registered Users List & Email Audit
     if (pathname === '/api/admin/users' && req.method === 'GET') {
-      const admin = session ? storage.getUser(session.userId) : null;
-      if (!admin || admin.role !== 'admin') return sendJson(403, { error: 'Acceso de administrador requerido' });
+      if (!session || !storage.isAdminUser(session.userId)) return sendJson(403, { error: 'Acceso de administrador requerido' });
       const users = storage.getAllUsers();
       return sendJson(200, {
         success: true,
@@ -471,8 +473,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
 
     // 10. Admin Export All Users as CSV
     if (pathname === '/api/admin/emails.csv' && req.method === 'GET') {
-      const admin = session ? storage.getUser(session.userId) : null;
-      if (!admin || admin.role !== 'admin') return sendJson(403, { error: 'Acceso de administrador requerido' });
+      if (!session || !storage.isAdminUser(session.userId)) return sendJson(403, { error: 'Acceso de administrador requerido' });
       const fs = await import('fs');
       const csvPath = storage.getCsvFilePath();
       if (fs.existsSync(csvPath)) {

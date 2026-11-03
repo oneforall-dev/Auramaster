@@ -12,7 +12,7 @@ const authorizedFetch = async (url: string, init: RequestInit = {}) => {
 };
 
 export const isProUser = (user: UserProfile | null | undefined): boolean =>
-  Boolean(user && (user.plan === 'pro_monthly' || user.plan === 'pro_annual') && user.subscriptionStatus === 'active');
+  Boolean(user && (user.role === 'owner' || ((user.plan === 'pro_monthly' || user.plan === 'pro_annual') && user.subscriptionStatus === 'active')));
 
 export const billingService = {
   async refreshStatus(): Promise<UserProfile | null> {

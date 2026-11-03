@@ -109,7 +109,7 @@ export async function verifyGoogleIdToken(idToken: string, meta?: { ip?: string;
       email: data.email,
       name: data.name || data.email.split('@')[0],
       picture: data.picture,
-      role: storage.getUser(`google_${data.sub}`)?.role || ((process.env.ADMIN_EMAILS || '').split(',').map(v => v.trim().toLowerCase()).includes(String(data.email).toLowerCase()) ? 'admin' : 'user'),
+      role: storage.getUser(`google_${data.sub}`)?.role || 'user',
       createdAt: Date.now(),
       lastLogin: Date.now(),
       provider: 'Google OAuth'

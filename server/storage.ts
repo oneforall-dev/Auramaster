@@ -19,7 +19,7 @@ export interface UserProfile {
   email: string;
   name: string;
   picture?: string;
-  role: 'user' | 'admin';
+  role: UserRole;
   createdAt: number;
   lastLogin: number;
   loginCount?: number;
@@ -33,6 +33,7 @@ export interface UserProfile {
   subscriptionExpiresAt?: number;
 }
 
+export type UserRole = 'user' | 'admin' | 'owner';
 export type AccountPlan = 'free' | 'payg' | 'pro_monthly' | 'pro_annual';
 
 export interface PaymentTransaction {
@@ -142,8 +143,13 @@ function normalizeAccount(user: UserProfile): UserProfile {
   const now = Date.now();
   const expired = Boolean(user.subscriptionExpiresAt && user.subscriptionExpiresAt <= now);
   const proPlan = user.plan === 'pro_monthly' || user.plan === 'pro_annual';
+  const email = String(user.email || '').trim().toLowerCase();
+  const ownerEmails = (process.env.OWNER_EMAILS || '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
+  const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
+  const role: UserRole = ownerEmails.includes(email) ? 'owner' : adminEmails.includes(email) ? 'admin' : (user.role || 'user');
   return {
     ...user,
+    role,
     plan: expired && proPlan ? 'free' : (user.plan || 'free'),
     credits: Math.max(0, user.credits || 0),
     freeGenerationsRemaining: Math.max(0, user.freeGenerationsRemaining ?? 1),
@@ -249,7 +255,16 @@ export const storage = {
 
   isProUser(userId: string): boolean {
     const user = this.getUser(userId);
-    return Boolean(user && (user.plan === 'pro_monthly' || user.plan === 'pro_annual') && user.subscriptionStatus === 'active');
+    return Boolean(user && (user.role === 'owner' || ((user.plan === 'pro_monthly' || user.plan === 'pro_annual') && user.subscriptionStatus === 'active')));
+  },
+
+  isOwnerUser(userId: string): boolean {
+    return this.getUser(userId)?.role === 'owner';
+  },
+
+  isAdminUser(userId: string): boolean {
+    const role = this.getUser(userId)?.role;
+    return role === 'admin' || role === 'owner';
   },
 
   createPaymentTransaction(tx: PaymentTransaction): void {
