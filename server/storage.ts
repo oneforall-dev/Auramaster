@@ -162,6 +162,18 @@ function normalizeAccount(user: UserProfile): UserProfile {
   };
 }
 
+function expireFinishedSubscriptions(): void {
+  let changed = false;
+  for (const [userId, user] of Object.entries(usersCache)) {
+    const normalized = normalizeAccount(user);
+    if (JSON.stringify(normalized) !== JSON.stringify(user)) {
+      usersCache[userId] = normalized;
+      changed = true;
+    }
+  }
+  if (changed) saveUsers();
+}
+
 /**
  * Generates and synchronizes a clean CSV file with all registered user emails
  */
@@ -200,6 +212,9 @@ try {
   console.error('[Storage] Error reading commercial config:', e);
   commercialConfigCache = defaultCommercialConfig();
 }
+expireFinishedSubscriptions();
+const subscriptionExpiryTimer = setInterval(expireFinishedSubscriptions, 60_000);
+subscriptionExpiryTimer.unref();
 updateCsvRegistry();
 
 export const storage = {
