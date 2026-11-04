@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { CreditCard, Eye, Loader2, Megaphone, RefreshCw, Save, ShieldCheck, X } from 'lucide-react';
 import { adminService, CommercialConfig, CommercialPlanConfig } from '../services/adminService';
 
@@ -24,6 +24,8 @@ export const AdminDashboardModal: React.FC<Props> = ({ isOpen, onClose, onConfig
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   const load = async () => {
     setLoading(true); setError(''); setMessage('');
@@ -33,6 +35,23 @@ export const AdminDashboardModal: React.FC<Props> = ({ isOpen, onClose, onConfig
   };
 
   useEffect(() => { if (isOpen) load(); }, [isOpen]);
+  useEffect(() => {
+    if (!isOpen) return;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusTimer = window.setTimeout(() => closeButtonRef.current?.focus(), 0);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previousFocusRef.current?.focus();
+    };
+  }, [isOpen, onClose]);
 
   const updatePlan = (key: PlanKey, patch: Partial<CommercialPlanConfig>) => {
     setConfig(current => current ? { ...current, plans: { ...current.plans, [key]: { ...current.plans[key], ...patch } } } : current);
@@ -55,20 +74,20 @@ export const AdminDashboardModal: React.FC<Props> = ({ isOpen, onClose, onConfig
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
-      <div className="max-h-[94vh] w-full max-w-6xl overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 text-white shadow-2xl">
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+      <div className="max-h-[94vh] w-full max-w-6xl overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 text-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="owner-dashboard-title">
         <header className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/95 backdrop-blur-xl">
           <div className="flex items-center justify-between px-6 py-5">
             <div className="flex items-center gap-3">
               <ShieldCheck className="text-lime-300" />
               <div>
-                <h2 className="text-xl font-black">Owner Dashboard</h2>
+                <h2 id="owner-dashboard-title" className="text-xl font-black">Owner Dashboard</h2>
                 <p className="text-xs text-slate-400">Configuración comercial y comunicación global de AuraMaster.</p>
               </div>
             </div>
             <div className="flex gap-2">
               <button onClick={load} className="rounded-xl p-2 text-slate-400 hover:bg-slate-800" title="Actualizar"><RefreshCw size={18} /></button>
-              <button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-800" title="Cerrar"><X size={20} /></button>
+              <button ref={closeButtonRef} onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-lime-300" title="Cerrar" aria-label="Cerrar Owner Dashboard"><X size={20} /></button>
             </div>
           </div>
           <nav className="flex gap-2 px-6 pb-4" aria-label="Owner dashboard sections">

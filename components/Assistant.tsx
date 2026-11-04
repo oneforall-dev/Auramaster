@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Sparkles, Loader2, Settings, KeyRound, ArrowRight, Zap, Radio, CheckCircle2, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import { getSecureVaultConfig, getMasteringSuggestionWithUserAI, SecureVaultStatus } from '../services/aiService';
 import { MasteringChainParams, AIProviderConfig } from '../types';
-import { AISettingsModal } from './AISettingsModal';
 import { Language, getT } from '../services/i18n';
 import { authService, UserProfile } from '../services/authService';
+
+const AISettingsModal = React.lazy(() => import('./AISettingsModal').then(module => ({ default: module.AISettingsModal })));
 
 interface AssistantProps {
   onApplyPreset: (params: MasteringChainParams) => void;
@@ -289,11 +290,11 @@ export const Assistant: React.FC<AssistantProps> = ({ onApplyPreset, currentPara
       )}
 
       {/* Settings Modal */}
-      <AISettingsModal
+      {isModalOpen && canManageApiKeys && <React.Suspense fallback={null}><AISettingsModal
         isOpen={isModalOpen && canManageApiKeys}
         onClose={() => setIsModalOpen(false)}
         onConfigSaved={handleConfigSaved}
-      />
+      /></React.Suspense>}
     </div>
   );
 };

@@ -3,15 +3,15 @@
 Fecha: 2026-11-03  
 Alcance: landing, autenticación, estudio, administración, facturación, configuración pública, seguridad de dependencias y mantenibilidad.
 
-## Puntuación actual: 84/100
+## Puntuación actual: 88/100
 
 | Área | Nota | Evidencia |
 | --- | ---: | --- |
-| UX, identidad y responsive | 18/20 | Sistema visual consistente, landing completa, A/B real, vista del producto, carga por clic y drag & drop. |
+| UX, identidad y responsive | 19/20 | Sistema visual consistente, landing completa, A/B real, vista del producto, carga por clic y drag & drop. Los modales críticos restauran foco, bloquean scroll y responden a Escape. |
 | Producto y masterización | 17/20 | Flujo individual, stems, bulk, reportes, exportación, referencia y controles DSP. Falta una suite automatizada de audio de referencia. |
-| Autenticación y seguridad | 17/20 | Google OAuth real, tokens firmados con HMAC, API keys cifradas AES-256-GCM, endpoints admin protegidos y 0 vulnerabilidades npm conocidas. Los tokens siguen en localStorage y no existe revocación server-side. |
+| Autenticación y seguridad | 18/20 | Google OAuth real, tokens firmados con HMAC, API keys cifradas AES-256-GCM, endpoints admin protegidos y 0 vulnerabilidades npm conocidas. Los tokens siguen en localStorage y no existe revocación server-side. |
 | Planes, pagos y administración | 18/20 | Bold server-side, webhook firmado, owner bypass, precios/descuentos persistentes, landing sincronizada y nueva info bar. Falta historial de transacciones en el dashboard. |
-| Rendimiento, arquitectura y pruebas | 14/20 | Build correcto y TypeScript activo. El bundle JS inicial ronda 874 KB, `App.tsx` supera 92 KB y no hay pruebas automatizadas del producto. |
+| Rendimiento, arquitectura y pruebas | 16/20 | Build correcto, TypeScript activo, suite inicial de regresión y modales divididos en chunks. El bundle JS inicial bajó de 874 KB a 707 KB; `App.tsx` aún supera 92 KB. |
 
 ## Cambios realizados durante la auditoría
 
@@ -25,6 +25,10 @@ Alcance: landing, autenticación, estudio, administración, facturación, config
 - Verificación visual: AuraMaster ofrece únicamente Google OAuth; no contiene formulario email/contraseña.
 - Vite actualizado de 6.4.3 a 6.4.5 y `source-map-js` a 1.2.2.
 - `npm audit`: 0 vulnerabilidades conocidas.
+- Carga diferida de siete modales pesados; el bundle inicial se redujo aproximadamente 19%.
+- FAQ conectado al precio Pay As You Go y al cupo gratuito configurados por el owner.
+- Normalización segura de configuraciones antiguas: USD permanece como moneda predeterminada.
+- Pruebas automáticas de configuración comercial, límites y saneamiento de enlaces.
 
 ## Hallazgos importantes
 
@@ -42,9 +46,9 @@ Antes, cerrar sesión limpiaba localStorage y esperaba que la suscripción React
 
 ### 4. Deuda técnica principal
 
-- No existen archivos `*.test.*` o `*.spec.*` propios del proyecto.
+- La suite automática todavía cubre sólo el núcleo de configuración comercial; faltan E2E y regresión de audio.
 - `App.tsx` concentra demasiadas responsabilidades.
-- El bundle inicial supera el umbral recomendado de 500 KB.
+- El bundle inicial bajó a unos 707 KB, pero todavía supera el umbral recomendado de 500 KB.
 - Los tokens firmados duran siete días y no hay lista de revocación server-side.
 - Los modales necesitan una revisión específica de focus trap y navegación completa por teclado.
 
@@ -63,6 +67,7 @@ Antes, cerrar sesión limpiaba localStorage y esperaba que la suscripción React
 - `npm run build`: aprobado.
 - `tsc --noEmit`: aprobado.
 - `npm audit --omit=dev`: 0 vulnerabilidades.
+- `npm test`: 3 pruebas aprobadas.
 - `/api/site-config`: responde con configuración pública normalizada.
 - Login visual: sólo Google OAuth, sin email/contraseña.
 - Búsqueda de secretos incrustados: sin coincidencias en código versionado.

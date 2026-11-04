@@ -10,20 +10,30 @@ import { MeterBar } from './components/MeterBar';
 import { Assistant } from './components/Assistant';
 import { GoogleAuthButton } from './components/GoogleAuthButton';
 import { AuthGate } from './components/AuthGate';
-import { AISettingsModal } from './components/AISettingsModal';
-import { BillingModal } from './components/BillingModal';
-import { AdminDashboardModal } from './components/AdminDashboardModal';
 import { InfoBar } from './components/InfoBar';
-import { AIMasteringReportModal } from './components/AIMasteringReportModal';
-import { ReferenceMasteringModal } from './components/ReferenceMasteringModal';
-import { BulkMasteringSummaryModal } from './components/BulkMasteringSummaryModal';
-import { ExportSuccessModal } from './components/ExportSuccessModal';
 import { FilesBox } from './components/FilesBox';
 import { createMasteredZip } from './services/exportZip';
 import { authService, UserProfile } from './services/authService';
 import { billingService, isProUser } from './services/billingService';
 import { Language, LANGUAGES, detectBrowserLanguage, getT } from './services/i18n';
 import { defaultSiteConfig, siteConfigService, SiteConfig } from './services/siteConfigService';
+
+const AISettingsModal = React.lazy(() => import('./components/AISettingsModal').then(module => ({ default: module.AISettingsModal })));
+const BillingModal = React.lazy(() => import('./components/BillingModal').then(module => ({ default: module.BillingModal })));
+const AdminDashboardModal = React.lazy(() => import('./components/AdminDashboardModal').then(module => ({ default: module.AdminDashboardModal })));
+const AIMasteringReportModal = React.lazy(() => import('./components/AIMasteringReportModal').then(module => ({ default: module.AIMasteringReportModal })));
+const ReferenceMasteringModal = React.lazy(() => import('./components/ReferenceMasteringModal').then(module => ({ default: module.ReferenceMasteringModal })));
+const BulkMasteringSummaryModal = React.lazy(() => import('./components/BulkMasteringSummaryModal').then(module => ({ default: module.BulkMasteringSummaryModal })));
+const ExportSuccessModal = React.lazy(() => import('./components/ExportSuccessModal').then(module => ({ default: module.ExportSuccessModal })));
+
+const ModalLoadFallback = ({ lang }: { lang: Language }) => (
+  <div className="fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm" role="status" aria-live="polite">
+    <div className="flex items-center gap-3 rounded-2xl border border-lime-400/20 bg-slate-950 px-5 py-4 text-sm font-bold text-white shadow-2xl">
+      <Loader2 size={18} className="animate-spin text-lime-300" />
+      {lang === 'es' ? 'Abriendo herramienta…' : 'Opening tool…'}
+    </div>
+  </div>
+);
 
 const DEFAULT_COMP = { threshold: -18, ratio: 3.5, attack: 0.03, release: 0.15 };
 
@@ -1829,7 +1839,8 @@ export default function App() {
          </div>
       </main>
 
-      <ReferenceMasteringModal
+      <React.Suspense fallback={<ModalLoadFallback lang={lang} />}>
+      {isReferenceModalOpen && <ReferenceMasteringModal
         isOpen={isReferenceModalOpen}
         onClose={() => setIsReferenceModalOpen(false)}
         references={references}
@@ -1840,9 +1851,9 @@ export default function App() {
         skin={skin}
         lang={lang}
         isProcessing={isReferenceProcessing}
-      />
+      />}
 
-      <AIMasteringReportModal
+      {isReportOpen && <AIMasteringReportModal
         isOpen={isReportOpen}
         onClose={() => setIsReportOpen(false)}
         result={masteringReport}
@@ -1851,10 +1862,10 @@ export default function App() {
         loudnessMatchMode={loudnessMatchMode}
         onToggleLoudnessMatch={() => setLoudnessMatchMode(prev => prev === 'matched' ? 'actual' : 'matched')}
         lang={lang}
-      />
+      />}
 
       {/* Bulk Mastering Summary Modal */}
-      <BulkMasteringSummaryModal
+      {isBulkSummaryOpen && <BulkMasteringSummaryModal
         isOpen={isBulkSummaryOpen}
         onClose={() => setIsBulkSummaryOpen(false)}
         summary={bulkSummary}
@@ -1874,30 +1885,30 @@ export default function App() {
         isExportingZip={isExportingZip}
         skin={skin}
         lang={lang}
-      />
+      />}
 
       {/* Secure VPS AES-256-GCM AI Vault Modal */}
-      <AISettingsModal
+      {isAiSettingsOpen && isProUser(currentUser) && <AISettingsModal
         isOpen={isAiSettingsOpen && isProUser(currentUser)}
         onClose={() => setIsAiSettingsOpen(false)}
         onConfigSaved={() => {}}
-      />
+      />}
 
-      <BillingModal
+      {isBillingOpen && <BillingModal
         isOpen={isBillingOpen}
         onClose={() => { setIsBillingOpen(false); setBillingNotice(''); }}
         user={currentUser}
         notice={billingNotice}
-      />
+      />}
 
-      <AdminDashboardModal
+      {isAdminDashboardOpen && (currentUser?.role === 'admin' || currentUser?.role === 'owner') && <AdminDashboardModal
         isOpen={isAdminDashboardOpen && (currentUser?.role === 'admin' || currentUser?.role === 'owner')}
         onClose={() => setIsAdminDashboardOpen(false)}
         onConfigSaved={() => siteConfigService.get().then(setSiteConfig).catch(error => console.warn('[Site Config]', error))}
-      />
+      />}
 
       {/* Export Success & Chart Melodia Community Modal */}
-      <ExportSuccessModal
+      {isExportSuccessOpen && <ExportSuccessModal
         isOpen={isExportSuccessOpen}
         onClose={() => setIsExportSuccessOpen(false)}
         fileName={exportedFileName}
@@ -1905,7 +1916,8 @@ export default function App() {
         onStartNewProject={handleStartNewProject}
         qc={exportedQC || masteringReport?.qcVerification}
         onDownloadFormat={handleDownloadFormat}
-      />
+      />}
+      </React.Suspense>
 
       {/* Global Apple Pro Loading Overlay */}
       {(loadingAudio || isBulkMastering) && (
