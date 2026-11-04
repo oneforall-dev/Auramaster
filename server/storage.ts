@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { CommercialConfig, defaultCommercialConfig, normalizeCommercialConfig } from './commercialConfig';
+import { calculateRenewalExpiry, fallbackPlanAfterExpiry } from '../shared/subscriptionLifecycle';
 export type { AnnouncementConfig, CommercialConfig, CommercialPlanConfig } from './commercialConfig';
 
 export interface StoredUserCredential {
@@ -154,7 +155,7 @@ function normalizeAccount(user: UserProfile): UserProfile {
   return {
     ...user,
     role,
-    plan: expired && proPlan ? 'free' : (user.plan || 'free'),
+    plan: expired && proPlan ? fallbackPlanAfterExpiry(user.credits) : (user.plan || 'free'),
     credits: Math.max(0, user.credits || 0),
     freeGenerationsRemaining: Math.max(0, user.freeGenerationsRemaining ?? commercialConfigCache.freeGenerations),
     subscriptionStatus: expired && proPlan ? 'expired' : (user.subscriptionStatus || 'inactive')
@@ -331,12 +332,11 @@ export const storage = {
         user = normalizeAccount({ ...user, plan: user.plan?.startsWith('pro_') ? user.plan : 'payg', credits: (user.credits || 0) + tx.quantity });
       } else {
         const durationDays = tx.plan === 'pro_annual' ? 365 : 30;
-        const base = Math.max(now, user.subscriptionExpiresAt || 0);
         user = normalizeAccount({
           ...user,
           plan: tx.plan,
           subscriptionStatus: 'active',
-          subscriptionExpiresAt: base + durationDays * 24 * 60 * 60 * 1000
+          subscriptionExpiresAt: calculateRenewalExpiry(user.subscriptionExpiresAt, durationDays, now)
         });
       }
       usersCache[user.id] = user;

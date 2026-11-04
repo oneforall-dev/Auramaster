@@ -3,14 +3,14 @@
 Fecha: 2026-11-03  
 Alcance: landing, autenticación, estudio, administración, facturación, configuración pública, seguridad de dependencias y mantenibilidad.
 
-## Puntuación actual: 88/100
+## Puntuación actual: 89/100
 
 | Área | Nota | Evidencia |
 | --- | ---: | --- |
 | UX, identidad y responsive | 19/20 | Sistema visual consistente, landing completa, A/B real, vista del producto, carga por clic y drag & drop. Los modales críticos restauran foco, bloquean scroll y responden a Escape. |
 | Producto y masterización | 17/20 | Flujo individual, stems, bulk, reportes, exportación, referencia y controles DSP. Falta una suite automatizada de audio de referencia. |
 | Autenticación y seguridad | 18/20 | Google OAuth real, tokens firmados con HMAC, API keys cifradas AES-256-GCM, endpoints admin protegidos y 0 vulnerabilidades npm conocidas. Los tokens siguen en localStorage y no existe revocación server-side. |
-| Planes, pagos y administración | 18/20 | Bold server-side, webhook firmado, owner bypass, precios/descuentos persistentes, landing sincronizada y nueva info bar. Falta historial de transacciones en el dashboard. |
+| Planes, pagos y administración | 19/20 | Bold server-side, webhook firmado, owner bypass, precios/descuentos persistentes, landing sincronizada, info bar y ciclo completo de vencimiento/renovación. Falta historial de transacciones en el dashboard. |
 | Rendimiento, arquitectura y pruebas | 16/20 | Build correcto, TypeScript activo, suite inicial de regresión y modales divididos en chunks. El bundle JS inicial bajó de 874 KB a 707 KB; `App.tsx` aún supera 92 KB. |
 
 ## Cambios realizados durante la auditoría
@@ -29,6 +29,9 @@ Alcance: landing, autenticación, estudio, administración, facturación, config
 - FAQ conectado al precio Pay As You Go y al cupo gratuito configurados por el owner.
 - Normalización segura de configuraciones antiguas: USD permanece como moneda predeterminada.
 - Pruebas automáticas de configuración comercial, límites y saneamiento de enlaces.
+- Aviso de renovación durante las últimas 24 horas y modal de reactivación al expirar.
+- Degradación persistente a Pay As You Go si quedan créditos; de lo contrario, a Gratis.
+- El webhook extiende 30/365 días desde el vencimiento vigente o desde la aprobación si el ciclo ya terminó.
 
 ## Hallazgos importantes
 
@@ -67,7 +70,7 @@ Antes, cerrar sesión limpiaba localStorage y esperaba que la suscripción React
 - `npm run build`: aprobado.
 - `tsc --noEmit`: aprobado.
 - `npm audit --omit=dev`: 0 vulnerabilidades.
-- `npm test`: 3 pruebas aprobadas.
+- `npm test`: 8 pruebas aprobadas.
 - `/api/site-config`: responde con configuración pública normalizada.
 - Login visual: sólo Google OAuth, sin email/contraseña.
 - Búsqueda de secretos incrustados: sin coincidencias en código versionado.

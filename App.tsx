@@ -11,12 +11,14 @@ import { Assistant } from './components/Assistant';
 import { GoogleAuthButton } from './components/GoogleAuthButton';
 import { AuthGate } from './components/AuthGate';
 import { InfoBar } from './components/InfoBar';
+import { SubscriptionBanner } from './components/SubscriptionBanner';
 import { FilesBox } from './components/FilesBox';
 import { createMasteredZip } from './services/exportZip';
 import { authService, UserProfile } from './services/authService';
 import { billingService, isProUser } from './services/billingService';
 import { Language, LANGUAGES, detectBrowserLanguage, getT } from './services/i18n';
 import { defaultSiteConfig, siteConfigService, SiteConfig } from './services/siteConfigService';
+import { getSubscriptionLifecycle } from './shared/subscriptionLifecycle';
 
 const AISettingsModal = React.lazy(() => import('./components/AISettingsModal').then(module => ({ default: module.AISettingsModal })));
 const BillingModal = React.lazy(() => import('./components/BillingModal').then(module => ({ default: module.BillingModal })));
@@ -125,6 +127,7 @@ export default function App() {
   const [billingNotice, setBillingNotice] = useState('');
   const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState(false);
   const [siteConfig, setSiteConfig] = useState<SiteConfig>(defaultSiteConfig);
+  const [subscriptionClock, setSubscriptionClock] = useState(() => Date.now());
   const [isExportSuccessOpen, setIsExportSuccessOpen] = useState(false);
   const [exportedFileName, setExportedFileName] = useState('');
   const [exportedQC, setExportedQC] = useState<AIMasteringResult['qcVerification'] | null>(null);
@@ -154,6 +157,22 @@ export default function App() {
   useEffect(() => {
     siteConfigService.get().then(setSiteConfig).catch(error => console.warn('[Site Config]', error));
   }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setSubscriptionClock(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const subscriptionLifecycle = getSubscriptionLifecycle(currentUser, subscriptionClock);
+
+  useEffect(() => {
+    if (!currentUser || subscriptionLifecycle !== 'expired') return;
+    const promptKey = `auramaster_expired_prompt_${currentUser.id}_${currentUser.subscriptionExpiresAt || 0}`;
+    if (sessionStorage.getItem(promptKey)) return;
+    sessionStorage.setItem(promptKey, 'shown');
+    setBillingNotice('');
+    setIsBillingOpen(true);
+  }, [currentUser?.id, currentUser?.subscriptionExpiresAt, subscriptionLifecycle]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -1506,6 +1525,14 @@ export default function App() {
   return (
     <div className="h-full w-full overflow-hidden relative flex flex-col bg-[#060a0f] text-slate-100 selection:bg-lime-500/30">
       <InfoBar announcement={siteConfig.announcement} />
+      {subscriptionLifecycle === 'expires-today' && (currentUser.plan === 'pro_monthly' || currentUser.plan === 'pro_annual') && (
+        <SubscriptionBanner
+          plan={currentUser.plan}
+          monthlyPriceUsd={siteConfig.plans.pro_monthly.priceUsd}
+          annualPriceUsd={siteConfig.plans.pro_annual.priceUsd}
+          onRenew={() => { setBillingNotice(''); setIsBillingOpen(true); }}
+        />
+      )}
       <header className="shrink-0 z-50 px-4 sm:px-6 pt-3.5 pb-2">
         <div className={`max-w-7xl mx-auto flex items-center justify-between px-4 py-2.5 ${glassClass}`}>
 
@@ -1899,6 +1926,7 @@ export default function App() {
         onClose={() => { setIsBillingOpen(false); setBillingNotice(''); }}
         user={currentUser}
         notice={billingNotice}
+        renewalState={subscriptionLifecycle === 'expires-today' || subscriptionLifecycle === 'expired' ? subscriptionLifecycle : undefined}
       />}
 
       {isAdminDashboardOpen && (currentUser?.role === 'admin' || currentUser?.role === 'owner') && <AdminDashboardModal
