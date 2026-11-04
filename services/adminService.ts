@@ -11,6 +11,13 @@ export interface CommercialPlanConfig {
 export interface CommercialConfig {
   currency: 'COP' | 'USD';
   freeGenerations: number;
+  announcement: {
+    enabled: boolean;
+    text: string;
+    tone: 'info' | 'success' | 'warning';
+    linkLabel: string;
+    linkUrl: string;
+  };
   plans: Record<PurchasablePlan, CommercialPlanConfig>;
   updatedAt: number;
 }

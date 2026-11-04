@@ -237,6 +237,27 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     }
 
     // Billing status and current commercial tiers.
+    if (pathname === '/api/site-config' && req.method === 'GET') {
+      const commercial = storage.getCommercialConfig();
+      const publicPlan = (key: keyof typeof commercial.plans) => ({
+        enabled: commercial.plans[key].enabled,
+        originalPriceUsd: commercial.plans[key].displayPriceUsd,
+        priceUsd: effectiveAmount(commercial.plans[key].displayPriceUsd, commercial.plans[key].discountPercent),
+        discountPercent: commercial.plans[key].discountPercent
+      });
+      return sendJson(200, {
+        announcement: commercial.announcement,
+        freeGenerations: commercial.freeGenerations,
+        currency: commercial.currency,
+        plans: {
+          payg: publicPlan('payg'),
+          pro_monthly: publicPlan('pro_monthly'),
+          pro_annual: publicPlan('pro_annual')
+        }
+      });
+    }
+
+    // Billing status and current commercial tiers.
     if (pathname === '/api/billing/status' && req.method === 'GET') {
       if (!session) return sendJson(401, { error: 'No autenticado' });
       const user = storage.getUser(session.userId);

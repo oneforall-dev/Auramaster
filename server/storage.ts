@@ -68,9 +68,18 @@ export interface CommercialPlanConfig {
   discountPercent: number;
 }
 
+export interface AnnouncementConfig {
+  enabled: boolean;
+  text: string;
+  tone: 'info' | 'success' | 'warning';
+  linkLabel: string;
+  linkUrl: string;
+}
+
 export interface CommercialConfig {
   currency: 'COP' | 'USD';
   freeGenerations: number;
+  announcement: AnnouncementConfig;
   plans: {
     payg: CommercialPlanConfig;
     pro_monthly: CommercialPlanConfig;
@@ -101,6 +110,13 @@ let usageCache: Record<string, UsageTransaction> = {};
 const defaultCommercialConfig = (): CommercialConfig => ({
   currency: String(process.env.BOLD_CURRENCY || 'USD').toUpperCase() === 'USD' ? 'USD' : 'COP',
   freeGenerations: 1,
+  announcement: {
+    enabled: false,
+    text: '',
+    tone: 'info',
+    linkLabel: '',
+    linkUrl: ''
+  },
   plans: {
     payg: { enabled: true, baseAmount: Number(process.env.BOLD_PRICE_PAYG || 1), displayPriceUsd: 1, discountPercent: 0 },
     pro_monthly: { enabled: true, baseAmount: Number(process.env.BOLD_PRICE_PRO_MONTHLY || 9.99), displayPriceUsd: 9.99, discountPercent: 0 },
@@ -121,6 +137,13 @@ function normalizeCommercialConfig(input: Partial<CommercialConfig> = {}): Comme
   return {
     currency: input.currency === 'USD' ? 'USD' : 'COP',
     freeGenerations: Math.max(0, Math.min(100, Math.floor(Number(input.freeGenerations ?? defaults.freeGenerations) || 0))),
+    announcement: {
+      enabled: Boolean(input.announcement?.enabled),
+      text: String(input.announcement?.text || '').trim().slice(0, 240),
+      tone: input.announcement?.tone === 'success' || input.announcement?.tone === 'warning' ? input.announcement.tone : 'info',
+      linkLabel: String(input.announcement?.linkLabel || '').trim().slice(0, 40),
+      linkUrl: /^https?:\/\//i.test(String(input.announcement?.linkUrl || '').trim()) ? String(input.announcement?.linkUrl || '').trim().slice(0, 500) : ''
+    },
     plans: {
       payg: sanitizePlan(input.plans?.payg, defaults.plans.payg),
       pro_monthly: sanitizePlan(input.plans?.pro_monthly, defaults.plans.pro_monthly),

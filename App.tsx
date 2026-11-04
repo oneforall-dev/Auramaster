@@ -13,6 +13,7 @@ import { AuthGate } from './components/AuthGate';
 import { AISettingsModal } from './components/AISettingsModal';
 import { BillingModal } from './components/BillingModal';
 import { AdminDashboardModal } from './components/AdminDashboardModal';
+import { InfoBar } from './components/InfoBar';
 import { AIMasteringReportModal } from './components/AIMasteringReportModal';
 import { ReferenceMasteringModal } from './components/ReferenceMasteringModal';
 import { BulkMasteringSummaryModal } from './components/BulkMasteringSummaryModal';
@@ -22,6 +23,7 @@ import { createMasteredZip } from './services/exportZip';
 import { authService, UserProfile } from './services/authService';
 import { billingService, isProUser } from './services/billingService';
 import { Language, LANGUAGES, detectBrowserLanguage, getT } from './services/i18n';
+import { defaultSiteConfig, siteConfigService, SiteConfig } from './services/siteConfigService';
 
 const DEFAULT_COMP = { threshold: -18, ratio: 3.5, attack: 0.03, release: 0.15 };
 
@@ -112,6 +114,7 @@ export default function App() {
   const [isBillingOpen, setIsBillingOpen] = useState(false);
   const [billingNotice, setBillingNotice] = useState('');
   const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState(false);
+  const [siteConfig, setSiteConfig] = useState<SiteConfig>(defaultSiteConfig);
   const [isExportSuccessOpen, setIsExportSuccessOpen] = useState(false);
   const [exportedFileName, setExportedFileName] = useState('');
   const [exportedQC, setExportedQC] = useState<AIMasteringResult['qcVerification'] | null>(null);
@@ -136,6 +139,10 @@ export default function App() {
       window.history.replaceState({}, '', window.location.pathname);
     }
     return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    siteConfigService.get().then(setSiteConfig).catch(error => console.warn('[Site Config]', error));
   }, []);
 
   useEffect(() => {
@@ -1474,16 +1481,21 @@ export default function App() {
   // Pre-DAW Authentication Gate
   if (!currentUser) {
     return (
-      <AuthGate
-        lang={lang}
-        onLanguageChange={setLang}
-        onLoginSuccess={(user) => setCurrentUser(user)}
-      />
+      <div className="h-full w-full overflow-y-auto bg-[#060a0f]">
+        <InfoBar announcement={siteConfig.announcement} />
+        <AuthGate
+          lang={lang}
+          siteConfig={siteConfig}
+          onLanguageChange={setLang}
+          onLoginSuccess={(user) => setCurrentUser(user)}
+        />
+      </div>
     );
   }
 
   return (
     <div className="h-full w-full overflow-hidden relative flex flex-col bg-[#060a0f] text-slate-100 selection:bg-lime-500/30">
+      <InfoBar announcement={siteConfig.announcement} />
       <header className="shrink-0 z-50 px-4 sm:px-6 pt-3.5 pb-2">
         <div className={`max-w-7xl mx-auto flex items-center justify-between px-4 py-2.5 ${glassClass}`}>
 
@@ -1881,6 +1893,7 @@ export default function App() {
       <AdminDashboardModal
         isOpen={isAdminDashboardOpen && (currentUser?.role === 'admin' || currentUser?.role === 'owner')}
         onClose={() => setIsAdminDashboardOpen(false)}
+        onConfigSaved={() => siteConfigService.get().then(setSiteConfig).catch(error => console.warn('[Site Config]', error))}
       />
 
       {/* Export Success & Chart Melodia Community Modal */}

@@ -188,6 +188,8 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({ onOpenAISett
   const handleLogout = async () => {
     await authService.logout();
     setIsDropdownOpen(false);
+    setIsLoginModalOpen(false);
+    window.location.assign('/');
   };
 
   return (
@@ -289,7 +291,7 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({ onOpenAISett
                       className="w-full p-2 rounded-xl flex items-center gap-2 text-slate-300 hover:text-white hover:bg-white/10 text-xs font-medium transition-all text-left cursor-pointer"
                     >
                       <Settings2 size={14} className="text-lime-400" />
-                      <span>{lang === 'es' ? 'Panel Admin · Precios' : 'Admin · Pricing'}</span>
+                      <span>{lang === 'es' ? 'Owner Dashboard' : 'Owner Dashboard'}</span>
                     </button>
                   )}
 
